@@ -3690,6 +3690,29 @@ a Bund2 defect. Recorded as **F227**.
   overflow-checks = false`; `path_wraps_a_sum_past_2_to_the_64` pins the
   answer, and RFC-0012 states it.
 
+**Dated note, 2026-10-23, later — D210 covers a saturated weight, which
+wraps and can be chosen** (RFC-0012's tenth review,
+`docs/rfc/reviews/RFC-0012-review-2026-10-23-2.md`, finding 1). This entry
+was put on F227's statement that a weight of 2^64 or more saturates at
+`WEIGHT_MAX` and is never used. It is used: `fast_paths` adds it unchecked
+like any other weight (`fast_paths-1.0.0/src/path_calculator.rs:145`, `<`
+at `:146`), so after a prefix of `d > 0` it sums to `d − 1` and wins. Run in
+the oracle and in release and debug Bund2:
+
+    :A :C [ [ :B :A 1.0e300 ] [ :C :B 2.0 ] [ :C :A 7.0 ] [ :A :D 1.0 ] ] [ :A :B :C :D ] graph! graph.path
+
+answers `found=true`, `path=[ C B A ]` at `weight=1.0`, beside the direct
+edge of 7.0. Whether a graph reaches the wrap depends on `fast_paths`'
+contraction; alone as the first edge it weighs exactly `WEIGHT_MAX`, which
+is no path. The repository owner ruled on this date that D210 covers it
+("D210 covers it"): preserved, with no change to the word.
+`path_wraps_a_sum_past_2_to_the_64` pins this program. Also from that
+review (finding 5): "in every build" means every build whose root is this
+workspace. Cargo applies profile overrides only from the root, so a crate
+that depends on `bund2-stdlib` and builds in its own dev profile checks
+overflow in `fast_paths` again, and there F227's programs are a panic D49
+reports as a Bund2 defect. RFC-0012 states the scope.
+
 ## D209 — `graph.bellmanford`'s worst-case cost under exact relaxation
 
 **Raised 2026-10-23** from RFC-0012's open questions, which the eighth

@@ -2397,21 +2397,32 @@ mod tests {
         }
     }
 
-    /// The runs of [`allpath_answers_vary_between_runs`]: how many of
-    /// `runs` refuse, each run reading the graph into a fresh `algos` map.
-    fn allpath_refusals(g: &str, runs: usize) -> usize {
-        (0..runs)
-            .filter(|_| run_src(&format!("{g} graph.allpath")).is_err())
-            .count()
+    /// `runs` runs of `graph.allpath` over `g`, each reading the graph into
+    /// a fresh `algos` map: how many refused, and the distinct row sets the
+    /// rest answered.
+    fn allpath_runs(g: &str, runs: usize) -> (usize, std::collections::BTreeSet<String>) {
+        let mut refused = 0;
+        let mut rows = std::collections::BTreeSet::new();
+        for _ in 0..runs {
+            match run_src(&format!("{g} graph.allpath")) {
+                Ok(i) => {
+                    rows.insert(i.peek().map(|v| v.display()).unwrap_or_default());
+                }
+                Err(_) => refused += 1,
+            }
+        }
+        (refused, rows)
     }
 
     /// **F225's programs answer the same on every run** — the ninth
-    /// RFC-0012 review's finding 1. `algos` keeps its edges in a `HashMap`
-    /// seeded afresh for each graph (`algos/src/cs/graph.rs:64-66,150-154`),
-    /// and Johnson's potentials walk them in that order, so where rounding
+    /// RFC-0012 review's finding 1, and the tenth's finding 4. `algos`
+    /// keeps its edges in a std `HashMap` (`algos/src/cs/graph.rs:29,64-66`),
+    /// each map with its own keys (std's `RandomState::new`), and Johnson's
+    /// potentials walk them in that order (`:150-154`), so where rounding
     /// decides how many passes settle them the answer can vary (F226). The
-    /// programs criterion 11 pins do not: each answers alike under every
-    /// order, here over 200 maps each.
+    /// programs criterion 11 pins do not: over 200 maps each, the refused
+    /// one always refuses, and each answered one always answers the same
+    /// rows.
     #[test]
     fn allpath_answers_f225s_programs_alike_on_every_run() {
         let zero =
@@ -2426,40 +2437,60 @@ mod tests {
             format!("[ [ :S :A -1.0e6 ] {zero} ] [ :S :A :B :C :Z ] graph!"),
         ];
         for g in &refused {
-            assert_eq!(allpath_refusals(g, 200), 200, "{g}");
+            let (n, rows) = allpath_runs(g, 200);
+            assert_eq!((n, rows.len()), (200, 0), "{g}");
         }
         for g in &answered {
-            assert_eq!(allpath_refusals(g, 200), 0, "{g}");
+            let (n, rows) = allpath_runs(g, 200);
+            assert_eq!((n, rows.len()), (0, 1), "{g}: {rows:?}");
         }
     }
 
     /// **F226: `graph.allpath`'s answer varies between runs**, preserved
     /// under D208 (its second note). The cycle `A → B → C → A` weighs
     /// exactly 0, and beside `h_A` = −100.0 whether rounding has settled
-    /// it after `|V| − 1` passes turns on the map's edge order: the oracle
-    /// refused it on 17 of 150 runs, Bund2 on about 1 map in 12. Both
-    /// answers must occur in 2,000 maps; at either rate the chance of one
-    /// never occurring is below 10^-30.
+    /// it after `|V| − 1` passes turns on the map's edge order. Over 1,000
+    /// fresh processes the oracle refused it 93 times and Bund2 85 (the
+    /// tenth review); here, in one process, about 1 map in 12. Only the
+    /// refusal varies: every run that answers gives the same rows.
+    ///
+    /// The maps of one process are not independent draws: std gives each
+    /// thread random keys once and each new map the next `k0`
+    /// (`library/std/src/hash/random.rs:67-74`). Their SipHash orders are
+    /// as good as independent for this, and at the rate measured the
+    /// chance of 2,000 maps showing only one outcome would be below 10^-30
+    /// if they were; that assumption is what the bound rests on.
     #[test]
     fn allpath_answers_vary_between_runs() {
         let g = "[ [ :S :A -100.0 ] [ :A :B 4.159226947493753 ] [ :B :C 2.819570687287843 ] \
                  [ :C :A -6.978797634781596 ] ] [ :S :A :B :C :Z ] graph!";
-        let refused = allpath_refusals(g, 2000);
+        let (refused, rows) = allpath_runs(g, 2000);
         assert!(0 < refused && refused < 2000, "{refused} of 2000 refused");
+        assert_eq!(rows.len(), 1, "{rows:?}");
     }
 
-    /// **F227: `graph.path` wraps a sum past 2^64**, preserved (D210).
-    /// `fast_paths` adds `usize` weights unchecked (`node_contractor.rs:75`),
-    /// so 1e19 + 1e19 answers 2e19 − 2^64 with `found=true`, as the
-    /// reference's release build does. The dev profile turns overflow
+    /// **F227: `graph.path` wraps a sum past 2^64**, preserved (D210 and
+    /// its note). `fast_paths` adds `usize` weights unchecked
+    /// (`node_contractor.rs:75`, `path_calculator.rs:145`), so 1e19 + 1e19
+    /// answers 2e19 − 2^64 with `found=true`, as the reference's release
+    /// build does. A weight of 2^64 or more saturates at `usize::MAX`,
+    /// `WEIGHT_MAX`, and wraps like any other: after a prefix of 2, the
+    /// 1e300 edge sums to 1 and beats the direct edge of 7 (the tenth
+    /// review's finding 1). Alone, as the first edge, it weighs exactly
+    /// `WEIGHT_MAX`, which is no path. The dev profile turns overflow
     /// checks off for `fast_paths` (`Cargo.toml`) so this test sees the
-    /// answer rather than a panic. A single weight past 2^64 saturates at
-    /// `usize::MAX`, `WEIGHT_MAX`, and is never used.
+    /// answers rather than a panic.
     #[test]
     fn path_wraps_a_sum_past_2_to_the_64() {
         let p = top(":C :A [ [ :A :B 1.0e19 ] [ :B :C 1.0e19 ] ] [ :A :B :C ] graph! graph.path");
         assert!(p.contains("found=true"), "{p}");
         assert!(p.contains("weight=1553255926290448500.0"), "{p}");
+        let p = top(
+            ":A :C [ [ :B :A 1.0e300 ] [ :C :B 2.0 ] [ :C :A 7.0 ] [ :A :D 1.0 ] ] [ :A :B :C :D ] graph! graph.path",
+        );
+        assert!(p.contains("found=true"), "{p}");
+        assert!(p.contains("path=[ C ::  B ::  A :: ]"), "{p}");
+        assert!(p.contains("weight=1.0"), "{p}");
         let e = err_of(":B :A [ [ :A :B 1.0e300 ] ] [ :A :B ] graph! graph.path");
         assert!(e.contains("GRAPH.PATH: can not calculate path"), "{e}");
     }

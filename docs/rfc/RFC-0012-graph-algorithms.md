@@ -1,6 +1,6 @@
 # RFC-0012: Graph algorithms
 
-- Status: **Draft** (2026-10-18), revised after each of nine adversarial
+- Status: **Draft** (2026-10-18), revised after each of ten adversarial
   reviews, every one "Not ready for Accepted", and awaiting the next. The
   first review
   (`RFC-0012-review-2026-10-18.md`) found Bund2's `graph.path`
@@ -51,7 +51,12 @@
   `HashMap` (F226; **D208** covers it, its second note), and `graph.path`
   wrapping a sum past 2^64, which Bund2's debug build panicked on instead
   (F227, preserved by **D210**, A, in every build). The rest is answered
-  in place, and listed at the end.
+  in place, and listed at the end. The tenth review
+  (`RFC-0012-review-2026-10-23-2.md`) found a weight saturated at
+  `usize::MAX` used, not ignored, since it wraps like any other (F227
+  note; **D210** covers it, its note), and "in every build" scoped to
+  builds rooted in this workspace. The rest is answered in place, and
+  listed at the end.
 - Depends on: RFC-0002 (natives and their declared effects), RFC-0004
   (the effects `bund2 check` reads, and the residual stack), RFC-0005
   (which natives Tier 1 promotes)
@@ -73,7 +78,9 @@
   notes; D208 and F225 are new. *Since the eighth, by "potential",
   "reweigh" and "rounding":* D208, F225 and their notes. *Since the
   ninth, by "HashMap", "order", "reproducib", "usize" and "wrap":* F17 and
-  its notes, D208, F219, F225; D210, F226 and F227 are new.
+  its notes, D208, F219, F225; D210, F226 and F227 are new. *Since the
+  tenth, by "saturat", "WEIGHT_MAX", "RandomState", "overflow-checks" and
+  "never used":* D210, F226, F227 and their notes.
 - Reference SHA: `reference/Bund` 21b40b0
 - Supersedes: nothing
 
@@ -144,10 +151,25 @@ order: its potentials walk `algos`' `HashMap` (F226, below).
   (`path_calculator.rs:145`), so a release build wraps: `:C :A [ [ :A :B
   1.0e19 ] [ :B :C 1.0e19 ] ] [ :A :B :C ] graph! graph.path` answers
   `found=true` at `1553255926290448500.0`, 2e19 − 2^64, in both engines.
-  A single weight at or above 2^64 saturates at `usize::MAX`, which is
-  `WEIGHT_MAX` (`src/constants.rs:22,26`), so no path through it is
-  chosen. Preserved (**D210**, A) in every build: Bund2's dev profile
-  turns overflow checks off for `fast_paths`, where it panicked before.
+  A weight at or above 2^64 saturates at `usize::MAX`, which is
+  `WEIGHT_MAX` (`src/constants.rs:22,26`), and wraps like any other: the
+  query compares the sum with `<` and nothing else
+  (`path_calculator.rs:145-146`), so after a prefix of `d > 0` it sums to
+  `d − 1` and can win. `:A :C [ [ :B :A 1.0e300 ] [ :C :B 2.0 ] [ :C :A
+  7.0 ] [ :A :D 1.0 ] ] [ :A :B :C :D ] graph! graph.path` answers `path=[
+  C B A ]` at `1.0`, past the direct edge of 7.0, in both engines. Alone,
+  as the first edge searched, it weighs exactly `WEIGHT_MAX`, which is no
+  path; whether a graph reaches the wrap depends on `fast_paths`'
+  contraction. Preserved (**D210**, A, and its note) in every build rooted
+  in this workspace: its dev profile turns overflow checks off for
+  `fast_paths`, where it panicked before. Cargo takes profile overrides
+  only from the root of a build, so a crate that depends on `bund2-stdlib`
+  and builds in its own dev profile still panics there, and D49 reports a
+  Bund2 defect.
+- **An unknown end node is reported with the start node's name**:
+  `GRAPH.PATH: unknown end node: <start>` (`getpath.rs:69-71`). Bund2
+  reproduces it (`crates/bund2-stdlib/src/graph.rs:253`,
+  `graph_path_looks_its_nodes_up_as_given`).
 - **A weight that is not finite reaches the `algos` words.** Programs make
   one in both engines (`-1.0 math.sqrt` is NaN; `1.0e200 1.0e200 *` is
   inf), and `graph.paths` answers a row `path=NaN` over a NaN edge, in the
@@ -210,18 +232,24 @@ order: its potentials walk `algos`' `HashMap` (F226, below).
     `GRAPH.ALLPATH: returned: negative cycle detected in graph`, and 14
     rows with a lead of `1000.0` or `-1.0e6`;
   - **an answer that varies between runs** (F226): `algos` keeps its
-    edges in a `HashMap` seeded afresh for each graph
-    (`algos/…/4c08437/src/cs/graph.rs:64-66`, `:150-154`), and the
+    edges in a std `HashMap` (`algos/…/4c08437/src/cs/graph.rs:29`,
+    `:64-66`, `:150-154`), and std gives each map its own keys: random
+    once per thread, then the next `k0` for each new map
+    (`library/std/src/hash/random.rs:67-74`, in the `rust-src` of the
+    1.95.0 toolchain `rust-toolchain.toml` pins). The
     potentials' Bellman–Ford makes at most `|V| − 1` passes in that order
     before its cycle test (`bellman_ford.rs:63-101`). Where rounding
     decides how many passes settle the potentials, the order decides the
     test: with a lead of `-100.0` and the cycle `[ :A :B
     4.159226947493753 ] [ :B :C 2.819570687287843 ] [ :C :A
-    -6.978797634781596 ]`, of weight exactly 0, the oracle refused on 17
-    of 150 runs and Bund2 on 6, answering rows on the rest. Only the
-    refusal varies; the rows answered do not.
+    -6.978797634781596 ]`, of weight exactly 0, the oracle refused on 93
+    of 1,000 runs and Bund2 on 85, answering rows on the rest. Only the
+    refusal varies; the rows answered do not, since a relaxation that
+    settles reaches the greatest fixed point of a monotone map whatever
+    the order, and the reweighting and Dijkstra over it are deterministic.
 
-  The first three programs answer alike on every run. With no negative weight every potential is 0.0 (`johnson.rs:45-47`), and
+  The first three programs answer alike on every run, rows included
+  (`allpath_answers_f225s_programs_alike_on_every_run`). With no negative weight every potential is 0.0 (`johnson.rs:45-47`), and
   none of this happens. `q` is `Z` throughout, so F220 plays no part.
   Preserved (**D208**, A, and its two notes); `graph.bellmanford`
   answers each exactly, and the same on every run.
@@ -561,13 +589,18 @@ which acceptance would ratify:
 - **Preserved, and a defect** (F226, D208's second note): where rounding
   decides Johnson's potentials, `graph.allpath` answers rows on one run
   and refuses on another, as the reference does. Bund2 keeps the
-  variation, not the oracle's answer on any given run: its `HashMap` is a
-  different build, and the rates differ (6 in 150 against 17 in 150 on
-  F226's program). F17's order holds whenever rows are answered.
+  variation, at the oracle's rate within sampling (85 against 93 in 1,000
+  on F226's program; the same std `HashMap` from the same `rustc`), not
+  the oracle's answer on any given run, since each process draws its own
+  keys. F17's order holds whenever rows are answered, and the rows are
+  the same on every run that answers.
 - **Preserved, and a defect** (F227, D210): `graph.path` wraps a `usize`
-  sum past 2^64 and answers it as found. Bund2 answers so in every build
-  profile; before D210 its debug build, the one `cargo test` and
-  `conform` run, panicked inside `fast_paths` instead.
+  sum past 2^64, a saturated weight included, and answers it as found,
+  which can choose a wrong path as well as state a wrong weight. Bund2
+  answers so in every build profile of this workspace; before D210 its
+  debug build, the one `cargo test` and `conform` run, panicked inside
+  `fast_paths` instead. A crate that depends on `bund2-stdlib` and builds
+  with overflow checks gets that panic back (D210's note).
 - **The twelve new words**: no reference behaviour exists. `conform`,
   `IMPLEMENTED` and `COVERAGE` move by zero. Nothing in `wb.rs`'s `ADDED`
   list pins their `.` forms; `each_form_holds_the_graph_on_the_workbench`
@@ -597,13 +630,17 @@ which acceptance would ratify:
     (D199), and only there (D202): a graph whose distances are finite is
     answered, by `graph.bellmanford` as by `graph.paths`, whatever its
     paths' sums. `graph.path` reads each weight `as usize` and sums in
-    `usize` unchecked (F227): a weight of 2^64 or more saturates at
-    `WEIGHT_MAX` and is never used, so `[ [ :A :B 1.0e300 ] [ :B :C
-    1.0e300 ] ]` from A to C answers `can not calculate path`; but a sum of
-    smaller weights past 2^64 wraps, and `[ [ :A :B 1.0e19 ] [ :B :C
-    1.0e19 ] ]` answers `found=true` at 2e19 − 2^64, both in both engines.
+    `usize` unchecked (F227): a sum past 2^64 wraps, so `[ [ :A :B 1.0e19
+    ] [ :B :C 1.0e19 ] ]` answers `found=true` at 2e19 − 2^64; and a weight
+    of 2^64 or more saturates at `WEIGHT_MAX` and wraps too, so after a
+    prefix it is the cheapest step in the graph and can be chosen over a
+    real path ("Current behaviour"). `[ [ :A :B 1.0e300 ] [ :B :C 1.0e300
+    ] ]` from A to C answers `can not calculate path` only because the
+    saturated edge leaves the start, where it weighs exactly `WEIGHT_MAX`
+    and never passes the `<` test; a program cannot use 1.0e300 as a "no
+    edge" weight. All in both engines.
     Where the new words refuse or answer exactly, `graph.path` answers a
-    wrong weight as found. The other four do not sum;
+    wrong weight, or a wrong path, as found. The other four do not sum;
   - **edge order**: a re-given edge keeps its first place (S2);
   - **the `.` forms** answer to the workbench and refuse a missing operand
     as `Stack is too shallow …`, where the plain forms say `NO DATA #n`.
@@ -721,8 +758,10 @@ reported cycle exactly, against the exact relaxation.
     `allpath_misstates_a_distance_its_potentials_round_away` and
     `allpath_refuses_a_zero_weight_cycle_its_potentials_round` (F225,
     D208), `allpath_answers_f225s_programs_alike_on_every_run` and
-    `allpath_answers_vary_between_runs` (F226, D208's second note),
-    `path_wraps_a_sum_past_2_to_the_64` (F227, D210), and
+    `allpath_answers_vary_between_runs` (F226, D208's second note; each
+    compares the rows of every answered run as well as counting refusals),
+    `path_wraps_a_sum_past_2_to_the_64` (F227, D210 and its note: the
+    wrapped sum, and a saturated weight chosen over a direct edge), and
     `mst_keeps_equal_weights_in_listed_order_negative_zero_included`. The
     `.` forms' workbench half: `the_workbench_is_counted` in `check.rs`.
 
@@ -812,3 +851,15 @@ reported cycle exactly, against the exact relaxation.
 | Assumed: every reference graph word is a function of its program | Stated otherwise for `graph.allpath` (F226) |
 | Assumed: `graph.path`'s weights cannot wrap; fidelity independent of the build profile | Stated otherwise (F227), and made profile-independent (D210) |
 | Assumed: F225's programs are stable | Checked by `allpath_answers_f225s_programs_alike_on_every_run` |
+
+## The tenth review, answered (2026-10-23)
+
+| Finding | Answer |
+|---|---|
+| 1. A saturated weight is used | **D210** covers it (the owner's ruling, its note): preserved; F227 note; "Current behaviour" and the "overflow" bullet say it wraps and can be chosen, and why the 1.0e300 program answers no path; the test's comment corrected and the review's program added to `path_wraps_a_sum_past_2_to_the_64`; criterion 11 |
+| 2. "A different build, and the rates differ" | Restated: the same std `HashMap` from the same `rustc`, refused 93 and 85 times in 1,000; F226 note |
+| 3. The seeding uncited | Cited to std's `RandomState::new` (`library/std/src/hash/random.rs:67-74`, `rust-src` 1.95.0); the test says its bound assumes the maps of one process vary as independent draws would |
+| 4. The alike test checks refusal only | `allpath_runs` returns each answered run's rows; both tests require one row set; criterion 11 says so; the fixed-point reason stated under "Current behaviour" |
+| 5. "In every build" | Scoped to builds rooted in this workspace, in "Current behaviour", the preservation analysis and D210's note |
+| 6. Smaller points | `graph.path`'s unknown end node named with the start's name is stated under "Current behaviour", with Bund2's line and test; the 1-in-12 and 6-in-150 figures reconciled by finding 2's restatement |
+| Assumed: `WEIGHT_MAX` is a sentinel; profile overrides reach every build; maps are independent draws; a settled relaxation is order-free | Each stated where it applies (findings 1, 5, 3, 4) |

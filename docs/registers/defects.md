@@ -4264,6 +4264,20 @@ panic inside `fast_paths`, which D49 reported as a Bund2 defect.
   reference's release build does. Test: `path_wraps_a_sum_past_2_to_the_64`
   (`crates/bund2-stdlib/src/graph_algorithms.rs`).
 
+- **Note, 2026-10-23, later — a saturated weight is used** (the tenth
+  RFC-0012 review, `docs/rfc/reviews/RFC-0012-review-2026-10-23-2.md`,
+  finding 1). The paragraph above says a weight at or above 2^64 is never
+  chosen. That holds only where it is the first edge searched: `fast_paths`
+  adds `WEIGHT_MAX` unchecked like any weight (`path_calculator.rs:145`),
+  so after a prefix of `d > 0` it sums to `d − 1` and passes the `<` test
+  (`:146`). `:A :C [ [ :B :A 1.0e300 ] [ :C :B 2.0 ] [ :C :A 7.0 ] [ :A :D
+  1.0 ] ] [ :A :B :C :D ] graph! graph.path` answers `path=[ C B A ]` at
+  `1.0`, not the direct edge of 7.0, in the oracle and both Bund2 builds.
+  `:B :A [ [ :A :B 1.0e300 ] ]` answers `can not calculate path` because
+  the saturated edge alone weighs exactly `WEIGHT_MAX`. Preserved; D210
+  covers it (its note). The test pins this program too. "Every build"
+  means every build rooted in this workspace (D210's note).
+
 ## F226 — `graph.allpath`'s answer varies between runs of one program
 
 **An original-implementation defect; found 2026-10-23 by the ninth
@@ -4297,6 +4311,23 @@ its `HashMap` is a different build; both vary.
   `allpath_answers_f225s_programs_alike_on_every_run`, which runs each of
   F225's programs over 200 maps and requires one answer
   (`crates/bund2-stdlib/src/graph_algorithms.rs`).
+
+- **Note, 2026-10-23, later — the same `HashMap`, at the same rate** (the
+  tenth RFC-0012 review, `docs/rfc/reviews/RFC-0012-review-2026-10-23-2.md`,
+  findings 2 to 4). The paragraph above says Bund2's rate differs because
+  its `HashMap` is a different build. It is not: `algos` uses
+  `std::collections::HashMap` (`algos/src/cs/graph.rs:29`), and the oracle
+  and Bund2 are built by the same `rustc` (1.95.0, `59807616e`). Over 1,000
+  fresh processes each, the oracle refused this entry's program 93 times
+  and Bund2 85, within sampling; 17 against 6 in 150 was a small sample.
+  Neither reproduces the other's answer on a given run because each
+  process draws its own keys: std's `RandomState::new` takes random keys
+  once per thread and gives each new map the next `k0`
+  (`~/.rustup/toolchains/1.95.0-aarch64-apple-darwin/lib/rustlib/src/rust/library/std/src/hash/random.rs:67-74`),
+  so each map has its own order, and maps of one process are distinct but
+  not independent draws. Every answered run gives the same rows, 1,000 of
+  1,000 per engine, the same set in both; both tests now check the rows as
+  well as the refusal.
 
 ## F225 — `graph.allpath` misses a negative cycle its potentials round away
 
