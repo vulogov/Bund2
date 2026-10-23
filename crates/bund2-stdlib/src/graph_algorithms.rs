@@ -2416,9 +2416,9 @@ mod tests {
     fn allpath_answers_f225s_programs_alike_on_every_run() {
         let zero =
             "[ :A :B 3.700101551766398 ] [ :B :C 0.699993338763802 ] [ :C :A -4.4000948905302 ]";
-        let refused = [
-            format!("[ [ :S :A -1000.0 ] {zero} ] [ :S :A :B :C :Z ] graph!"),
-        ];
+        let refused = [format!(
+            "[ [ :S :A -1000.0 ] {zero} ] [ :S :A :B :C :Z ] graph!"
+        )];
         let answered = [
             "[ [ :A :B -1.0e20 ] [ :B :C 1.0 ] [ :C :B -1.0000000000000002 ] ] [ :A :B :C :Z ] graph!".to_string(),
             "[ [ :A :B -1.0e20 ] [ :B :C 1.0 ] ] [ :A :B :C :Z ] graph!".to_string(),
