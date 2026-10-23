@@ -2335,8 +2335,9 @@ mod tests {
     /// **F225, preserved (D208): `graph.allpath` misses a negative cycle its
     /// potentials round away** — the seventh RFC-0012 review's finding 2.
     /// Johnson's potentials come from an `f64` Bellman–Ford, so beside
-    /// `h_B` = −1e20 neither edge of the −2⁻⁵² cycle `B ↔ C` relaxes, and
-    /// both reweigh to 0.0. Both engines answer the eight rows;
+    /// `h_B` = −1e20 neither edge of the −2⁻⁵² cycle `B ↔ C` relaxes and no
+    /// cycle is found. Both edges answer 0.0, as `B → C` would with no cycle
+    /// at all (the next test). Both engines answer the eight rows;
     /// `graph.bellmanford`, exact (D207), reports the cycle.
     #[test]
     fn allpath_misses_a_negative_cycle_its_potentials_round_away() {
@@ -2350,6 +2351,50 @@ mod tests {
         }
         let e = err_of(&format!(":A {g} graph.bellmanford"));
         assert!(e.contains("A reaches a negative cycle through B"), "{e}");
+    }
+
+    /// **F225's wider face, covered by D208: `graph.allpath` misstates a
+    /// distance with no cycle** — the eighth RFC-0012 review's finding 1.
+    /// The rounding is in Johnson's reweighting (`johnson.rs:63`) and its
+    /// undoing (`:86-87`): beside `h_B` = `h_C` = −1e20, the edge `B → C`
+    /// of 1.0 reweighs to 0.0 and comes back 0.0. `graph.paths` and
+    /// `graph.bellmanford` answer 1.0. Both engines answer so.
+    #[test]
+    fn allpath_misstates_a_distance_its_potentials_round_away() {
+        let g = "[ [ :A :B -1.0e20 ] [ :B :C 1.0 ] ] [ :A :B :C :Z ] graph!";
+        let rows = top(&format!("{g} graph.allpath"));
+        assert!(
+            rows.contains("from=B ::  itself=false ::  to=C ::  weight=0.0 ::"),
+            "{rows}"
+        );
+        for word in ["graph.paths", "graph.bellmanford"] {
+            let b = top(&format!(":B {g} {word}"));
+            assert!(b.contains("node=C ::  path=1.0 ::"), "{word}: {b}");
+        }
+    }
+
+    /// **F225 the other way: `graph.allpath` refuses a cycle of weight
+    /// exactly zero** — the eighth review's finding 2. Beside `h_A` =
+    /// −1000.0 the cycle `A → B → C → A`, whose weights sum to exactly 0,
+    /// relaxes by rounding and is refused, in both engines;
+    /// `graph.bellmanford` answers distances. A lead of 1000.0 or −1e6
+    /// answers rows: whether it is refused turns on the rounding.
+    #[test]
+    fn allpath_refuses_a_zero_weight_cycle_its_potentials_round() {
+        let zero =
+            "[ :A :B 3.700101551766398 ] [ :B :C 0.699993338763802 ] [ :C :A -4.4000948905302 ]";
+        let g = |lead: &str| format!("[ [ :S :A {lead} ] {zero} ] [ :S :A :B :C :Z ] graph!");
+        let e = err_of(&format!("{} graph.allpath", g("-1000.0")));
+        assert!(
+            e.contains("GRAPH.ALLPATH: returned: negative cycle detected in graph"),
+            "{e}"
+        );
+        let b = top(&format!(":S {} graph.bellmanford", g("-1000.0")));
+        assert!(b.contains("node=A ::  path=-1000.0 ::"), "{b}");
+        for lead in ["1000.0", "-1.0e6"] {
+            let rows = top(&format!("{} graph.allpath", g(lead)));
+            assert_eq!(rows.matches("from=").count(), 14, "{lead}: {rows}");
+        }
     }
 
     /// **A distance can differ from `graph.paths`' by more than the last

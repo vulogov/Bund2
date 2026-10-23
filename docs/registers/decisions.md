@@ -3693,6 +3693,18 @@ as **F225**.
   `allpath_misses_a_negative_cycle_its_potentials_round_away` pins both
   words' answers over the review's graph.
 
+**Dated note, 2026-10-22, later — D208 covers F225 as it holds, wider than
+it was put** (RFC-0012's eighth review,
+`docs/rfc/reviews/RFC-0012-review-2026-10-22-3.md`, finding 1). This entry
+asked about a missed negative cycle. The rounding is also in Johnson's
+reweighting and its undoing (`johnson.rs:63,86-87`), so `graph.allpath`
+misstates a distance on a graph with no cycle — `[ [ :A :B -1.0e20 ] [ :B
+:C 1.0 ] ] [ :A :B :C :Z ]` answers `B → C` at `0.0`, not `1.0` — and
+refuses a cycle of weight exactly zero beside `h_A` = −1000.0 (F225's
+note). The repository owner ruled on 2026-10-22 that D208 covers both
+("D208 covers it"): preserved, with no change to the word. RFC-0012
+states them; the two tests are named in F225's note.
+
 ## D207 — `graph.bellmanford`'s cycle test depends on rounding
 
 **Raised 2026-10-22** by RFC-0012's sixth review

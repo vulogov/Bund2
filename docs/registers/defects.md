@@ -4261,6 +4261,33 @@ D207's first program showed for `graph.bellmanford`.
   cycle. Test: `allpath_misses_a_negative_cycle_its_potentials_round_away`
   (`crates/bund2-stdlib/src/graph_algorithms.rs`).
 
+- **Note, 2026-10-22, later — the defect needs no cycle** (the eighth
+  RFC-0012 review, `docs/rfc/reviews/RFC-0012-review-2026-10-22-3.md`,
+  finding 1). The rounding is in Johnson's reweighting, `weight + *h_u -
+  *h_v` (`johnson.rs:63`), and in its undoing, `*d + (*h_target -
+  *h_source)` (`:86-87`), as well as in the potentials. So a distance is
+  misstated on a graph with no cycle at all:
+
+      [ [ :A :B -1.0e20 ] [ :B :C 1.0 ] ] [ :A :B :C :Z ] graph! graph.allpath
+
+  answers `B → C` at `0.0` in both engines, where the one edge weighs
+  `1.0`; `graph.paths` and `graph.bellmanford` from `:B` answer `1.0`.
+  `h_B` and `h_C` are both −1e20, so the edge reweighs to
+  `fl(fl(1.0 − 1e20) + 1e20) = 0.0` and comes back 0.0. In this entry's own
+  graph `B → C` is 0.0 for the same reason, cycle or none. Only a graph
+  with a negative weight can meet it: with none, every potential is 0.0
+  (`johnson.rs:45-47`). And the mechanism runs the other way, as stated
+  above; run in both engines on this date:
+
+      [ [ :S :A -1000.0 ] [ :A :B 3.700101551766398 ] [ :B :C 0.699993338763802 ] [ :C :A -4.4000948905302 ] ] [ :S :A :B :C :Z ] graph! graph.allpath
+
+  answers `GRAPH.ALLPATH: returned: negative cycle detected in graph`,
+  though the cycle weighs exactly 0, and `graph.bellmanford` from `:S`
+  answers distances. With a lead of `1000.0` or `-1.0e6` the same cycle
+  answers 14 rows. D208 covers both faces (its note). Tests:
+  `allpath_misstates_a_distance_its_potentials_round_away`,
+  `allpath_refuses_a_zero_weight_cycle_its_potentials_round`.
+
 ## F224 — on today's tree the tier retires more instructions than no tier on three of criterion 7's rows
 
 **A Bund2 defect against RFC-0005's criterion 7; found 2026-10-21** by
