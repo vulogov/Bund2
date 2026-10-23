@@ -66,6 +66,14 @@ codegen-units = 1
 [profile.bench]
 debug = true
 
+# `fast_paths` sums `usize` weights unchecked (`node_contractor.rs:75`,
+# `path_calculator.rs:145`), so a path past 2^64 wraps in the reference's
+# release build. Without this the dev profile, which `cargo test` and `xtask
+# conform` run, panics there instead; with it every build answers as the
+# reference does (F227, D210).
+[profile.dev.package.fast_paths]
+overflow-checks = false
+
 # Bund2 must not panic. An interpreter that aborts on an internal inconsistency
 # takes the user's program state with it and explains nothing; every failure
 # path has to produce a diagnostic instead. These are `restriction` lints, off

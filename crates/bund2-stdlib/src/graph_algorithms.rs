@@ -2397,6 +2397,73 @@ mod tests {
         }
     }
 
+    /// The runs of [`allpath_answers_vary_between_runs`]: how many of
+    /// `runs` refuse, each run reading the graph into a fresh `algos` map.
+    fn allpath_refusals(g: &str, runs: usize) -> usize {
+        (0..runs)
+            .filter(|_| run_src(&format!("{g} graph.allpath")).is_err())
+            .count()
+    }
+
+    /// **F225's programs answer the same on every run** — the ninth
+    /// RFC-0012 review's finding 1. `algos` keeps its edges in a `HashMap`
+    /// seeded afresh for each graph (`algos/src/cs/graph.rs:64-66,150-154`),
+    /// and Johnson's potentials walk them in that order, so where rounding
+    /// decides how many passes settle them the answer can vary (F226). The
+    /// programs criterion 11 pins do not: each answers alike under every
+    /// order, here over 200 maps each.
+    #[test]
+    fn allpath_answers_f225s_programs_alike_on_every_run() {
+        let zero =
+            "[ :A :B 3.700101551766398 ] [ :B :C 0.699993338763802 ] [ :C :A -4.4000948905302 ]";
+        let refused = [
+            format!("[ [ :S :A -1000.0 ] {zero} ] [ :S :A :B :C :Z ] graph!"),
+        ];
+        let answered = [
+            "[ [ :A :B -1.0e20 ] [ :B :C 1.0 ] [ :C :B -1.0000000000000002 ] ] [ :A :B :C :Z ] graph!".to_string(),
+            "[ [ :A :B -1.0e20 ] [ :B :C 1.0 ] ] [ :A :B :C :Z ] graph!".to_string(),
+            format!("[ [ :S :A 1000.0 ] {zero} ] [ :S :A :B :C :Z ] graph!"),
+            format!("[ [ :S :A -1.0e6 ] {zero} ] [ :S :A :B :C :Z ] graph!"),
+        ];
+        for g in &refused {
+            assert_eq!(allpath_refusals(g, 200), 200, "{g}");
+        }
+        for g in &answered {
+            assert_eq!(allpath_refusals(g, 200), 0, "{g}");
+        }
+    }
+
+    /// **F226: `graph.allpath`'s answer varies between runs**, preserved
+    /// under D208 (its second note). The cycle `A → B → C → A` weighs
+    /// exactly 0, and beside `h_A` = −100.0 whether rounding has settled
+    /// it after `|V| − 1` passes turns on the map's edge order: the oracle
+    /// refused it on 17 of 150 runs, Bund2 on about 1 map in 12. Both
+    /// answers must occur in 2,000 maps; at either rate the chance of one
+    /// never occurring is below 10^-30.
+    #[test]
+    fn allpath_answers_vary_between_runs() {
+        let g = "[ [ :S :A -100.0 ] [ :A :B 4.159226947493753 ] [ :B :C 2.819570687287843 ] \
+                 [ :C :A -6.978797634781596 ] ] [ :S :A :B :C :Z ] graph!";
+        let refused = allpath_refusals(g, 2000);
+        assert!(0 < refused && refused < 2000, "{refused} of 2000 refused");
+    }
+
+    /// **F227: `graph.path` wraps a sum past 2^64**, preserved (D210).
+    /// `fast_paths` adds `usize` weights unchecked (`node_contractor.rs:75`),
+    /// so 1e19 + 1e19 answers 2e19 − 2^64 with `found=true`, as the
+    /// reference's release build does. The dev profile turns overflow
+    /// checks off for `fast_paths` (`Cargo.toml`) so this test sees the
+    /// answer rather than a panic. A single weight past 2^64 saturates at
+    /// `usize::MAX`, `WEIGHT_MAX`, and is never used.
+    #[test]
+    fn path_wraps_a_sum_past_2_to_the_64() {
+        let p = top(":C :A [ [ :A :B 1.0e19 ] [ :B :C 1.0e19 ] ] [ :A :B :C ] graph! graph.path");
+        assert!(p.contains("found=true"), "{p}");
+        assert!(p.contains("weight=1553255926290448500.0"), "{p}");
+        let e = err_of(":B :A [ [ :A :B 1.0e300 ] ] [ :A :B ] graph! graph.path");
+        assert!(e.contains("GRAPH.PATH: can not calculate path"), "{e}");
+    }
+
     /// **A distance can differ from `graph.paths`' by more than the last
     /// bit** — the seventh review's finding 1. `graph.paths` sums left to
     /// right in `f64`, as the reference does, rounding once per edge:

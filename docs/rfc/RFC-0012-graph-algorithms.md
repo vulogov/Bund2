@@ -1,6 +1,6 @@
 # RFC-0012: Graph algorithms
 
-- Status: **Draft** (2026-10-18), revised after each of eight adversarial
+- Status: **Draft** (2026-10-18), revised after each of nine adversarial
   reviews, every one "Not ready for Accepted", and awaiting the next. The
   first review
   (`RFC-0012-review-2026-10-18.md`) found Bund2's `graph.path`
@@ -44,14 +44,21 @@
   F225 wider than recorded: `graph.allpath` misstates a distance with no
   cycle, and refuses a cycle of weight exactly zero (F225 note; **D208**
   covers both, its note). The rest is answered in place, and listed at
-  the end.
+  the end. Between reviews the owner accepted `graph.bellmanford`'s
+  worst-case cost (**D209**, A). The ninth review
+  (`RFC-0012-review-2026-10-23.md`) found `graph.allpath`'s answer varying
+  between runs of one program, since its potentials walk `algos`'
+  `HashMap` (F226; **D208** covers it, its second note), and `graph.path`
+  wrapping a sum past 2^64, which Bund2's debug build panicked on instead
+  (F227, preserved by **D210**, A, in every build). The rest is answered
+  in place, and listed at the end.
 - Depends on: RFC-0002 (natives and their declared effects), RFC-0004
   (the effects `bund2 check` reads, and the residual stack), RFC-0005
   (which natives Tier 1 promotes)
 - Decisions consumed: D192 (and its notes of 2026-10-18), D193, D198,
-  D199, D200, D202, D203, D206, D207, D208, D14, D18, D24, D111 (and its note of 2026-10-07), D37, D38,
-  D39, D48, D49, D55, D195; the dispositions of F17, F218, F219, F220 and
-  F225.
+  D199, D200, D202, D203, D206, D207, D208, D209, D210, D14, D18, D24, D111 (and its note of 2026-10-07), D37, D38,
+  D39, D48, D49, D55, D195; the dispositions of F17, F218, F219, F220,
+  F225, F226 and F227.
 - Registers searched by subject ("graph", the nineteen word names,
   `graph.rs`, `make_graph`, `fast_paths`, `calc_path`, `algos`, "Title",
   "NaN"): D14, D18, D24, D37, D38, D39, D48, D49, D55, D111, D192, D193,
@@ -64,7 +71,9 @@
   D193 again, D206, D207. *Since the seventh, by "exact", "last bit",
   "allpath" and "johnson":* D200, D203, D207 and its note, F220 and its
   notes; D208 and F225 are new. *Since the eighth, by "potential",
-  "reweigh" and "rounding":* D208, F225 and their notes.
+  "reweigh" and "rounding":* D208, F225 and their notes. *Since the
+  ninth, by "HashMap", "order", "reproducib", "usize" and "wrap":* F17 and
+  its notes, D208, F219, F225; D210, F226 and F227 are new.
 - Reference SHA: `reference/Bund` 21b40b0
 - Supersedes: nothing
 
@@ -89,7 +98,8 @@ in Bund, over a MAP of LISTs. And three of the four answers come back in
 an order that changes from run to run, because `algos` hands each back as
 a `HashMap` (`~/.cargo/git/checkouts/algos-9d1538761d16fda1/4c08437/src/cs/graph/dijkstra.rs:71`,
 `johnson.rs:25`, `warshall.rs:40`; F17), so a program cannot print them
-reproducibly.
+reproducibly. `graph.allpath`'s answer itself can vary, not only its
+order: its potentials walk `algos`' `HashMap` (F226, below).
 
 ## Current behaviour
 
@@ -128,6 +138,16 @@ reproducibly.
   (`fast_paths-1.0.0/src/path_calculator.rs:77-82`), so an isolated last
   node, a graph with no edges, or one whose edges are all self-loops or
   under weight 1 crashes the oracle (F219).
+- **`graph.path` sums in `usize`, unchecked** (F227). `fast_paths` adds
+  weights with no check, in contraction
+  (`fast_paths-1.0.0/src/node_contractor.rs:75`) and in the query
+  (`path_calculator.rs:145`), so a release build wraps: `:C :A [ [ :A :B
+  1.0e19 ] [ :B :C 1.0e19 ] ] [ :A :B :C ] graph! graph.path` answers
+  `found=true` at `1553255926290448500.0`, 2e19 − 2^64, in both engines.
+  A single weight at or above 2^64 saturates at `usize::MAX`, which is
+  `WEIGHT_MAX` (`src/constants.rs:22,26`), so no path through it is
+  chosen. Preserved (**D210**, A) in every build: Bund2's dev profile
+  turns overflow checks off for `fast_paths`, where it panicked before.
 - **A weight that is not finite reaches the `algos` words.** Programs make
   one in both engines (`-1.0 math.sqrt` is NaN; `1.0e200 1.0e200 *` is
   inf), and `graph.paths` answers a row `path=NaN` over a NaN edge, in the
@@ -175,7 +195,8 @@ reproducibly.
   reweighed as `weight + *h_u - *h_v` (`johnson.rs:63`); and each distance
   is undone as `*d + (*h_target - *h_source)` (`:86-87`). Where a negative
   weight makes the potentials large against the other weights, that
-  rounding decides the answer three ways, all run in both engines:
+  rounding decides the answer three ways, all run in both engines, and
+  sometimes decides it differently on different runs:
   - **a distance misstated with no cycle**: `[ [ :A :B -1.0e20 ] [ :B :C
     1.0 ] ] [ :A :B :C :Z ] graph! graph.allpath` answers `B → C` at
     `0.0`, where the one edge weighs `1.0` and `graph.paths` from `:B`
@@ -187,12 +208,23 @@ reproducibly.
     :B 3.700101551766398 ] [ :B :C 0.699993338763802 ] [ :C :A
     -4.4000948905302 ] ] [ :S :A :B :C :Z ] graph! graph.allpath` answers
     `GRAPH.ALLPATH: returned: negative cycle detected in graph`, and 14
-    rows with a lead of `1000.0` or `-1.0e6`.
+    rows with a lead of `1000.0` or `-1.0e6`;
+  - **an answer that varies between runs** (F226): `algos` keeps its
+    edges in a `HashMap` seeded afresh for each graph
+    (`algos/…/4c08437/src/cs/graph.rs:64-66`, `:150-154`), and the
+    potentials' Bellman–Ford makes at most `|V| − 1` passes in that order
+    before its cycle test (`bellman_ford.rs:63-101`). Where rounding
+    decides how many passes settle the potentials, the order decides the
+    test: with a lead of `-100.0` and the cycle `[ :A :B
+    4.159226947493753 ] [ :B :C 2.819570687287843 ] [ :C :A
+    -6.978797634781596 ]`, of weight exactly 0, the oracle refused on 17
+    of 150 runs and Bund2 on 6, answering rows on the rest. Only the
+    refusal varies; the rows answered do not.
 
-  With no negative weight every potential is 0.0 (`johnson.rs:45-47`), and
+  The first three programs answer alike on every run. With no negative weight every potential is 0.0 (`johnson.rs:45-47`), and
   none of this happens. `q` is `Z` throughout, so F220 plays no part.
-  Preserved (**D208**, A, and its note); `graph.bellmanford` answers each
-  exactly.
+  Preserved (**D208**, A, and its two notes); `graph.bellmanford`
+  answers each exactly, and the same on every run.
 - The family is **core** under D14's partition: `bund/graph` is listed
   under `## core` (`docs/core-words.md:9`, the line at `:16`), not under
   `## library` (`:43`). So all seven words carry D14's 100% preservation,
@@ -420,7 +452,9 @@ listed backwards, which needs every pass, takes about 100 ms against about
 measured at `1a587db`, and only the exact side can be re-taken since
 `5b8db1a` removed it). The cost is per relaxation, so the worst case stays
 quadratic in nodes: the same chain at 6,000 nodes took 0.97 s, which puts
-20,000 at about 11 s, a cost the owner accepted (**D209**, A). On random graphs of 400 nodes and 4,000 edges the
+20,000 at about 11 s, a cost the owner accepted (**D209**, A); the ninth
+review measured 20,000 at 12.0 s in all, 1.2 s of it parsing the literal
+(D207's note of 2026-10-23). On random graphs of 400 nodes and 4,000 edges the
 difference is within noise. `the_exact_run_scales_with_the_weights`,
 `exact_sums_round_once_to_the_nearest_f64` and
 `bellman_ford_agrees_with_an_exact_floyd_warshall_over_fractional_weights`
@@ -470,19 +504,22 @@ meaning.
 ## Which points are rulings
 
 Accepting this RFC accepts the following. The owner ruled on these
-(D192, D193, D198, D199, D200, D202, D203, D206, D207, D208): the twelve words
+(D192, D193, D198, D199, D200, D202, D203, D206, D207, D208, D209, D210): the twelve words
 and nothing more;
 Bund2's own implementation; the graph read as `graph.paths` reads it,
 directed; node order everywhere, and F17 fixed by it; values for answers
 and errors for impossible questions; no tolerance in `graph.maxflow`; the
-Bellman–Ford rule as built, its relaxation exact (D207); weights that are
+Bellman–Ford rule as built, its relaxation exact (D207) and its
+worst-case cost accepted (D209); weights that are
 not finite refused, and sums that overflow refused (D199) where the answer
 overflows (D202); F218 fixed; `graph.path` answering the reference's own
 no-path error where the reference crashes (F219, D206), and the path of
 one node from a node to itself (D198); and `graph.allpath`'s dependence on
 the last node preserved (F220, D200), its refusal of a graph with no cycle
 included (D203); and its rounding preserved, a misstated distance and a
-missed or false cycle (F225, D208 and its note).
+missed or false cycle, and an answer that varies between runs (F225,
+F226, D208 and its notes); and `graph.path`'s wrapped `usize` sum
+preserved in every build (F227, D210).
 
 These are D192's build choices, which D192 says can be overruled, and
 which acceptance would ratify:
@@ -521,6 +558,16 @@ which acceptance would ratify:
   into that node (F220's third face; D200 covers it, **D203** resolved
   A). Bund2 runs the same `algos` revision and keeps all of this;
   `graph.bellmanford` is the word for negative weights.
+- **Preserved, and a defect** (F226, D208's second note): where rounding
+  decides Johnson's potentials, `graph.allpath` answers rows on one run
+  and refuses on another, as the reference does. Bund2 keeps the
+  variation, not the oracle's answer on any given run: its `HashMap` is a
+  different build, and the rates differ (6 in 150 against 17 in 150 on
+  F226's program). F17's order holds whenever rows are answered.
+- **Preserved, and a defect** (F227, D210): `graph.path` wraps a `usize`
+  sum past 2^64 and answers it as found. Bund2 answers so in every build
+  profile; before D210 its debug build, the one `cargo test` and
+  `conform` run, panicked inside `fast_paths` instead.
 - **The twelve new words**: no reference behaviour exists. `conform`,
   `IMPLEMENTED` and `COVERAGE` move by zero. Nothing in `wb.rs`'s `ADDED`
   list pins their `.` forms; `each_form_holds_the_graph_on_the_workbench`
@@ -549,9 +596,14 @@ which acceptance would ratify:
     `f64`, answer `inf` where a sum overflows, and the new words refuse it
     (D199), and only there (D202): a graph whose distances are finite is
     answered, by `graph.bellmanford` as by `graph.paths`, whatever its
-    paths' sums. `graph.path` reads each weight `as usize`, and over
-    `[ [ :A :B 1.0e300 ] [ :B :C 1.0e300 ] ]` from A to C answers `can not
-    calculate path` in both engines; the other four do not sum;
+    paths' sums. `graph.path` reads each weight `as usize` and sums in
+    `usize` unchecked (F227): a weight of 2^64 or more saturates at
+    `WEIGHT_MAX` and is never used, so `[ [ :A :B 1.0e300 ] [ :B :C
+    1.0e300 ] ]` from A to C answers `can not calculate path`; but a sum of
+    smaller weights past 2^64 wraps, and `[ [ :A :B 1.0e19 ] [ :B :C
+    1.0e19 ] ]` answers `found=true` at 2e19 − 2^64, both in both engines.
+    Where the new words refuse or answer exactly, `graph.path` answers a
+    wrong weight as found. The other four do not sum;
   - **edge order**: a re-given edge keeps its first place (S2);
   - **the `.` forms** answer to the workbench and refuse a missing operand
     as `Stack is too shallow …`, where the plain forms say `NO DATA #n`.
@@ -668,7 +720,9 @@ reported cycle exactly, against the exact relaxation.
     `allpath_misses_a_negative_cycle_its_potentials_round_away`,
     `allpath_misstates_a_distance_its_potentials_round_away` and
     `allpath_refuses_a_zero_weight_cycle_its_potentials_round` (F225,
-    D208), and
+    D208), `allpath_answers_f225s_programs_alike_on_every_run` and
+    `allpath_answers_vary_between_runs` (F226, D208's second note),
+    `path_wraps_a_sum_past_2_to_the_64` (F227, D210), and
     `mst_keeps_equal_weights_in_listed_order_negative_zero_included`. The
     `.` forms' workbench half: `the_workbench_is_counted` in `check.rs`.
 
@@ -743,5 +797,18 @@ reported cycle exactly, against the exact relaxation.
 | 1. `graph.allpath` misstates a distance with no cycle | **D208** covers it (the owner's ruling, its note): preserved; F225 note; "Current behaviour" states Johnson's three roundings and their three faces; the preservation analysis adds "a different distance where both answer"; test `allpath_misstates_a_distance_its_potentials_round_away`; criterion 11 |
 | 2. F225's zero-weight refusal was unrun | Run in both engines and recorded in F225's note and "Current behaviour"; test `allpath_refuses_a_zero_weight_cycle_its_potentials_round`; criterion 11 |
 | 3. S4 omits the guard | Listed in S4 |
-| 4. Smaller points | S5 says the `f64` side was measured at `1a587db` and cannot be re-taken, and gives the 6,000-node figure; the worst case is an open question; S5 states the family has no single rounding rule; the worst case accepted as it is in **D209**, A, and removed from the open questions |
+| 4. Smaller points | S5 says the `f64` side was measured at `1a587db` and cannot be re-taken, and gives the 6,000-node figure; S5 states the family has no single rounding rule; the worst case accepted as it is in **D209**, A, and removed from the open questions |
 | Assumed: `graph.allpath`'s finite rows are right | Stated otherwise under "Current behaviour" (F225) |
+
+## The ninth review, answered (2026-10-23)
+
+| Finding | Answer |
+|---|---|
+| 1. `graph.allpath`'s answer varies between runs | **D208** covers it (the owner's ruling, its second note): preserved; **F226**, new; F17 and F225 notes; "Current behaviour" adds the fourth face, Motivation says the answer varies as well as its order, and the preservation analysis states that Bund2 keeps the variation, not the oracle's run; tests `allpath_answers_f225s_programs_alike_on_every_run` (F225's programs over 200 maps each) and `allpath_answers_vary_between_runs`; criterion 11 |
+| 2. `graph.path` wraps a sum past 2^64; the debug build panicked | **D210**, A: preserved in every build; **F227**, new; `Cargo.toml` turns overflow checks off for `fast_paths` in the dev profile, so `cargo test` and `conform` see the reference's answer, not a panic; "Current behaviour" and the "overflow" bullet state saturation and the wrap; test `path_wraps_a_sum_past_2_to_the_64`; criterion 11 |
+| 3. D209 not listed | Added to "Decisions consumed", "Which points are rulings" and the status |
+| 4. The eighth table's row 4 contradicts itself | "the worst case is an open question" removed |
+| 5. Smaller points | D207's note of 2026-10-23 says the baseline is the parse, not the word's reading; S5 gives the measured 20,000-node figure; the `johnson.rs:86-87` paraphrase stands, as the review found it the same arithmetic |
+| Assumed: every reference graph word is a function of its program | Stated otherwise for `graph.allpath` (F226) |
+| Assumed: `graph.path`'s weights cannot wrap; fidelity independent of the build profile | Stated otherwise (F227), and made profile-independent (D210) |
+| Assumed: F225's programs are stable | Checked by `allpath_answers_f225s_programs_alike_on_every_run` |

@@ -597,6 +597,12 @@ programs and the subsystem is otherwise library-shaped.
   reference's order is unspecified, so node order deviates from nothing,
   whatever the family's scope.
 
+  *Note, 2026-10-23:* the fix makes the rows' order reproducible, not
+  `graph.allpath`'s answer. Its potentials walk the same `HashMap`, and
+  where rounding decides them one program can answer rows on one run and
+  refuse on another (F226, the ninth RFC-0012 review, finding 1), preserved
+  under D208. When it answers, the rows are the same and in node order.
+
 ## F18 — depth guards under-declare arity for 14 words
 A word normally opens with `if vm.stack.current_stack_len() < N { bail!("Stack
 is too shallow ...") }`. For 14 words that `N` is smaller than what the word
@@ -4229,6 +4235,69 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F227 — `graph.path` wraps a sum past 2^64
+
+**An original-implementation defect; found 2026-10-23 by the ninth
+RFC-0012 review (finding 2).** `graph.path` reads each weight `as usize`
+(`reference/Bund/src/stdlib/functions/graph/make_graph.rs:64`), and
+`fast_paths` adds weights with no check, in contraction
+(`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fast_paths-1.0.0/src/node_contractor.rs:75`)
+and in the query (`src/path_calculator.rs:145`). A release build wraps.
+Run on the oracle and on release Bund2, 2026-10-23:
+
+    :C :A [ [ :A :B 1.0e19 ] [ :B :C 1.0e19 ] ] [ :A :B :C ] graph! graph.path   → { found=true … weight=1553255926290448500.0 }
+
+The path weighs 2e19; the answer is that less 2^64. A single weight at or
+above 2^64 saturates at `usize::MAX`, which is `WEIGHT_MAX`
+(`src/constants.rs:22,26`), so no path through it is ever chosen: `:B :A [
+[ :A :B 1.0e300 ] ] [ :A :B ] graph! graph.path` answers `GRAPH.PATH: can
+not calculate path` for that reason, not because a sum was refused. Bund2's
+dev profile checked overflow, so `cargo test` and `xtask conform` saw a
+panic inside `fast_paths`, which D49 reported as a Bund2 defect.
+
+- `reference/Bund/src/stdlib/functions/graph/make_graph.rs:64`,
+  `fast_paths-1.0.0/src/node_contractor.rs:75`,
+  `src/path_calculator.rs:145`, `src/constants.rs:26`
+- Behavioural, in a core word (D14). Disposition: **PRESERVE** (2026-10-23,
+  D210, the repository owner's ruling). `Cargo.toml` turns overflow checks
+  off for `fast_paths` in the dev profile, so every build answers as the
+  reference's release build does. Test: `path_wraps_a_sum_past_2_to_the_64`
+  (`crates/bund2-stdlib/src/graph_algorithms.rs`).
+
+## F226 — `graph.allpath`'s answer varies between runs of one program
+
+**An original-implementation defect; found 2026-10-23 by the ninth
+RFC-0012 review (finding 1).** `algos` stores a graph as
+`HashMap<V, Vec<(V, W)>>`
+(`~/.cargo/git/checkouts/algos-9d1538761d16fda1/4c08437/src/cs/graph.rs:64-66`),
+and `edges()` iterates that map (`:150-154`), whose order is seeded afresh
+for each map. Johnson's potentials come from a Bellman–Ford over it
+(`src/cs/graph/johnson.rs:50-53`) that makes at most `|V| − 1` passes in
+that order and then refuses if any edge still relaxes
+(`src/cs/graph/bellman_ford.rs:63-101`). In exact arithmetic the order
+cannot matter; in `f64`, where rounding decides how many relaxations
+settle the potentials (F225), it can. Run by the review, 2026-10-23:
+
+    [ [ :S :A -100.0 ] [ :A :B 4.159226947493753 ] [ :B :C 2.819570687287843 ] [ :C :A -6.978797634781596 ] ] [ :S :A :B :C :Z ] graph! graph.allpath
+
+The cycle weighs exactly 0. The oracle answered `GRAPH.ALLPATH: returned:
+negative cycle detected in graph` on 17 of 150 runs and rows on the rest;
+Bund2 on 6 of 150. `[ [ :A :B -1.0e16 ] [ :B :C 1.0 ] [ :C :B -1.5 ] ]
+[ :A :B :C :Z ]`, whose cycle weighs −0.5, was refused on 3 of 100 runs in
+each engine and answered on the rest. Only the refusal varies: when the
+relaxation settles, the reweighting and Dijkstra are deterministic, and
+F17's fix orders the rows. Bund2's rate differs from the oracle's because
+its `HashMap` is a different build; both vary.
+
+- `~/.cargo/git/checkouts/algos-9d1538761d16fda1/4c08437/src/cs/graph.rs:64-66,150-154`,
+  `src/cs/graph/bellman_ford.rs:63-101`
+- Behavioural, in a core word (D14). Disposition: **PRESERVE** (2026-10-23,
+  D208's second note, the repository owner's ruling). Tests:
+  `allpath_answers_vary_between_runs`, and
+  `allpath_answers_f225s_programs_alike_on_every_run`, which runs each of
+  F225's programs over 200 maps and requires one answer
+  (`crates/bund2-stdlib/src/graph_algorithms.rs`).
+
 ## F225 — `graph.allpath` misses a negative cycle its potentials round away
 
 **An original-implementation defect; found 2026-10-22 by the seventh
@@ -4287,6 +4356,14 @@ D207's first program showed for `graph.bellmanford`.
   answers 14 rows. D208 covers both faces (its note). Tests:
   `allpath_misstates_a_distance_its_potentials_round_away`,
   `allpath_refuses_a_zero_weight_cycle_its_potentials_round`.
+
+- **Note, 2026-10-23 — a fourth face, which varies between runs** (the
+  ninth RFC-0012 review, `docs/rfc/reviews/RFC-0012-review-2026-10-23.md`,
+  finding 1). The potentials' Bellman–Ford walks `algos`' `HashMap`, so for
+  some programs the rounding above decides the answer on one run and not
+  the next. Recorded as F226, preserved under D208. This entry's programs
+  are stable: each answers alike over 200 maps
+  (`allpath_answers_f225s_programs_alike_on_every_run`).
 
 ## F224 — on today's tree the tier retires more instructions than no tier on three of criterion 7's rows
 

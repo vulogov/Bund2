@@ -3653,6 +3653,43 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D210 — F227: `graph.path` wraps a sum past 2^64
+
+**Raised 2026-10-23** by RFC-0012's ninth review
+(`docs/rfc/reviews/RFC-0012-review-2026-10-23.md`, finding 2). The
+reference reads each weight `as usize`
+(`reference/Bund/src/stdlib/functions/graph/make_graph.rs:64`), and
+`fast_paths` sums them unchecked, in contraction
+(`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fast_paths-1.0.0/src/node_contractor.rs:75`)
+and in the query (`src/path_calculator.rs:145`). The reference's release
+build wraps:
+
+    :C :A [ [ :A :B 1.0e19 ] [ :B :C 1.0e19 ] ] [ :A :B :C ] graph! graph.path
+
+answers `found=true` at `1553255926290448500.0`, 2e19 − 2^64, in the
+oracle and in release Bund2. Bund2's dev profile, which `cargo test` and
+`cargo xtask conform` build, checks overflow, so there the same program
+panicked inside `fast_paths`; D49 caught it and reported a valid program as
+a Bund2 defect. Recorded as **F227**.
+
+- Blocks: RFC-0012's acceptance
+- Depends on: F227, D14 (the family is core), D37 and D49 (the panic),
+  D193 §5 and F219 (`graph.path`'s last answer ruled)
+- Options:
+  - **A. Preserve the wrap.** Answer as the reference does in every
+    build: the dev profile turns overflow checks off for `fast_paths`, so
+    the panic cannot occur. No deviation.
+  - **B. Refuse a path that could wrap.** Sum the kept weights in `u128`
+    before calling `fast_paths` and answer `GRAPH.PATH: can not calculate
+    path` past `usize::MAX`. A deviation in a core word.
+- Recommendation: **A**, as D200, D203 and D208 chose for the reference's
+  crates.
+- Default for planning: A. Not adopted.
+- Status: **RESOLVED** by the repository owner, 2026-10-23: A ("A.
+  Preserve the wrap"). `Cargo.toml` sets `[profile.dev.package.fast_paths]
+  overflow-checks = false`; `path_wraps_a_sum_past_2_to_the_64` pins the
+  answer, and RFC-0012 states it.
+
 ## D209 — `graph.bellmanford`'s worst-case cost under exact relaxation
 
 **Raised 2026-10-23** from RFC-0012's open questions, which the eighth
@@ -3734,6 +3771,22 @@ refuses a cycle of weight exactly zero beside `h_A` = −1000.0 (F225's
 note). The repository owner ruled on 2026-10-22 that D208 covers both
 ("D208 covers it"): preserved, with no change to the word. RFC-0012
 states them; the two tests are named in F225's note.
+
+**Dated note, 2026-10-23 — D208 covers an answer that varies between
+runs** (RFC-0012's ninth review,
+`docs/rfc/reviews/RFC-0012-review-2026-10-23.md`, finding 1). `algos`
+keeps its edges in a `HashMap` seeded afresh for each graph
+(`~/.cargo/git/checkouts/algos-9d1538761d16fda1/4c08437/src/cs/graph.rs:64-66`),
+and `edges()` walks that map (`:150-154`). The potentials' Bellman–Ford
+makes at most `|V| − 1` passes in that order and then tests for a cycle
+(`src/cs/graph/bellman_ford.rs:63-101`). Where rounding decides how many
+passes settle the potentials, the order decides whether the cycle test
+fires, so one program answers rows on one run and refuses on another, in
+both engines; the rows, when answered, do not vary. F226 records it. The
+repository owner ruled on this date that D208 covers it ("A. D208 covers
+it"): preserved, with no change to the word. F225's programs answer alike
+on every run (`allpath_answers_f225s_programs_alike_on_every_run`), and
+`allpath_answers_vary_between_runs` pins F226's.
 
 ## D207 — `graph.bellmanford`'s cycle test depends on rounding
 
@@ -3868,6 +3921,15 @@ Answered from the same review:
   program ending `graph! drop drop` for the reading alone. Re-taken on
   this date, macOS arm64, release, median of seven runs of `bund2 script
   --file`: about 120 ms against about 10 ms.
+
+**Dated note, 2026-10-23 — the baseline is the parse, not the reading**
+(RFC-0012's ninth review, finding 5). The program ending `graph! drop drop`
+parses the literal and builds the MAP; `graph.bellmanford` reads the graph
+into its own form inside the word, so the baseline leaves that reading out
+and the difference charges it to the relaxation. Measured by the review on
+macOS arm64, release: the parse is about 5 ms at 2,000 nodes, 0.12 s at
+6,000 and 1.2 s at 20,000, where the whole program took 12.0 s. D209's
+extrapolated "about 11 s" holds as measured.
 
 ## D206 — `graph.path`'s F219 case: the reference's own no-path error, or `found=false`?
 
