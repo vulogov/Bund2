@@ -420,7 +420,7 @@ listed backwards, which needs every pass, takes about 100 ms against about
 measured at `1a587db`, and only the exact side can be re-taken since
 `5b8db1a` removed it). The cost is per relaxation, so the worst case stays
 quadratic in nodes: the same chain at 6,000 nodes took 0.97 s, which puts
-20,000 at about 11 s (an open question below). On random graphs of 400 nodes and 4,000 edges the
+20,000 at about 11 s, a cost the owner accepted (**D209**, A). On random graphs of 400 nodes and 4,000 edges the
 difference is within noise. `the_exact_run_scales_with_the_weights`,
 `exact_sums_round_once_to_the_nearest_f64` and
 `bellman_ford_agrees_with_an_exact_floyd_warshall_over_fractional_weights`
@@ -679,10 +679,6 @@ reported cycle exactly, against the exact relaxation.
   word look its operands up as given.
 - **Caching a read graph** (S5): not proposed; it would need a derived
   form that a `set` on the MAP invalidates.
-- **`graph.bellmanford`'s worst case** (S5): exact relaxation keeps the
-  quadratic bound and multiplies it by about 14, so a 20,000-node chain
-  listed backwards would take about 11 s. Nothing has ruled whether that
-  is acceptable; it is not a criterion.
 
 ## The third review, answered (2026-10-20)
 
@@ -747,5 +743,5 @@ reported cycle exactly, against the exact relaxation.
 | 1. `graph.allpath` misstates a distance with no cycle | **D208** covers it (the owner's ruling, its note): preserved; F225 note; "Current behaviour" states Johnson's three roundings and their three faces; the preservation analysis adds "a different distance where both answer"; test `allpath_misstates_a_distance_its_potentials_round_away`; criterion 11 |
 | 2. F225's zero-weight refusal was unrun | Run in both engines and recorded in F225's note and "Current behaviour"; test `allpath_refuses_a_zero_weight_cycle_its_potentials_round`; criterion 11 |
 | 3. S4 omits the guard | Listed in S4 |
-| 4. Smaller points | S5 says the `f64` side was measured at `1a587db` and cannot be re-taken, and gives the 6,000-node figure; the worst case is an open question; S5 states the family has no single rounding rule |
+| 4. Smaller points | S5 says the `f64` side was measured at `1a587db` and cannot be re-taken, and gives the 6,000-node figure; the worst case is an open question; S5 states the family has no single rounding rule; the worst case accepted as it is in **D209**, A, and removed from the open questions |
 | Assumed: `graph.allpath`'s finite rows are right | Stated otherwise under "Current behaviour" (F225) |

@@ -3653,6 +3653,36 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D209 — `graph.bellmanford`'s worst-case cost under exact relaxation
+
+**Raised 2026-10-23** from RFC-0012's open questions, which the eighth
+review (`docs/rfc/reviews/RFC-0012-review-2026-10-22-3.md`, finding 4)
+asked to be stated or ruled. D207 made the relaxation exact, at about 14
+times `f64`'s cost per relaxation. Bellman–Ford's bound stays quadratic in
+nodes, so the worst case grows by the same factor: measured on macOS arm64,
+release, a chain listed backwards takes about 100 ms at 2,000 nodes and
+0.97 s at 6,000, which puts 20,000 at about 11 s. On random graphs of 400
+nodes and 4,000 edges the difference is within noise (RFC-0012 §S5).
+
+- Blocks: RFC-0012's acceptance (an open question)
+- Depends on: D207
+- Options:
+  - **A. Accept as is.** The cost is stated in RFC-0012 §S5 and is not a
+    criterion. No code changes.
+  - **B. Accept, and pin it.** A, plus a criterion and a bench bounding
+    the 2,000-node chain.
+  - **C. Add an exact fast path.** Relax in `i128` when every weight fits
+    a shared scale, and in the 34-limb `Exact` otherwise; the answers are
+    the same.
+  - **D. Refuse large graphs.** Lower the 2^76 guard to a size limit, a
+    new refusal.
+- Recommendation: **A**. The ×14 falls on input built to need every
+  pass, and the quadratic shape is Bellman–Ford's, not `Exact`'s.
+- Default for planning: A. Not adopted.
+- Status: **RESOLVED** by the repository owner, 2026-10-23: A ("A. Accept
+  as is"). RFC-0012 moves the question from its open questions to §S5's
+  cost, as accepted; nothing in the word changes.
+
 ## D208 — F225: `graph.allpath` misses a negative cycle its potentials round away
 
 **Raised 2026-10-22** by RFC-0012's seventh review
