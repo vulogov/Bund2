@@ -168,7 +168,7 @@ order: its potentials walk `algos`' `HashMap` (F226, below).
   Bund2 defect.
 - **An unknown end node is reported with the start node's name**:
   `GRAPH.PATH: unknown end node: <start>` (`getpath.rs:69-71`). Bund2
-  reproduces it (`crates/bund2-stdlib/src/graph.rs:253`,
+  reproduces it (`graph_path` in `crates/bund2-stdlib/src/graph.rs`,
   `graph_path_looks_its_nodes_up_as_given`).
 - **A weight that is not finite reaches the `algos` words.** Programs make
   one in both engines (`-1.0 math.sqrt` is NaN; `1.0e200 1.0e200 *` is
