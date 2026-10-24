@@ -17,8 +17,10 @@
 //!   same two nodes, in the same direction, replaces the first, as `algos`'
 //!   `Graph::add_edge` does. Unlike `graph.paths`, a weight that is not
 //!   finite is refused (D193). `graph.path` reads differently (F101's note).
-//!   A node operand is Title-cased, which no reference word does (F218):
-//!   D192's choice, so a node is found the way `nodes` spelled it.
+//!   A node operand is looked up as given, as every reference word looks
+//!   its operands up (F218; D211, which reversed D192's Title-casing), so
+//!   `:my_node` does not find the node `nodes` listed as `:my_node`, which
+//!   reads as `My Node`.
 //! - **Every answer is in the order of the `nodes` list** (§4), so it prints
 //!   the same on every run.
 //! - **An impossible question is an error** (§5) a program can catch with
@@ -189,8 +191,10 @@ fn operand(vm: &mut dyn Vm, word: &str) -> Result<Net, Error> {
     read(&nodes, &edges, word)
 }
 
-/// Pull a node's name, the `n`th operand, and find it in `net`. `role` is
-/// how a refusal names it: "start", or empty for plain "node".
+/// Pull a node's name, the `n`th operand, and find it in `net` **as
+/// given**, untrimmed and not Title-cased, as `graph.paths` and
+/// `graph.path` find theirs (D211). `role` is how a refusal names it:
+/// "start", or empty for plain "node".
 fn node_operand(
     vm: &mut dyn Vm,
     net: &Net,
@@ -206,7 +210,7 @@ fn node_operand(
     } else {
         format!("{role} ")
     };
-    let name = v.as_str().map(|s| node_name(&s)).ok_or_else(|| {
+    let name = v.as_str().ok_or_else(|| {
         Error(format!(
             "{word}: the {role}node must be a STRING, not {}",
             v.type_name()
@@ -1321,13 +1325,32 @@ mod tests {
         assert!(d.contains("in=2") && d.contains("out=1"), "{d}");
     }
 
-    /// A node operand is Title-cased as the graph's names are, unlike
-    /// `graph.paths`' start node.
+    /// A node operand is looked up as given, as `graph.paths`' start node
+    /// is (D211): `:A` finds `A`, and `:a`, `" A"` and `:my_node` find
+    /// nothing, though the graph's own names are Title-cased as read.
     #[test]
-    fn a_node_operand_is_title_cased() {
+    fn a_node_operand_is_looked_up_as_given() {
         assert_eq!(
-            top(&format!(":a {DAG} graph.bfs")),
+            top(&format!(":A {DAG} graph.bfs")),
             l(&["A", "B", "C", "D", "E"])
+        );
+        // `graph.paths` and its drop-in `graph.bellmanford` now agree.
+        for word in ["graph.bfs", "graph.bellmanford", "graph.paths"] {
+            assert!(run_src(&format!(":a {DAG} {word}")).is_err(), "{word}");
+        }
+        let e = err_of(&format!(":a {DAG} graph.bellmanford"));
+        assert!(
+            e.contains("GRAPH.BELLMANFORD: unknown start node: a"),
+            "{e}"
+        );
+        let e = err_of(&format!("\" A\" {DAG} graph.reachable"));
+        assert!(e.contains("GRAPH.REACHABLE: unknown start node:  A"), "{e}");
+        let g = "[ [ :my_node :B 1.0 ] ] [ :my_node :B ] graph!";
+        let e = err_of(&format!(":my_node {g} graph.bfs"));
+        assert!(e.contains("GRAPH.BFS: unknown start node: my_node"), "{e}");
+        assert_eq!(
+            top(&format!("\"My Node\" {g} graph.bfs")),
+            l(&["My Node", "B"])
         );
         let e = err_of(&format!(":Z {DAG} graph.bfs"));
         assert!(e.contains("GRAPH.BFS: unknown start node: Z"), "{e}");
@@ -1757,7 +1780,7 @@ mod tests {
             e.contains("GRAPH.MAXFLOW: the sink node must be a STRING"),
             "{e}"
         );
-        let e = err_of(&format!(":a :A {DAG} graph.maxflow"));
+        let e = err_of(&format!(":A :A {DAG} graph.maxflow"));
         assert!(
             e.contains("GRAPH.MAXFLOW: the source and the sink are one node: A"),
             "{e}"
@@ -1867,7 +1890,7 @@ mod tests {
             "{e}"
         );
         // One node as both ends is refused before any capacity is looked at.
-        let e = err_of(":A :a [ [ :A :B -1.0 ] ] [ :A :B ] graph! graph.maxflow");
+        let e = err_of(":A :A [ [ :A :B -1.0 ] ] [ :A :B ] graph! graph.maxflow");
         assert!(
             e.contains("GRAPH.MAXFLOW: the source and the sink are one node: A"),
             "{e}"

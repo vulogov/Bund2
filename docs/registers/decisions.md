@@ -3653,6 +3653,64 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D212 — Caching a read graph
+
+**Raised 2026-10-23** from RFC-0012's open questions. Every graph word
+reads the MAP into its own form on each call, as the reference's words do
+(`reference/Bund/src/stdlib/functions/graph/dijkstra.rs:44`,
+`allshortpath.rs:44`, `transitiveclosure.rs:44`, `getpath.rs:44`), at a
+cost in proportion to nodes plus edges before the algorithm starts.
+Caching that form would need a derived value that any `set` on the MAP
+invalidates.
+
+- Blocks: RFC-0012's acceptance (an open question)
+- Depends on: D192
+- Options:
+  - **A. No cache; close the question.** The reference caches nothing;
+    reading is linear and every algorithm in the family is at least
+    linear, so a cache could at most halve a call; and invalidation
+    belongs to the value model (RFC-0001), not to the graph words. A
+    later RFC can raise it with a measured program.
+  - **B. Defer to its own RFC.** Keep it as named future work.
+- Recommendation: **A**.
+- Default for planning: A. Not adopted.
+- Status: **RESOLVED** by the repository owner, 2026-10-23: A ("A. No
+  cache; close it"). RFC-0012's S5 states it and the open question is
+  removed; nothing in the words changes.
+
+## D211 — Node operand casing across the graph family
+
+**Raised 2026-10-23** from RFC-0012's open questions. D192 had the twelve
+new words trim and Title-case a node operand (`node_name`,
+`crates/bund2-stdlib/src/graph.rs`), so a program finds a node by the
+spelling it gave in `nodes`. The seven reference words look their operands
+up as given: `graph.paths` its start
+(`reference/Bund/src/stdlib/functions/graph/dijkstra.rs:52-58`) and
+`graph.path` both ends (`getpath.rs:53-60`, `:65-71`; F218). So the family
+was split: `graph.paths` refused `:a` where `graph.bellmanford`, offered as
+its drop-in, took it; and since Title case splits words, `:ab`, `:AB` and
+`"Ab"` all found the node listed as `:AB`.
+
+- Blocks: RFC-0012's acceptance (an open question)
+- Depends on: D192 (its operand rule and note), F218, D14
+- Options:
+  - **A. Keep D192.** The new words Title-case; the split stays, stated.
+  - **B. As given, everywhere.** The new words look operands up as given,
+    as the seven do: one rule for the family, and the swap between
+    `graph.paths` and `graph.bellmanford` works both ways. A program
+    names a node by its Title-cased form, as it must for the reference
+    words.
+  - **C. Title-case everywhere.** The seven Title-case too, undoing F218's
+    fix: a deviation in seven core words.
+- Recommendation: **B**.
+- Default for planning: none. Not adopted.
+- Status: **RESOLVED** by the repository owner, 2026-10-23: B ("B. As
+  given, everywhere"). D192's operand rule is reversed: `node_operand`
+  (`crates/bund2-stdlib/src/graph_algorithms.rs`) no longer trims or
+  Title-cases, and the graph's own names are still Title-cased as read.
+  Test: `a_node_operand_is_looked_up_as_given`. No golden moves; the
+  twelve words have none.
+
 ## D210 — F227: `graph.path` wraps a sum past 2^64
 
 **Raised 2026-10-23** by RFC-0012's ninth review
@@ -4958,6 +5016,11 @@ cross-check every source and sink.
 exist in `graph_algorithms.rs` (the fourth RFC-0012 review). What it would
 have checked is covered by `a_weight_that_is_not_finite_is_refused`, all
 twelve words, and `each_refusal_section_s4_names`.
+
+**Dated note, 2026-10-23 — the operand rule reversed by D211.** "A node
+operand is Title-cased" no longer holds: on the owner's ruling (D211, B)
+the twelve words look a node operand up as given, as the reference's seven
+do. The graph's names are still Title-cased as read (§3).
 
 ## D191 — the debugger: catch, hit counts, until, what changed, conditional and redefinition watches, the trace, and the console's history
 

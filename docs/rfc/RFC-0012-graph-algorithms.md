@@ -56,12 +56,14 @@
   `usize::MAX` used, not ignored, since it wraps like any other (F227
   note; **D210** covers it, its note), and "in every build" scoped to
   builds rooted in this workspace. The rest is answered in place, and
-  listed at the end.
+  listed at the end. The owner then closed the two open questions: a node
+  operand is looked up as given across the family (**D211**, B, reversing
+  D192's Title-casing), and a read graph is not cached (**D212**, A).
 - Depends on: RFC-0002 (natives and their declared effects), RFC-0004
   (the effects `bund2 check` reads, and the residual stack), RFC-0005
   (which natives Tier 1 promotes)
 - Decisions consumed: D192 (and its notes of 2026-10-18), D193, D198,
-  D199, D200, D202, D203, D206, D207, D208, D209, D210, D14, D18, D24, D111 (and its note of 2026-10-07), D37, D38,
+  D199, D200, D202, D203, D206, D207, D208, D209, D210, D211, D212, D14, D18, D24, D111 (and its note of 2026-10-07), D37, D38,
   D39, D48, D49, D55, D195; the dispositions of F17, F218, F219, F220,
   F225, F226 and F227.
 - Registers searched by subject ("graph", the nineteen word names,
@@ -320,14 +322,15 @@ because it keeps a fractional or negative weight, which `graph.mst` and
   `algos` moves it to the end), so "the order the graph lists its edges"
   below means first appearance.
 
-**A node operand is trimmed and Title-cased** (`node_name`, `graph.rs`),
-as the graph's own names are, so a
-program finds a node by the spelling it gave in `nodes`. No reference
-word does this (F218); it is D192's choice. It splits the family —
-`graph.paths` refuses `:a` where `graph.bellmanford` takes it — and,
-because Title case splits words, it also finds a node by spellings the
-program never wrote: `:ab`, `:AB` and `"Ab"` all name the node listed as
-`:AB`, and `:my_node` names the one listed as `"My Node"`.
+**A node operand is looked up as given** (`node_operand`,
+`graph_algorithms.rs`), untrimmed and not Title-cased, as every reference
+word looks its operands up: `graph.paths` its start (`dijkstra.rs:52-58`)
+and `graph.path` both ends (`getpath.rs:53-60`, `:65-71`; F218). The
+graph's own names are Title-cased as read, so a program names a node by
+its Title-cased form: `[ :my_node ]` lists a node named `My Node`, which
+`"My Node"` finds and `:my_node` does not. One rule holds across the
+family, so `graph.paths` and `graph.bellmanford` refuse the same operands
+(**D211**, B, which reversed D192's Title-casing).
 
 ### S3. Order
 
@@ -512,7 +515,9 @@ that are not whole numbers, a share in `edges` can be of rounding size.
 **Every word reads the graph afresh on each call**, as the reference's
 words do: the MAP is the graph, and nothing is cached beside it. Each
 call costs time in proportion to nodes plus edges before the algorithm
-starts.
+starts. That is the design, not a gap (**D212**, A): every algorithm here
+is at least linear, so a cache could at most halve a call, and
+invalidating one on a `set` belongs to the value model (RFC-0001).
 
 ### S6. The tiers
 
@@ -532,7 +537,7 @@ meaning.
 ## Which points are rulings
 
 Accepting this RFC accepts the following. The owner ruled on these
-(D192, D193, D198, D199, D200, D202, D203, D206, D207, D208, D209, D210): the twelve words
+(D192, D193, D198, D199, D200, D202, D203, D206, D207, D208, D209, D210, D211, D212): the twelve words
 and nothing more;
 Bund2's own implementation; the graph read as `graph.paths` reads it,
 directed; node order everywhere, and F17 fixed by it; values for answers
@@ -547,12 +552,12 @@ the last node preserved (F220, D200), its refusal of a graph with no cycle
 included (D203); and its rounding preserved, a misstated distance and a
 missed or false cycle, and an answer that varies between runs (F225,
 F226, D208 and its notes); and `graph.path`'s wrapped `usize` sum
-preserved in every build (F227, D210).
+preserved in every build (F227, D210); a node operand looked up as
+given by every word (D211); and no cache beside the MAP (D212).
 
 These are D192's build choices, which D192 says can be overruled, and
 which acceptance would ratify:
 
-- a node operand Title-cased (S2);
 - a re-given edge keeping its first place with its last weight (S2);
 - a `.` form for each of the twelve (S1);
 - which node each cycle error names (S4);
@@ -612,8 +617,8 @@ which acceptance would ratify:
     behaviour");
   - **non-finite weights**: `graph.paths` answers `path=NaN`, and the new
     words refuse the graph (D193 §3);
-  - **operand casing**: the new words Title-case a node operand and the
-    seven do not (S2);
+  - **operand casing**: none; all nineteen look a node operand up as
+    given (S2, D211);
   - **negative weights**: `graph.paths` refuses one Dijkstra meets,
     `graph.allpath` drops rows or refuses a graph with no cycle as F220
     says, or as rounding decides (F225): a distance misstated with no
@@ -659,7 +664,7 @@ representation), integer weights (one graph meaning two things), a
 NODATA for an impossible question (no reason given, easily passed along),
 and `graph.path`'s `found` MAP for every answer. D192's note adds
 `graph.path`'s reader for the new words, and looking a node operand up as
-given. D193 records the rest: a tolerance in `graph.maxflow` (wrong
+given, which D211 later chose. D193 records the rest: a tolerance in `graph.maxflow` (wrong
 answers when capacities differ in scale), computing the smallest node on
 every reachable negative cycle (one more search per node), specifying
 NaN and ±inf answers instead of refusing them, and an ordinary error for
@@ -707,7 +712,7 @@ reported cycle exactly, against the exact relaxation.
    `graph.paths`, `graph.allpath` and `graph.transitiveclosure` over
    `nodes` `[ :C :A :B ]`, twenty times in one process.
 6. **S1's answers and S4's refusals**, through the interpreter:
-   `traversals_answer_in_node_order`, `a_node_operand_is_title_cased`,
+   `traversals_answer_in_node_order`, `a_node_operand_is_looked_up_as_given`,
    `structure_words_answer_lists_of_lists`,
    `a_cycle_has_no_topological_order`, `weighted_words_answer_maps`,
    `a_repeated_edge_takes_its_last_weight`,
@@ -767,11 +772,8 @@ reported cycle exactly, against the exact relaxation.
 
 ## Open questions
 
-- **Operand casing across the family** (S2). D192 keeps Title-casing for
-  the new words; the owner can reverse it, which would make every graph
-  word look its operands up as given.
-- **Caching a read graph** (S5): not proposed; it would need a derived
-  form that a `set` on the MAP invalidates.
+None. The last two were closed on 2026-10-23: operand casing by D211
+(B, as given everywhere) and caching by D212 (A, none).
 
 ## The third review, answered (2026-10-20)
 
