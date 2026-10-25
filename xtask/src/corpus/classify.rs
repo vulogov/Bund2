@@ -472,6 +472,9 @@ pub struct Deferral {
 /// `stat.count`, `stat.mean.arithmetic`), in all four forms each, built
 /// without the reference's `rstats`. The geometric, harmonic and weighted
 /// means stay under D28 until their formulas are read at the pinned version.
+/// *(2026-10-25: D213 took them in, and with them the whole directory, which
+/// has left [`DEFERRED_PATHS`]; these sixteen rows are now redundant and kept
+/// as D175's record.)*
 const IN_SCOPE_WORDS: &[(&str, &str)] = &[
     ("math.max", "D175"),
     ("math.max,", "D175"),
@@ -489,6 +492,23 @@ const IN_SCOPE_WORDS: &[(&str, &str)] = &[
     ("stat.mean.arithmetic,", "D175"),
     ("stat.mean.arithmetic.", "D175"),
     ("stat.mean.arithmetic.,", "D175"),
+    // D214, 2026-10-25: the text and colour half of `bund/console`, which
+    // print once and return. The spinners and the three timed effects stay
+    // under D15.
+    ("console.text", "D214"),
+    ("console.text.red", "D214"),
+    ("console.text.green", "D214"),
+    ("console.text.blue", "D214"),
+    ("console.text.magenta", "D214"),
+    ("console.text.cyan", "D214"),
+    ("console.text.yellow", "D214"),
+    ("console.text.randomcolor", "D214"),
+    ("console.text.ok", "D214"),
+    ("console.text.warning", "D214"),
+    ("console.text.error", "D214"),
+    ("console.box", "D214"),
+    ("console.clear", "D214"),
+    ("console.title", "D214"),
 ];
 
 /// Registration paths that are out of scope, longest prefix first.
@@ -546,23 +566,11 @@ const DEFERRED_PATHS: &[(&str, Deferral)] = &[
                      from the whole directory to this file)",
         },
     ),
-    (
-        "Bund/src/stdlib/functions/forecast",
-        Deferral {
-            decision: "D28",
-            reason: "augurs forecasting — not essential",
-        },
-    ),
-    // D175 took sixteen of these names back into scope — see
-    // `IN_SCOPE_WORDS`, which is consulted first.
-    (
-        "Bund/src/stdlib/functions/statistics",
-        Deferral {
-            decision: "D28",
-            reason: "42 registered names, zero corpus uses — not essential \
-                     (sixteen names in scope since D175)",
-        },
-    ),
+    // `bund/forecast` is no longer here: D215 (2026-10-25) brought it into
+    // scope, in the default build.
+    // `bund/statistics` is no longer here: D175 took sixteen of its names
+    // into scope and D213 (2026-10-25) the other twenty-four, so the whole
+    // directory is in scope.
 ];
 
 pub struct Classifier;

@@ -1,0 +1,33 @@
+# golden for tests/probes/console-text.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: console.text and its colours print one line each
+plain
+red
+green
+blue
+magenta
+cyan
+yellow
+probe: a number is converted
+42
+3.5
+probe: the fades print one line each
+all is well
+careful
+broken
+probe: console.box pushes the box
+╔═══════╗
+║ boxed ║
+╚═══════╝
+probe: console.title and console.clear print escapes only
+]0;A titleafter
+╭───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Value { id: "<id>", stamp: <stamp>, dt: 4, q: 100.0, data: String("╔══════════════╗\n║ World! Hello ║\n╚══════════════╝"), attr: [], curr: -1, tags: {"stack": "main"} } │
+╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭╮
+╰╯

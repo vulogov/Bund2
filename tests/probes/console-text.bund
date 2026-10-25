@@ -1,0 +1,42 @@
+//
+// Probe: the text and colour half of `bund/console` (D214).
+//
+// A golden strips ANSI, so what this pins is the text each word prints and
+// that each prints one line: the colours and fades are pinned by the unit
+// tests in `console_text.rs`, against the escapes `rusty-termcolor` 0.1.62
+// writes. `console.text.randomcolor` is not here: its colour escape varies by
+// run, and the debugger's stepping test compares a probe's raw bytes. What
+// else this pins:
+//
+//   - **`console.text` converts**: a number prints as its text.
+//   - **`console.box` pushes** its box, which `println` then prints; a
+//     message of two lines is boxed as two rows, padded to the longer.
+//   - **`console.title` and `console.clear`** print escapes only, and no
+//     newline.
+//
+"probe: console.text and its colours print one line each" println
+"plain" console.text
+"red" console.text.red
+"green" console.text.green
+"blue" console.text.blue
+"magenta" console.text.magenta
+"cyan" console.text.cyan
+"yellow" console.text.yellow
+
+"probe: a number is converted" println
+42 console.text
+3.5 console.text.red
+
+"probe: the fades print one line each" println
+"all is well" console.text.ok
+"careful" console.text.warning
+"broken" console.text.error
+
+"probe: console.box pushes the box" println
+"boxed" console.box println
+"Hello" "World!" " " swap + + console.box
+
+"probe: console.title and console.clear print escapes only" println
+"A title" console.title
+console.clear
+"after" println

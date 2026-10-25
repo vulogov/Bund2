@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 352 promotable of 361 reached, of 443 fixed-effect natives; 9 reached natives
+# 366 promotable of 375 reached, of 457 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -82,6 +82,20 @@ compile.
 complex
 complex.
 conditional
+console.box
+console.clear
+console.text
+console.text.blue
+console.text.cyan
+console.text.error
+console.text.green
+console.text.magenta
+console.text.ok
+console.text.randomcolor
+console.text.red
+console.text.warning
+console.text.yellow
+console.title
 context
 context.
 convert.from_html

@@ -17,6 +17,10 @@
 //! quoted at [`amean`]. The geometric, harmonic and weighted means stay under
 //! D28.)*
 //!
+//! *(2026-10-25, D213: they do not. The other twenty-four names, six means in
+//! four forms, are in scope and call `rstats` 2.1.15 itself, which D215's
+//! forecasting links in any case; see [`rstats_mean`].)*
+//!
 //! **`get_data` has three sources and the top of the stack chooses.** A LIST
 //! is taken whole, a METRICS yields each sample's `data`, and anything else
 //! **drains the stack** value by value until it empties or meets a `NODATA`
@@ -42,13 +46,18 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
 /// Whether the source value survives being read — the reference's
 /// `statistics::SourceMode`.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Mode {
+pub(crate) enum Mode {
     Consume,
     Keep,
 }
 
 /// The series a word is to work on.
-fn get_data(vm: &mut dyn Vm, side: Side, mode: Mode, prefix: &str) -> Result<Vec<f64>, Error> {
+pub(crate) fn get_data(
+    vm: &mut dyn Vm,
+    side: Side,
+    mode: Mode,
+    prefix: &str,
+) -> Result<Vec<f64>, Error> {
     let shallow = || match side {
         Side::Stack => Error(format!("Stack is too shallow for inline {prefix}")),
         Side::Bench => Error(format!("Workbench is too shallow for inline {prefix}")),
@@ -279,6 +288,43 @@ fn amean(vm: &mut dyn Vm, side: Side, mode: Mode, prefix: &str) -> Result<(), Er
     Ok(())
 }
 
+/// **D213's six means**, each `rstats` 2.1.15's own method over the series
+/// (`reference/Bund/src/stdlib/functions/statistics/statistics.rs:27-33`):
+/// the crate is a dependency, pinned to the reference's version, so every
+/// answer and refusal is its own to the bit. A failure of the reader or of
+/// the method is `{prefix} returned: ..` (`statistics.rs:38,47`), and the
+/// answer is a FLOAT (`:42-43`).
+fn rstats_mean(
+    vm: &mut dyn Vm,
+    side: Side,
+    mode: Mode,
+    prefix: &str,
+    mean: fn(&[f64]) -> Result<f64, rstats::RE>,
+) -> Result<(), Error> {
+    let source = get_data(vm, side, mode, prefix)
+        .map_err(|e| Error(format!("{prefix} returned: {}", e.0)))?;
+    let res = mean(&source).map_err(|e| Error(format!("{prefix} returned: {e}")))?;
+    side.push(vm, BundValue::float(res));
+    Ok(())
+}
+
+macro_rules! rstats_means {
+    ($($name:ident => $method:ident),* $(,)?) => {$(
+        fn $name(vm: &mut dyn Vm, side: Side, mode: Mode, prefix: &str) -> Result<(), Error> {
+            use rstats::Stats;
+            rstats_mean(vm, side, mode, prefix, |s| s.$method())
+        }
+    )*};
+}
+rstats_means!(
+    awmean => awmean,
+    gmean => gmean,
+    gwmean => gwmean,
+    hmean => hmean,
+    hwmean => hwmean,
+    hspread => hmad,
+);
+
 /// `seq.asc` and `seq.desc` — a range of floats.
 ///
 /// **Three operands, pulled x then step then n**, so the stack reads
@@ -453,6 +499,34 @@ pub fn register(r: &mut Registry) {
     stat_forms!("math.min", minimum, "MATH.MIN");
     stat_forms!("stat.count", count, "STAT.COUNT");
     stat_forms!("stat.mean.arithmetic", amean, "STAT.MEAN.ARITHMETICMEAN");
+    // **D213's twenty-four**, with the prefixes the reference passes
+    // (`statistics.rs:71-175`): the weighted arithmetic mean's is not its name.
+    stat_forms!(
+        "stat.mean.arithmeticweighted",
+        awmean,
+        "STAT.MEAN.ARITHMETICWEIGHTEDMEAN"
+    );
+    stat_forms!("stat.mean.geometric", gmean, "STAT.MEAN.GEOMETRIC");
+    stat_forms!(
+        "stat.mean.geometricweighted",
+        gwmean,
+        "STAT.MEAN.GEOMETRICWEIGHTED"
+    );
+    stat_forms!("stat.mean.harmonic", hmean, "STAT.MEAN.HARMONIC");
+    stat_forms!(
+        "stat.mean.harmonicweighted",
+        hwmean,
+        "STAT.MEAN.HARMONICWEIGHTED"
+    );
+    stat_forms!(
+        "stat.mean.harmonicspread",
+        hspread,
+        "STAT.MEAN.HARMONICSPREAD"
+    );
+    // `stat.mean` is an alias, not a word, which came into scope with the
+    // directory (`reference/Bund/src/stdlib/functions/create_aliases.rs:24-25`).
+    r.register_alias("stat.mean", "stat.mean.arithmetic");
+    r.register_alias("stat.mean.", "stat.mean.arithmetic.");
 
     r.register_native("seq.asc", asc, eff(3, 1), WordKind::Sync);
     crate::wb::bench!(r, "seq.asc", asc, 3, 0);
@@ -645,6 +719,54 @@ mod tests {
 
     /// **`,` keeps a LIST, and the answer sits on top of it.** A drain keeps
     /// nothing, as for `math.normalize,`.
+    /// **D213's refusals**, each in `rstats`' own words under the prefix the
+    /// reference passes, as run against the oracle: the empty series, a value
+    /// that is not normal for the geometric and harmonic means, and a stack
+    /// too shallow to read. The answers are the probe's (`stat-means`).
+    #[test]
+    fn the_means_refuse_as_the_reference_does() {
+        let cases = [
+            (
+                "list stat.mean.arithmeticweighted",
+                "STAT.MEAN.ARITHMETICWEIGHTEDMEAN returned: Missing or insufficient data: awmean: empty self vec",
+            ),
+            (
+                "[ 1.0 0.0 2.0 ] stat.mean.geometric",
+                "STAT.MEAN.GEOMETRIC returned: Arithmetic error: gmean: attempt to take ln of zero",
+            ),
+            (
+                "[ 1.0 0.0 2.0 ] stat.mean.geometricweighted,",
+                "STAT.MEAN.GEOMETRICWEIGHTED, returned: Arithmetic error: gwmean: attempt to take ln of zero",
+            ),
+            (
+                "[ 1.0 0.0 2.0 ] stat.mean.harmonic",
+                "STAT.MEAN.HARMONIC returned: Arithmetic error: hmean: attempt to divide by zero",
+            ),
+            (
+                "list stat.mean.harmonicweighted",
+                "STAT.MEAN.HARMONICWEIGHTED returned: Missing or insufficient data: hwmean: empty self vec",
+            ),
+            (
+                "[ 1.0 0.0 2.0 ] stat.mean.harmonicspread",
+                "STAT.MEAN.HARMONICSPREAD returned: Arithmetic error: hmad: attempt to divide by zero",
+            ),
+            (
+                "list stat.mean.harmonicspread",
+                "STAT.MEAN.HARMONICSPREAD returned: Missing or insufficient data: hmad: empty self",
+            ),
+            (
+                "stat.mean.geometric",
+                "STAT.MEAN.GEOMETRIC returned: Stack is too shallow for inline STAT.MEAN.GEOMETRIC",
+            ),
+        ];
+        for (src, want) in cases {
+            let e = run(src).expect_err(src);
+            assert!(e.ends_with(want), "{src}: {e}");
+        }
+        let e = run("list stat.mean").expect_err("the alias");
+        assert!(e.contains("amean: empty self vec"), "{e}");
+    }
+
     #[test]
     fn the_keep_forms_of_tier_a_restore_a_list() {
         let out = run("[ 5 1 3 ] math.max,").expect("runs");

@@ -14,3 +14,5 @@ defect Bund2 does not reproduce.
 | `probes/sysinfo-words.golden` | — | — | F155: `type.of` does not consume its operand, so every `type.of` line left a raw value on the stack and the first capture pinned ten machine-specific figures, two of them volatile; each line now ends in `drop` and the stack ends empty. The program changed, not its answer |
 | `probes/system-shell-words.golden` | — | — | F162: the probe gained a clause each for `sh` and `sh.`, the aliases `system.shell` had landed without; an alias no golden runs is invisible to conformance. The program changed, not its answer |
 | `probes/stat-tier-a.golden` | — | — | D175 |
+| `probes/forecast-words.golden` | — | — | D215: the probe is new and uncommitted; its forecast.mstl, line refused in both engines and is replaced by forecast.mstl. |
+| `probes/console-text.golden` | — | — | D214: the probe is new and uncommitted; console.text.randomcolor removed, its colour escape varies by run |

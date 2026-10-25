@@ -4235,6 +4235,35 @@ write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
 
+## F228 — `forecast.estimate!` aborts on a value that is not normal
+
+**An original-implementation defect; found 2026-10-25 building D215.**
+`forecast.estimate!` (and its alias `sample.analysis`) `unwrap`s three
+`rstats` results while building its MAP: the geometric mean, the harmonic
+mean and the median spread
+(`reference/Bund/src/stdlib/functions/forecast/estimation.rs:74-77`).
+`gmean` and `hmean` refuse any value that is not normal, zero included
+(`rstats-2.1.15/src/stats.rs`, `gmean`, `hmean`), so the `unwrap` panics
+and the oracle aborts with a Rust backtrace through
+`core::result::unwrap_failed`. Run on the oracle, 2026-10-25:
+
+    4.0 [ 1.0 0.0 3.0 ] forecast.estimate!   → a panic, the program and its stacks gone
+
+`forecast.estimate` and `forecast.estimate.uncertainty` read the same
+series and do not abort: they never compute those means.
+
+Bund2 does not panic (D37). Each `unwrap` is a refusal in the crate's own
+words under the word's prefix, naming what failed:
+`FORECAST.ESTIMATE! geometric mean: Arithmetic error: gmean: attempt to
+take ln of zero`. This is a divergence in Bund2's favour, required by D37,
+as F85's and F167's were. No golden captures it: the oracle's side is a
+backtrace.
+
+- `reference/Bund/src/stdlib/functions/forecast/estimation.rs:74-77`
+- Behavioural, in a library word (D215). Disposition: **DIVERGE** (D37).
+  Test: `estimate_refuses_where_the_reference_panics`
+  (`crates/bund2-stdlib/src/forecast.rs`).
+
 ## F227 — `graph.path` wraps a sum past 2^64
 
 **An original-implementation defect; found 2026-10-23 by the ninth

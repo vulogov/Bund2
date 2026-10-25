@@ -191,6 +191,25 @@ passwords = "=3.1.18"
 lipsum = "=0.9.1"
 rand = "=0.8.7"
 statrs = { version = "=0.18.0", default-features = false, features = ["rand"] }
+# The statistics means (D213) are `rstats`' own, pinned to the reference's
+# 2.1.15 so each answer and refusal is the crate's to the bit; `hmad` rests on
+# its `medians` dependency, which a hand copy would have to reproduce.
+rstats = "=2.1.15"
+# The console text words' escapes (D214) are `rusty-termcolor`'s, pinned to the
+# reference's 0.1.62; its printing functions are not called (they `println!`).
+rusty-termcolor = "=0.1.62"
+# The forecasting words' crates (D215), each pinned to the version the
+# reference's lock file resolves, so a forecast, an outlier interval or a
+# cluster is the crate's own: augurs for MSTL, the MAD and DBSCAN outlier
+# detectors, DTW clustering and the periodogram; markov-chain (over decorum's
+# R64) for `forecast.markov`; distimate's PERT for `forecast.estimate*`; and
+# anomaly_detection and breakout for `forecast.estimate!`'s two lists.
+augurs = { version = "=0.9.0", features = ["forecaster", "ets", "mstl", "outlier", "dtw", "clustering", "seasons"] }
+markov-chain = "=0.1.1"
+decorum = "=0.3.1"
+distimate = "=0.2.1"
+anomaly_detection = "=0.3.1"
+breakout = "=0.3.0"
 # The terminal words' crates, pinned the same way: rustyline reads `input`'s
 # line, yapp `password`'s, yansi colours `bund.prompt`. (`io.banner` was cfonts' and is
 # `crate::banner`'s; `debug.display_hostinfo`'s host rows were sys_metrics'; they

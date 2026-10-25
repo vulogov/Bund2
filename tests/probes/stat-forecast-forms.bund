@@ -1,0 +1,46 @@
+//
+// Probe: the remaining forms of D213's means and D215's forecasting words —
+// the keep (`,`) and workbench (`.`, `.,`) forms the first two probes
+// (`stat-means`, `forecast-words`) do not reach.
+//
+// A keep form on the stack restores its LIST and the answer sits above it;
+// a workbench form reads from the workbench and answers there, except where
+// the reference pushes to the stack in every form (`forecast.mstl`, the
+// outlier, cluster and periodic words). The two-series words pull their
+// sensitivity and both series from the workbench in the `.` form.
+// `forecast.markov` is random, and no golden can hold it.
+//
+"probe: the means' keep forms" println
+[ 1.0 2.0 4.0 ] stat.mean.arithmeticweighted,
+[ 1.0 2.0 4.0 ] stat.mean.geometricweighted,
+[ 1.0 2.0 4.0 ] stat.mean.harmonic,
+[ 1.0 2.0 4.0 ] stat.mean.harmonicspread,
+
+"probe: the means' workbench forms" println
+[ 1.0 2.0 4.0 ] . stat.mean.arithmeticweighted. take
+[ 1.0 2.0 4.0 ] . stat.mean.geometricweighted. take
+[ 1.0 2.0 4.0 ] . stat.mean.harmonic. take
+[ 1.0 2.0 4.0 ] . stat.mean.harmonicspread. take
+[ 1.0 2.0 4.0 ] . stat.mean.harmonicweighted. take
+
+"probe: the means' workbench keep forms" println
+[ 1.0 2.0 4.0 ] . stat.mean.arithmeticweighted., take take
+[ 1.0 2.0 4.0 ] . stat.mean.geometric., take take
+[ 1.0 2.0 4.0 ] . stat.mean.geometricweighted., take take
+[ 1.0 2.0 4.0 ] . stat.mean.harmonicspread., take take
+[ 1.0 2.0 4.0 ] . stat.mean.harmonicweighted., take take
+
+"probe: forecast.estimate!. and sample.analysis. answer to the workbench" println
+4.0 . [ 1.0 2.0 3.0 10.0 4.0 5.0 3.0 2.0 ] . forecast.estimate!. take
+4.0 . [ 1.0 2.0 3.0 10.0 4.0 5.0 3.0 2.0 ] . sample.analysis. take
+
+"probe: forecast.mstl., keeps its series on the workbench" println
+0.95 3 [ 1.0 2.0 1.5 2.5 2.0 3.0 2.5 3.5 3.0 4.0 3.5 4.5 ] . forecast.mstl., take
+
+"probe: periodic.detect. reads the workbench and answers to the stack" println
+[ 1.0 2.0 3.0 1.0 2.0 3.0 1.0 2.0 3.0 1.0 2.0 3.0 ] . periodic.detect.
+
+"probe: the two-series words' workbench forms" println
+[ 1.0 2.0 1.0 2.0 50.0 1.0 2.0 ] . [ 1.0 2.0 1.0 2.0 1.0 1.0 2.0 ] . 0.5 . outlier.detect.
+[ 1.0 2.0 1.0 2.0 50.0 1.0 2.0 ] . [ 1.0 2.0 1.0 2.0 1.0 1.0 2.0 ] . 0.5 . outlier.detect.dbscan.
+[ 1.0 2.0 3.0 ] . [ 1.0 2.0 3.1 ] . 0.5 . clusters.detect.

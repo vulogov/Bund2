@@ -24,6 +24,8 @@ pub const GROK_BUILT_IN: bool = cfg!(feature = "grok");
 pub mod stack;
 
 pub mod console;
+pub mod console_text;
+pub mod forecast;
 
 pub mod logic;
 
@@ -170,6 +172,8 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     encoding::register(r);
     stack::register(r);
     console::register(r);
+    console_text::register(r);
+    forecast::register(r);
     logic::register(r);
     values::register_words(r);
     math::register(r);

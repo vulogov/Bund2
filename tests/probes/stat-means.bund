@@ -1,0 +1,62 @@
+//
+// Probe: the rest of `bund/statistics` — six means in their four forms, and
+// the `stat.mean` alias (D213).
+//
+// Each mean is `rstats` 2.1.15's own method over the reader D175's words
+// share, so the sources are the same three: a LIST in order, a drained
+// stack, and the workbench through `?.`. What this pins:
+//
+//   - **The weighted means weight by position**, 1 to n, so the order of a
+//     series moves the answer: the same three values listed both ways.
+//   - **A negative value is taken**, not refused: only a value that is not
+//     normal (zero, subnormal, infinite, NaN) is refused by the geometric
+//     and harmonic means, and the geometric mean of a negative is NaN.
+//   - **The harmonic spread of a constant series is `inf`**: its median
+//     absolute deviation is zero.
+//   - **`,` keeps a LIST** and the answer sits above it.
+//   - **`stat.mean` and `stat.mean.`** are aliases of the arithmetic mean
+//     (`create_aliases.rs:24-25`).
+//
+// The refusals end a program in the reference's own error table, which no
+// Bund2 output matches (D36), so they are pinned by unit tests instead.
+//
+"probe: the six means over one list" println
+[ 1.0 2.0 4.0 8.0 ] stat.mean.arithmeticweighted
+[ 1.0 2.0 4.0 8.0 ] stat.mean.geometric
+[ 1.0 2.0 4.0 8.0 ] stat.mean.geometricweighted
+[ 1.0 2.0 4.0 8.0 ] stat.mean.harmonic
+[ 1.0 2.0 4.0 8.0 ] stat.mean.harmonicweighted
+[ 1.0 2.0 4.0 8.0 ] stat.mean.harmonicspread
+
+"probe: integers answer a FLOAT" println
+[ 3 1 4 1 5 9 2 6 ] stat.mean.geometric
+[ 3 1 4 1 5 9 2 6 ] stat.mean.harmonicspread
+
+"probe: the weighted means weight by position" println
+[ 1.0 2.0 9.0 ] stat.mean.arithmeticweighted
+[ 9.0 2.0 1.0 ] stat.mean.arithmeticweighted
+[ 1.0 2.0 9.0 ] stat.mean.harmonicweighted
+[ 9.0 2.0 1.0 ] stat.mean.harmonicweighted
+
+"probe: over a drained stack" println
+1.5 2.5 3.5 stat.mean.geometricweighted
+
+"probe: a negative value is taken" println
+[ -1.0 2.0 ] stat.mean.geometric
+[ -1.0 2.0 ] stat.mean.harmonic
+[ -1.0 2.0 ] stat.mean.harmonicweighted
+
+"probe: a constant series has no spread" println
+[ 2.0 2.0 2.0 ] stat.mean.harmonicspread
+
+"probe: the keep forms restore a list" println
+[ 2.0 3.0 ] stat.mean.geometric,
+[ 2.0 3.0 ] stat.mean.harmonicweighted,
+
+"probe: the workbench forms read and answer there" println
+[ 2.0 8.0 ] { true } ?. stat.mean.geometric.
+[ 2.0 8.0 ] { true } ?. stat.mean.harmonic.,
+
+"probe: stat.mean is the arithmetic mean" println
+[ 1.0 2.0 6.0 ] stat.mean
+[ 4.0 6.0 ] { true } ?. stat.mean.

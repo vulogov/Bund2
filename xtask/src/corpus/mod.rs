@@ -720,7 +720,7 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     // Hand-kept, and deliberately so: each entry is a judgement with a reason,
     // not something a program can derive. A word listed here that some golden
     // *does* run is reported, because then the entry is wrong.
-    const NO_GOLDEN_CAN_HOLD: [(&str, &str); 11] = [
+    const NO_GOLDEN_CAN_HOLD: [(&str, &str); 17] = [
         ("$", "the oracle does not take `$` as a word"),
         (
             "<-",
@@ -758,6 +758,31 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
         (
             "system.locale",
             "names the machine, and fails where no locale is set",
+        ),
+        // D214: a golden strips the escape, but a probe's raw bytes must
+        // agree between a plain and a stepped run (`debugger_step.rs`).
+        (
+            "console.text.randomcolor",
+            "writes a random colour escape on every run (D214)",
+        ),
+        // D215: the chain picks each step at random, so two oracle runs of
+        // one series answer different means, or refuse.
+        ("forecast.markov", "samples a Markov chain at random (D215)"),
+        (
+            "forecast.markov,",
+            "samples a Markov chain at random (D215)",
+        ),
+        (
+            "forecast.markov.",
+            "samples a Markov chain at random (D215)",
+        ),
+        (
+            "forecast.markov.,",
+            "samples a Markov chain at random (D215)",
+        ),
+        (
+            "forecast.mstl,",
+            "restores its list and pulls it as `n`, so refuses in both engines (D215)",
         ),
     ];
     let held_out: Vec<(&str, &str)> = NO_GOLDEN_CAN_HOLD

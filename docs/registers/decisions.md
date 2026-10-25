@@ -791,6 +791,11 @@ every other subsystem is still open.
   incidental to rendering, and 12 programs depend on the word. D15 defers the
   `bund/console` subsystem only.
 
+**Note, 2026-10-25.** Narrowed by **D214**: fourteen of the 31 names,
+the text and colour words with `console.box`, `console.clear` and
+`console.title`, are in scope. The spinners and the three timed effects
+stay out under this decision.
+
 ## D16 — dynamic dispatch by computed name
 `<string> ptr !` and `` `<name> ! `` are preserved exactly as they behave
 today. **The world is permanently open**: a call target may be named by a
@@ -1360,6 +1365,14 @@ two interpreters, and any performance criterion has to say which it means.
 - Not a deletion: a feature-gated word can be enabled. What this forbids is
   linking it by default.
 
+
+### Narrowed on 2026-10-25 by D213 and D215
+
+`bund/forecast` is in scope and **linked by default** (D215, the owner's
+ruling), a departure from this entry's rule for that family alone. The
+24 statistics names D175 left here are in scope too (D213), on `rstats`
+2.1.15, which D215 links in any case; the sentence above that "the crate
+stays out" no longer holds.
 
 ### Narrowed on 2026-10-01 by D87 — the bus deferral was per-directory
 
@@ -3652,6 +3665,198 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
 - Depends on: D48 and D55 (the palette runs the four new fixed-effect
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
+
+## D215 — `bund/forecast` is in scope, in the default build
+
+**Raised 2026-10-25** by the repository owner, choosing "Forecasting" from
+a review of the 96 out-of-scope words, and then "Default build" for how
+to build it. D28 deferred `bund/forecast` whole ("augurs forecasting — not
+essential", `DEFERRED_PATHS` in `xtask/src/corpus/classify.rs`), as one of
+the subsystems whose crates make the reference binary 381 MB.
+
+The family is 22 names in seven files
+(`reference/Bund/src/stdlib/functions/forecast/mod.rs:12-20`):
+`forecast.markov` and `forecast.mstl` in four forms each (`markov.rs:74-77`,
+`mstl.rs:103-106`); `forecast.estimate`, `forecast.estimate.uncertainty`
+and `forecast.estimate!` in two (`estimation.rs:167-172`); and
+`outlier.detect`, `outlier.detect.dbscan`, `clusters.detect` and
+`periodic.detect` in two (`outliers.rs:57-58`, `outliers_dbscan.rs:57-58`,
+`clustering.rs:57-58`, `periodic_detector.rs:69-70`). They use `augurs`
+0.9.0 (`reference/Bund/Cargo.toml:104`, with `forecaster`, `ets`, `mstl`,
+`outlier`, `dtw`, `clustering` and `seasons`), `markov-chain` 0.1.1
+(`:50`), `distimate` 0.2.1 (`:89`), `statrs` (`:54`), `decorum` 0.3.1
+(`:49`) and `rstats` 2.1.15 (`:51`); the versions are the reference's
+lock file's.
+
+- Blocks: nothing
+- Depends on: D28 (which this narrows), D213 (`rstats`), D18 (the `.`
+  forms), D14, D21
+- Options:
+  - **A. In scope, default build.** The words register in every build, on
+    the crates the reference resolves, pinned to its versions so the
+    answers agree to the bit. Coverage counts them; probes check the
+    deterministic ones.
+  - **B. In scope, behind a Cargo feature**, as `string.grok` is (D40):
+    the default binary is unchanged, coverage lists them as feature-only,
+    and only unit tests check them.
+  - **C. Leave D28 as it stands.**
+- Recommendation: A.
+- Status: **RESOLVED** by the repository owner, 2026-10-25: "Forecasting",
+  then "Default build (Recommended)". A. **This departs from D28's rule**
+  that a non-essential subsystem is not linked by default, for this
+  family only; D28's note of the same date records it.
+
+What a golden can check is narrower than the family. `forecast.markov`
+trains a `markov_chain::Chain` and samples it (`markov.rs:20`), and
+`forecast.estimate*` draw from `distimate`'s PERT distribution
+(`estimation.rs:11-12`); both answer differently from run to run, so they
+are pinned by unit tests on shape and refusal, not by a golden, as the
+eleven words coverage already lists are. The cost in binary size and
+build time is measured when the family is built, and recorded here.
+*(Corrected the same day, building it: the PERT words do **not** draw.
+`expected_value`, `uncertainty`, the confidence intervals and the overrun
+risks are analytic (`distimate-0.2.1/src/estimation_distribution.rs`), and
+two oracle runs agree, so golden-checkable. Only `forecast.markov` is
+random.)*
+
+### Built, 2026-10-25
+
+- **The 22 words and the `sample.analysis` aliases**
+  (`reference/Bund/src/stdlib/functions/create_aliases.rs:38-39`), in
+  `crates/bund2-stdlib/src/forecast.rs`, on `augurs` 0.9.0,
+  `markov-chain` 0.1.1, `decorum` 0.3.1, `distimate` 0.2.1, `rstats`
+  2.1.15, `anomaly_detection` 0.3.1 and `breakout` 0.3.0, each pinned with
+  `=`. Of the 117 crates under them, the numeric ones resolve to the
+  reference's lock-file versions; 15 infrastructure crates (`libc`,
+  `syn`, `thiserror`, `rand` 0.8.7 against 0.8.8 and the like) differ by a
+  patch release.
+- **Measured against the oracle**, one program per case: every
+  deterministic answer agrees, `forecast.estimate!`'s 28 keys to the bit.
+  `forecast.markov` answers the same set of means and refuses at a like
+  rate (twice and four times in sixty runs of one series).
+- **F228**: the oracle aborts in `forecast.estimate!` on a value that is
+  not normal; Bund2 refuses (D37).
+- **The cost**: the release `bund2` was 19,493,392 bytes before D213-D215
+  and 19,977,360 after all three, 0.48 MB, or 2.5%.
+- **Scope**: `bund/forecast` has left `DEFERRED_PATHS`. Two corpus
+  programs, `estimator_demo` and `forecast_mstl_demo`, were hermetic and
+  out of scope only by this family; they join the suite with goldens
+  captured from the oracle, and both pass. A probe,
+  `tests/probes/forecast-words.bund`, covers the words the corpus does not
+  reach. Conformance moves from 139/152 to 142/155, ceiling 142/155.
+
+## D214 — the text and colour half of `bund/console` is in scope
+
+**Raised 2026-10-25** by the repository owner, choosing "Console text and
+colour" from a review of the 96 out-of-scope words. D15 deferred
+`bund/console` whole: "No spinners, no animations, no colour."
+
+In scope, fourteen names: `console.text` and its six colours `.red`,
+`.green`, `.blue`, `.magenta`, `.cyan`, `.yellow`, and `.randomcolor`,
+each a `rusty_termcolor::println_colored` of the operand
+(`reference/Bund/src/stdlib/functions/console/spinner.rs:173-188,282-312`);
+`console.text.ok`, `.warning` and `.error`, each a two-colour fade
+(`:190-207,314-324`); and `console.box`, `console.clear` and
+`console.title` (`console/terminal.rs:10-50`). `rusty-termcolor` is
+0.1.62 in the reference's lock file (`reference/Bund/Cargo.toml:121`).
+
+Still out, under D15: the spinners (`console.spinner*`, `spinner.text*`,
+which print against a shared `spinoff` spinner, `spinner.rs:148-171`),
+and the three timed effects, `console.typewriter`, `console.text.matrix`
+and `console.text.rainbow`, which sleep between characters
+(`rusty-termcolor-0.1.62/src/effects.rs`, `typewriter`, `matrix_effect`,
+`rainbow_text`).
+
+- Blocks: nothing
+- Depends on: D15 (which this narrows), D36 (output is the word's, not a
+  diagnostic), D21
+- Options:
+  - **A. The fourteen**, on `rusty-termcolor` pinned to 0.1.62 so the
+    escape sequences are the reference's byte for byte.
+  - **B. All 31**, spinners and timed effects included.
+  - **C. Leave D15 as it stands.**
+- Recommendation: A. A golden strips ANSI, so it checks the text of the
+  fourteen and not their colour; a unit test checks the escapes.
+  `console.text.randomcolor`'s colour varies by run and its text does
+  not.
+- Status: **RESOLVED** by the repository owner, 2026-10-25: "Console text
+  and colour". A. D15's note of the same date records the narrowing.
+
+### Built, 2026-10-25
+
+- **The fourteen**, in `crates/bund2-stdlib/src/console_text.rs`, on
+  `rusty-termcolor` 0.1.62's colours, `fade_color`, `box_text` and
+  `random_pleasing_color`. Its printing functions are **not** called:
+  they write with `println!`, which panics when standard output has gone
+  (D37), so each one's format is reproduced and written through `outln!`.
+- **Byte for byte**: one program running all fourteen, escapes included,
+  writes 613 identical bytes in the oracle and in Bund2.
+- **Scope**: per word, in `IN_SCOPE_WORDS`, as D175's; the directory stays
+  in `DEFERRED_PATHS` for the seventeen still out. Probe:
+  `tests/probes/console-text.bund`; unit tests pin the escapes.
+  `console.text.randomcolor` is in no probe: its escape varies by run, and
+  `stepping_agrees_with_an_uninterrupted_run_over_the_whole_suite`
+  (`crates/bund2-cli/tests/debugger_step.rs`) compares every probe's raw
+  bytes across a plain and a stepped run, so coverage lists it as a word
+  no golden can hold.
+- **Promotable**: the fourteen have fixed effects, so criterion 28's
+  palette reaches them and `tests/golden/PROMOTABLE.txt`, regenerated by
+  its own test (`BUND2_UPDATE_PROMOTABLE=1`), lists them beside `print`
+  and `println`: 366 promotable of 375 reached.
+
+## D213 — the rest of `bund/statistics` is in scope, on `rstats`
+
+**Raised 2026-10-25** by the repository owner, choosing "Statistics, the
+rest of it" from a review of the 96 out-of-scope words. This is D175's
+option B, which D175 left "available on its own ruling once the formulas
+are read".
+
+The 24 names are six means in four forms each
+(`reference/Bund/src/stdlib/functions/statistics/statistics.rs:190-218`):
+`stat.mean.arithmeticweighted`, `.geometric`, `.geometricweighted`,
+`.harmonic`, `.harmonicweighted` and `.harmonicspread`, calling `rstats`'
+`awmean`, `gmean`, `gwmean`, `hmean`, `hwmean` and `hmad`
+(`statistics.rs:27-33`). Each error prefix is the one the reference
+passes (`:71-175`), which for the weighted arithmetic mean is
+`STAT.MEAN.ARITHMETICWEIGHTEDMEAN`, not the word's name. (D175 counted 28;
+the file registers 24 beyond its sixteen.)
+
+The formulas, read at the pinned `rstats` 2.1.15
+(`rstats-2.1.15/src/stats.rs`): `gmean`, `hmean`, `gwmean` and `hwmean`
+refuse any value that is not normal (zero, subnormal, infinite or NaN)
+with an arithmetic error, and the weighted ones weight by position,
+1 to n; `hmad` is the reciprocal median over the median absolute
+deviation of reciprocals, and so rests on the `medians` crate's
+`medf_checked`. Copying that operation by operation is where a last-bit
+difference would come from.
+
+- Blocks: nothing
+- Depends on: D175, D28, D18, D14, D21
+- Options:
+  - **A. Depend on `rstats` 2.1.15**, pinned, and call the same six
+    methods, so each answer and refusal is the crate's own. D215 needs the
+    crate too (`forecast/markov.rs:11`, `estimation.rs:9`).
+  - **B. Write the six by hand**, as D175 wrote `amean`, including
+    `medians`' median for `hmad`.
+- Recommendation: A. D175 wrote by hand because sixteen words did not
+  justify a crate; with D215 in the default build, the crate is linked
+  anyway, and hand-copying `medf_checked` is the risk D175 named.
+- Status: **RESOLVED** by the repository owner, 2026-10-25: "Statistics,
+  the rest of it". A, following the recommendation, since D215 links the
+  crate. D28's note of the same date records it.
+
+### Built, 2026-10-25
+
+- **The 24 names**, in `crates/bund2-stdlib/src/series.rs` beside D175's
+  sixteen, each calling the `rstats` method, and **two more found on the
+  way**: `stat.mean` and `stat.mean.` are aliases of the arithmetic mean
+  (`reference/Bund/src/stdlib/functions/create_aliases.rs:24-25`), which
+  came into scope with the directory and which D175 had not counted. So
+  the directory's 42 names are D175's 16, these 24 and the 2 aliases.
+- **Measured against the oracle**: six means over eleven inputs each,
+  refusals included, every answer and message identical.
+- **Scope**: `bund/statistics` has left `DEFERRED_PATHS`. Probe:
+  `tests/probes/stat-means.bund`; the refusals are unit tests.
 
 ## D212 — Caching a read graph
 

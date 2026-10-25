@@ -1,0 +1,48 @@
+//
+// Probe: `bund/forecast` (D215) — the words the corpus does not reach, and
+// the forms of the ones it does.
+//
+// Every answer is the crate the reference calls, at the version its lock
+// file resolves (augurs 0.9.0, distimate 0.2.1, rstats 2.1.15). What this
+// pins:
+//
+//   - **`periodic.detect`** cuts a series into rows by the periodogram's
+//     periods, and answers the series flat when it finds none.
+//   - **`outlier.detect` and `outlier.detect.dbscan`** answer a MAP keyed
+//     `0` and `1`, one LIST of intervals per series; both report as
+//     `OUTLIER.DETECT`.
+//   - **`clusters.detect`** answers a cluster number or `NOISE` per series.
+//   - **`forecast.estimate.uncertainty`**, and the PERT words' workbench
+//     forms, which read the series and the shape from the workbench.
+//   - **`forecast.mstl.`** reads its series from the workbench and `n` and
+//     the level from the stack, and answers to the stack.
+//   - **`sample.analysis`** is `forecast.estimate!`'s alias.
+//
+// `forecast.markov` is random and is pinned by a unit test instead, as is
+// `forecast.mstl,`, which restores its LIST to the stack and then pulls it
+// as `n`, so it refuses in both engines.
+//
+"probe: periodic.detect cuts by the period it finds" println
+[ 1.0 2.0 3.0 1.0 2.0 3.0 1.0 2.0 3.0 1.0 2.0 3.0 1.0 2.0 3.0 ] periodic.detect
+"probe: periodic.detect answers a series with no period flat" println
+[ 1.0 5.0 2.0 7.0 3.0 ] periodic.detect
+
+"probe: the outlier detectors answer one row per series" println
+[ 1.0 2.0 1.0 2.0 50.0 1.0 2.0 ] [ 1.0 2.0 1.0 2.0 1.0 1.0 2.0 ] 0.5 outlier.detect
+[ 1.0 2.0 1.0 2.0 50.0 1.0 2.0 ] [ 1.0 2.0 1.0 2.0 1.0 1.0 2.0 ] 0.5 outlier.detect.dbscan
+
+"probe: clusters.detect, a cluster and noise" println
+[ 1.0 2.0 3.0 ] [ 1.0 2.0 3.1 ] 0.5 clusters.detect
+[ 1.0 2.0 3.0 ] [ 9.0 8.0 7.0 ] 0.5 clusters.detect
+
+"probe: the PERT words" println
+2.0 [ 1.0 2.0 3.0 10.0 4.0 5.0 ] forecast.estimate
+4.0 [ 1.0 2.0 3.0 10.0 4.0 5.0 ] forecast.estimate.uncertainty
+4.0 [ 1.0 2.0 3.0 10.0 4.0 5.0 3.0 2.0 ] sample.analysis
+
+"probe: the PERT words' workbench forms" println
+4.0 . [ 1.0 2.0 3.0 10.0 4.0 5.0 ] . forecast.estimate. take
+4.0 . [ 1.0 2.0 3.0 10.0 4.0 5.0 ] . forecast.estimate.uncertainty. take
+
+"probe: forecast.mstl. reads the series from the workbench" println
+0.95 3 [ 1.0 2.0 1.5 2.5 2.0 3.0 2.5 3.5 3.0 4.0 3.5 4.5 ] . forecast.mstl.
