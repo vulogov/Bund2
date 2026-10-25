@@ -4770,6 +4770,11 @@ end gets the start's message (`:67`). Checked by
 reason for Title-casing the new words' operands is restated in its
 2026-10-18 note. **Disposition: FIX** (2026-10-18, owner ruling 1A).
 
+**Note, 2026-10-24.** D192's Title-casing of the new words' operands, which
+the paragraph above mentions, was reversed by **D211** (B, 2026-10-23): all
+nine graph words with a node operand now look it up as given, as
+`graph_path` does since this fix (RFC-0012's eleventh review).
+
 ## F217 — a debugger stop numbered its frame from the outside, and `bt` from the inside
 
 **A Bund2 defect; found 2026-10-17 building D191, recorded and fixed the

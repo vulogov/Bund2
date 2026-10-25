@@ -1334,10 +1334,30 @@ mod tests {
             top(&format!(":A {DAG} graph.bfs")),
             l(&["A", "B", "C", "D", "E"])
         );
-        // `graph.paths` and its drop-in `graph.bellmanford` now agree.
-        for word in ["graph.bfs", "graph.bellmanford", "graph.paths"] {
+        // Every word with a node operand, the reference's two included, so
+        // `graph.paths` and its drop-in `graph.bellmanford` agree.
+        for word in [
+            "graph.bfs",
+            "graph.dfs",
+            "graph.reachable",
+            "graph.neighbors",
+            "graph.degree",
+            "graph.bellmanford",
+            "graph.paths",
+        ] {
+            assert!(run_src(&format!(":A {DAG} {word}")).is_ok(), "{word}");
             assert!(run_src(&format!(":a {DAG} {word}")).is_err(), "{word}");
         }
+        for word in ["graph.maxflow", "graph.path"] {
+            assert!(run_src(&format!(":E :A {DAG} {word}")).is_ok(), "{word}");
+            assert!(run_src(&format!(":E :a {DAG} {word}")).is_err(), "{word}");
+            assert!(run_src(&format!(":e :A {DAG} {word}")).is_err(), "{word}");
+        }
+        // Title case splits at digits too, so `:N1` lists a node `N 1`.
+        let g = "[ [ :N1 :N2 1.0 ] ] [ :N1 :N2 ] graph!";
+        let e = err_of(&format!(":N1 {g} graph.bfs"));
+        assert!(e.contains("GRAPH.BFS: unknown start node: N1"), "{e}");
+        assert_eq!(top(&format!("\"N 1\" {g} graph.bfs")), l(&["N 1", "N 2"]));
         let e = err_of(&format!(":a {DAG} graph.bellmanford"));
         assert!(
             e.contains("GRAPH.BELLMANFORD: unknown start node: a"),

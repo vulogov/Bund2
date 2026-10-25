@@ -1,6 +1,6 @@
 # RFC-0012: Graph algorithms
 
-- Status: **Draft** (2026-10-18), revised after each of ten adversarial
+- Status: **Draft** (2026-10-18), revised after each of eleven adversarial
   reviews, every one "Not ready for Accepted", and awaiting the next. The
   first review
   (`RFC-0012-review-2026-10-18.md`) found Bund2's `graph.path`
@@ -59,11 +59,17 @@
   listed at the end. The owner then closed the two open questions: a node
   operand is looked up as given across the family (**D211**, B, reversing
   D192's Title-casing), and a read graph is not cached (**D212**, A).
+  The eleventh review (`RFC-0012-review-2026-10-24.md`) found both of
+  D212's reasons false: `graph.neighbors` costs about 50 ms a call at
+  20,000 nodes, nearly all of it the read, and a `set` rebuilds the
+  payload, so a cache keyed on it could never go stale (D5, D35). Put to
+  the owner on those facts, A stands (D212's note); S5 restated. The rest
+  is answered in place, and listed at the end.
 - Depends on: RFC-0002 (natives and their declared effects), RFC-0004
   (the effects `bund2 check` reads, and the residual stack), RFC-0005
   (which natives Tier 1 promotes)
 - Decisions consumed: D192 (and its notes of 2026-10-18), D193, D198,
-  D199, D200, D202, D203, D206, D207, D208, D209, D210, D211, D212, D14, D18, D24, D111 (and its note of 2026-10-07), D37, D38,
+  D199, D200, D202, D203, D206, D207, D208, D209, D210, D211, D212 (and its note of 2026-10-24), D5, D35, D14, D18, D24, D111 (and its note of 2026-10-07), D37, D38,
   D39, D48, D49, D55, D195; the dispositions of F17, F218, F219, F220,
   F225, F226 and F227.
 - Registers searched by subject ("graph", the nineteen word names,
@@ -82,7 +88,11 @@
   ninth, by "HashMap", "order", "reproducib", "usize" and "wrap":* F17 and
   its notes, D208, F219, F225; D210, F226 and F227 are new. *Since the
   tenth, by "saturat", "WEIGHT_MAX", "RandomState", "overflow-checks" and
-  "never used":* D210, F226, F227 and their notes.
+  "never used":* D210, F226, F227 and their notes. *Since the eleventh,
+  by "cache", "invalidat", "derived", "payload_weak", "Title", "casing" and
+  "operand":* D5 and D35 (the compiled cache keyed on the payload, never
+  stale), RFC-0001's 2026-09-13 amendment (`payload_weak`), D192 and its
+  notes, D211, D212 and its note, F218 and its note of 2026-10-24.
 - Reference SHA: `reference/Bund` 21b40b0
 - Supersedes: nothing
 
@@ -155,8 +165,10 @@ order: its potentials walk `algos`' `HashMap` (F226, below).
   `found=true` at `1553255926290448500.0`, 2e19 − 2^64, in both engines.
   A weight at or above 2^64 saturates at `usize::MAX`, which is
   `WEIGHT_MAX` (`src/constants.rs:22,26`), and wraps like any other: the
-  query compares the sum with `<` and nothing else
-  (`path_calculator.rs:145-146`), so after a prefix of `d > 0` it sums to
+  query adds and compares in plain `usize` at every site: the forward
+  and backward relaxations (`path_calculator.rs:145-146`, `:181-182`), the
+  meeting sums (`:153,155`, `:189,191`) and the pruning tests (`:133`,
+  `:169`), so after a prefix of `d > 0` it sums to
   `d − 1` and can win. `:A :C [ [ :B :A 1.0e300 ] [ :C :B 2.0 ] [ :C :A
   7.0 ] [ :A :D 1.0 ] ] [ :A :B :C :D ] graph! graph.path` answers `path=[
   C B A ]` at `1.0`, past the direct edge of 7.0, in both engines. Alone,
@@ -215,7 +227,8 @@ order: its potentials walk `algos`' `HashMap` (F226, below).
   engines. D200's ruling covers this face (**D203**, resolved A).
 - **`graph.allpath` rounds three times per edge, and its answer can turn
   on it** (F225). The potentials' Bellman–Ford sums and tests
-  `new_dist < *dist_v` in `f64` (`bellman_ford.rs:91-97`); each edge is
+  `new_dist < *current` in `f64` in its passes (`bellman_ford.rs:69-81`),
+  and `new_dist < *dist_v` in its cycle test (`:91-97`); each edge is
   reweighed as `weight + *h_u - *h_v` (`johnson.rs:63`); and each distance
   is undone as `*d + (*h_target - *h_source)` (`:86-87`). Where a negative
   weight makes the potentials large against the other weights, that
@@ -328,9 +341,16 @@ word looks its operands up: `graph.paths` its start (`dijkstra.rs:52-58`)
 and `graph.path` both ends (`getpath.rs:53-60`, `:65-71`; F218). The
 graph's own names are Title-cased as read, so a program names a node by
 its Title-cased form: `[ :my_node ]` lists a node named `My Node`, which
-`"My Node"` finds and `:my_node` does not. One rule holds across the
-family, so `graph.paths` and `graph.bellmanford` refuse the same operands
-(**D211**, B, which reversed D192's Title-casing).
+`"My Node"` finds and `:my_node` does not. Title case splits words at
+digits and inner capitals as well as underscores (`make_graph.rs:9-11`),
+so `[ :N1 ]` lists `N 1` and `[ :nodeA ]` lists `Node A`; `:N1` names
+nothing, in both engines. The reliable spelling is a name read back from
+the graph's own answers. One rule holds across the family, so
+`graph.paths` and `graph.bellmanford` refuse the same operands, with
+different texts (see the preservation analysis) (**D211**, B, which
+reversed D192's Title-casing). Seven of the twelve take a node operand,
+and all seven pull it through `node_operand`, so the rule holds for each
+by construction.
 
 ### S3. Order
 
@@ -515,9 +535,18 @@ that are not whole numbers, a share in `edges` can be of rounding size.
 **Every word reads the graph afresh on each call**, as the reference's
 words do: the MAP is the graph, and nothing is cached beside it. Each
 call costs time in proportion to nodes plus edges before the algorithm
-starts. That is the design, not a gap (**D212**, A): every algorithm here
-is at least linear, so a cache could at most halve a call, and
-invalidating one on a `set` belongs to the value model (RFC-0001).
+starts. That cost dominates where the algorithm's own work is small:
+`graph.neighbors` reads one node's out-list, and a traversal from a node
+with small reach touches few edges. On a chain of 20,000 nodes (a literal
+and `graph!`, then `k` copies of `dup "N 0" swap graph.neighbors drop`,
+release build) one call costs about 45-50 ms to answer one name, so asking
+every node in turn costs about 1,000 s. No cache is the owner's ruling,
+made on those figures (**D212**, A, and its note): the reference reads per
+call too, so this preserves its cost. A cache would not need the value
+model changed: `set` rebuilds a MAP's payload and nothing writes one in
+place, so a cache keyed on the payload, as RFC-0005's compiled cache is
+(D5, D35, RFC-0001's `payload_weak`), could never go stale. None is
+proposed.
 
 ### S6. The tiers
 
@@ -553,7 +582,7 @@ included (D203); and its rounding preserved, a misstated distance and a
 missed or false cycle, and an answer that varies between runs (F225,
 F226, D208 and its notes); and `graph.path`'s wrapped `usize` sum
 preserved in every build (F227, D210); a node operand looked up as
-given by every word (D211); and no cache beside the MAP (D212).
+given by every word with one (D211); and no cache beside the MAP (D212).
 
 These are D192's build choices, which D192 says can be overruled, and
 which acceptance would ratify:
@@ -617,8 +646,17 @@ which acceptance would ratify:
     behaviour");
   - **non-finite weights**: `graph.paths` answers `path=NaN`, and the new
     words refuse the graph (D193 §3);
-  - **operand casing**: none; all nineteen look a node operand up as
-    given (S2, D211);
+  - **operand casing**: none; all nine words with a node operand look it
+    up as given (S2, D211). The names a program must write are the
+    Title-cased ones, digits split: `"N 1"`, not `:N1` (S2);
+  - **operand refusal texts**: the same operands are refused, in
+    different words. `graph.paths` refuses a non-STRING start as `casting
+    start node name returns: This Dynamic type is not string`
+    (`dijkstra.rs:52-55`, F218), the new words as `the start node must be
+    a STRING, not Integer`; and `graph.path` names an unknown end node by
+    the start's name, and gives a non-STRING end the start's message
+    (`getpath.rs:67,71`), where the new words name the operand they
+    refuse. A program matching `?try`'s text sees the difference;
   - **negative weights**: `graph.paths` refuses one Dijkstra meets,
     `graph.allpath` drops rows or refuses a graph with no cycle as F220
     says, or as rounding decides (F225): a distance misstated with no
@@ -712,7 +750,8 @@ reported cycle exactly, against the exact relaxation.
    `graph.paths`, `graph.allpath` and `graph.transitiveclosure` over
    `nodes` `[ :C :A :B ]`, twenty times in one process.
 6. **S1's answers and S4's refusals**, through the interpreter:
-   `traversals_answer_in_node_order`, `a_node_operand_is_looked_up_as_given`,
+   `traversals_answer_in_node_order`, `a_node_operand_is_looked_up_as_given`
+   (every one of the nine words with a node operand, and the digit split),
    `structure_words_answer_lists_of_lists`,
    `a_cycle_has_no_topological_order`, `weighted_words_answer_maps`,
    `a_repeated_edge_takes_its_last_weight`,
@@ -773,7 +812,8 @@ reported cycle exactly, against the exact relaxation.
 ## Open questions
 
 None. The last two were closed on 2026-10-23: operand casing by D211
-(B, as given everywhere) and caching by D212 (A, none).
+(B, as given everywhere) and caching by D212 (A, none; reaffirmed on
+corrected reasons, 2026-10-24).
 
 ## The third review, answered (2026-10-20)
 
@@ -865,3 +905,14 @@ None. The last two were closed on 2026-10-23: operand casing by D211
 | 5. "In every build" | Scoped to builds rooted in this workspace, in "Current behaviour", the preservation analysis and D210's note |
 | 6. Smaller points | `graph.path`'s unknown end node named with the start's name is stated under "Current behaviour", with Bund2's line and test; the 1-in-12 and 6-in-150 figures reconciled by finding 2's restatement |
 | Assumed: `WEIGHT_MAX` is a sentinel; profile overrides reach every build; maps are independent draws; a settled relaxation is order-free | Each stated where it applies (findings 1, 5, 3, 4) |
+
+## The eleventh review, answered (2026-10-24)
+
+| Finding | Answer |
+|---|---|
+| 1. D212's reasons are false | Confirmed: `graph.neighbors` about 45 ms a call at 20,000 nodes (release, `3e399fe`), and `set` rebuilds the payload. Put to the owner on those facts: **D212** A stands (its note). S5 restated with the measured program and the payload-keyed design named, not proposed |
+| 2. Title case splits at digits | S2 says so (`:N1` is `N 1`, `:nodeA` is `Node A`) and names the reliable spelling; the test drives `:N1` and `"N 1"`; the preservation analysis |
+| 3. Registers search stops at the tenth | Extended by "cache", "invalidat", "derived", "payload_weak", "Title", "casing", "operand"; D5 and D35 consumed; F218's note of 2026-10-24 points to D211 |
+| 4. Smaller points | "All nineteen" is the nine with a node operand; the refusal texts across the swap, and `graph.path`'s end-node slips, listed in the preservation analysis; the `usize` wrap cites every add and compare site; `bellman_ford.rs:69-81` cited for the relaxation beside `:91-97` |
+| Criterion 6 checks four of seven | `a_node_operand_is_looked_up_as_given` now drives all nine words with a node operand, both ends of `graph.maxflow` and `graph.path`; S2 states the `node_operand` argument |
+| Assumed: reading costs no more than the algorithm; a MAP can change under a cache; Title case changes only case and underscores | Each corrected where it applies (findings 1 and 2) |

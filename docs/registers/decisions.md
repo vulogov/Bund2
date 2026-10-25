@@ -3678,6 +3678,30 @@ invalidates.
   cache; close it"). RFC-0012's S5 states it and the open question is
   removed; nothing in the words changes.
 
+**Note, 2026-10-24 (RFC-0012's eleventh review, finding 1).** Both reasons
+option A gave were false, and the opening premise with them:
+
+- "Every algorithm in the family is at least linear, so a cache could at
+  most halve a call" fails for `graph.neighbors`, whose work after the read
+  is one node's out-list, and for a traversal from a node with small reach.
+  On a chain of 20,000 nodes, release build at `3e399fe`, one `graph.neighbors`
+  call costs about 45-50 ms, nearly all of it the read; asking every node in
+  turn would take about 1,000 s.
+- "Invalidation belongs to the value model" names work that does not exist.
+  A MAP is never written through: `BundValue::set` clones the map and
+  returns `rebuilt`, a fresh `BundValue::heap` (`crates/bund2-value/src/lib.rs`,
+  `set` and `rebuilt`), and nothing in `crates/` mutates a payload in place.
+  A cache keyed on the payload's `Rc`, as D5 and D35 key the compiled cache
+  and RFC-0001's 2026-09-13 amendment provides for with `payload_weak`, can
+  never go stale.
+
+Put to the owner with the corrected facts, 2026-10-24: **A stands** ("A.
+Still no cache"). The reasons are now: the reference reads per call and
+caches nothing, so no cache preserves its cost; reading costs O(nodes +
+edges) per call, which dominates `graph.neighbors` and small-reach
+traversals; a cache keyed on the payload is possible later with no work in
+the value model, and is not proposed. RFC-0012's S5 restated to match.
+
 ## D211 — Node operand casing across the graph family
 
 **Raised 2026-10-23** from RFC-0012's open questions. D192 had the twelve
