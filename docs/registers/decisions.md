@@ -5046,6 +5046,15 @@ operand is Title-cased" no longer holds: on the owner's ruling (D211, B)
 the twelve words look a node operand up as given, as the reference's seven
 do. The graph's names are still Title-cased as read (§3).
 
+**Note, 2026-10-25.** RFC-0012 is Accepted by the repository owner. Its
+list of this decision's build choices ("which acceptance would ratify") is
+ratified with it: a re-given edge keeping its first place with its last
+weight, a `.` form for each of the twelve, which node each cycle error
+names, `graph.cycle` answering `[ ]`, `graph.reachable` including its
+start, `graph.degree` counting a repeated edge once, `graph.mst` as a
+forest, Edmonds–Karp, and refusals in the word's own name. The operand
+rule is D211's, not this decision's.
+
 ## D191 — the debugger: catch, hit counts, until, what changed, conditional and redefinition watches, the trace, and the console's history
 
 **Raised and ruled 2026-10-17** by the repository owner: shown a

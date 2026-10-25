@@ -1,7 +1,15 @@
 # RFC-0012: Graph algorithms
 
-- Status: **Draft** (2026-10-18), revised after each of twelve adversarial
-  reviews, every one "Not ready for Accepted", and awaiting the next. The
+- Status: **Accepted** (2026-10-25) by the repository owner ("accept"),
+  after twelve adversarial reviews: the first eleven "Not ready for
+  Accepted", the twelfth finding no citation wrong and nothing needing a
+  ruling, its one blocking finding answered in `8a5e610`. Accepting means:
+  the twelve words, their `.` forms and S1's answers; F17's node order for
+  the three `algos` words; the reference words' behaviour preserved as the
+  preservation analysis lists it, by the rulings in "Which points are
+  rulings"; D192's build choices ratified; a node operand looked up as
+  given across the family (D211); and no cache beside the MAP (D212).
+  Drafted 2026-10-18 and revised after each review. The
   first review
   (`RFC-0012-review-2026-10-18.md`) found Bund2's `graph.path`
   Title-casing its operands (F218, fixed). The second (`RFC-0012-review-2026-10-18-2.md`) found a wrong
@@ -603,7 +611,7 @@ preserved in every build (F227, D210); a node operand looked up as
 given by every word with one (D211); and no cache beside the MAP (D212).
 
 These are D192's build choices, which D192 says can be overruled, and
-which acceptance would ratify:
+which acceptance ratified (2026-10-25):
 
 - a re-given edge keeping its first place with its last weight (S2);
 - a `.` form for each of the twelve (S1);
