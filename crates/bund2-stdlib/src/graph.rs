@@ -733,6 +733,14 @@ mod tests {
         assert!(kept.contains("weight=5.0"), "{kept}");
         let lowest = top_text(":B :A [ [ :A :B 7.0 ] [ :A :B 3.9 ] ] [ :A :B ] graph! graph.path");
         assert!(lowest.contains("weight=3.0"), "{lowest}");
+        // `as usize` sends NaN and -inf to 0, so such an edge is dropped
+        // too, and B -> A sizes the graph past F219's crash.
+        for w in ["-1.0 math.sqrt", "-1.0e200 1.0e200 *"] {
+            let e = err_of(&format!(
+                ":B :A {w} [ :A :B ] ++ list push [ :B :A 1.0 ] swap push [ :A :B ] graph! graph.path"
+            ));
+            assert!(e.contains("GRAPH.PATH: can not calculate path"), "{w}: {e}");
+        }
     }
 
     fn rows(src: &str) -> Vec<bund2_value::BundValue> {

@@ -3221,21 +3221,17 @@ mod tests {
                         .sum();
                     cut = cut.min(c);
                 }
-                assert!(
-                    (flow - cut).abs() < 1e-9,
-                    "{:?}: flow {flow}, cut {cut}",
-                    n.edges
-                );
+                assert_eq!(flow, cut, "{:?}: flow {flow}, cut {cut}", n.edges);
                 let mut net_out = vec![0.0f64; k];
                 for &(f, to, x) in &shares {
                     let cap = n.edges.iter().find(|e| e.0 == f && e.1 == to).map(|e| e.2);
-                    assert!(cap.is_some_and(|c| x <= c + 1e-9));
+                    assert!(cap.is_some_and(|c| x <= c));
                     net_out[f] += x;
                     net_out[to] -= x;
                 }
                 for (u, b) in net_out.iter().enumerate() {
                     if u != s && u != t {
-                        assert!(b.abs() < 1e-9, "{:?}: not conserved at {u}", n.edges);
+                        assert_eq!(*b, 0.0, "{:?}: not conserved at {u}", n.edges);
                     }
                 }
             }

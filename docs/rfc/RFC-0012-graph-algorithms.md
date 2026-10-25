@@ -1,6 +1,6 @@
 # RFC-0012: Graph algorithms
 
-- Status: **Draft** (2026-10-18), revised after each of eleven adversarial
+- Status: **Draft** (2026-10-18), revised after each of twelve adversarial
   reviews, every one "Not ready for Accepted", and awaiting the next. The
   first review
   (`RFC-0012-review-2026-10-18.md`) found Bund2's `graph.path`
@@ -64,7 +64,12 @@
   20,000 nodes, nearly all of it the read, and a `set` rebuilds the
   payload, so a cache keyed on it could never go stale (D5, D35). Put to
   the owner on those facts, A stands (D212's note); S5 restated. The rest
-  is answered in place, and listed at the end.
+  is answered in place, and listed at the end. The twelfth
+  (`RFC-0012-review-2026-10-24-2.md`) found no citation wrong and nothing
+  needing a ruling; it found `graph.path`'s answer to a weight that is
+  not finite unstated (a NaN or −inf edge does not exist there), answered
+  under "Current behaviour" and in the preservation analysis, with the
+  rest in place and listed at the end.
 - Depends on: RFC-0002 (natives and their declared effects), RFC-0004
   (the effects `bund2 check` reads, and the residual stack), RFC-0005
   (which natives Tier 1 promotes)
@@ -142,9 +147,9 @@ order: its potentials walk `algos`' `HashMap` (F226, below).
 
   | | `graph.path` (`make_fast_graph`, then `fast_paths`) | `graph.paths`, `.allpath`, `.transitiveclosure` (`make_graph`, then `algos`) |
   |---|---|---|
-  | weight | cast `as usize`: 1.9 reads as 1 (`make_graph.rs:64`) | `f64` as given (`:130`), NaN and ±inf included |
+  | weight | cast `as usize` (`make_graph.rs:64`), which by Rust's numeric-cast rule truncates toward zero, sends NaN and every negative value, −inf included, to 0, and anything at or above 2^64, +inf included, to `usize::MAX` (the Rust Reference, "Type cast expressions", "Numeric cast"; pinned by `graph_path_drops_an_edge_under_one_before_the_lowest_is_kept`): 1.9 reads as 1 | `f64` as given (`:130`), NaN and ±inf included |
   | self-loop | **skipped** (`~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fast_paths-1.0.0/src/input_graph.rs:190-196`) | kept |
-  | weight below 1 after the cast | **skipped**: the edge does not exist (`:197-203`) | kept |
+  | weight below 1 after the cast | **skipped**: the edge does not exist (`:197-203`), so a NaN or −inf edge is absent under `graph.path` | kept |
   | repeated edge | of the edges kept, the **lowest** weight: `freeze` sorts by from, to, weight and keeps the first of each pair (`:136-161`) | the **last** given, which `algos`' `add_edge` removes and pushes to the end (`algos/…/4c08437/src/cs/graph.rs:108-113`) |
 
   So `[ :A :B 0.5 ] [ :A :B 5.0 ]` keeps 5.0 under `graph.path`: the 0.5
@@ -299,11 +304,11 @@ The graph is on top; a node operand beneath it.
 | `graph.degree` | `<node> <graph>` | MAP `in`, `out`: INTEGERs, a repeated edge counted once, a self-loop once each way |
 | `graph.toposort` | `<graph>` | LIST of every name, each before its successors |
 | `graph.cycle` | `<graph>` | LIST of names around one cycle, or `[ ]` |
-| `graph.components` | `<graph>` | LIST of LISTs, edges read both ways |
-| `graph.scc` | `<graph>` | LIST of LISTs, each mutually reachable |
-| `graph.mst` | `<graph>` | MAP `edges` (`[ from to weight ]`), `weight`; edges read both ways, self-loops never chosen (`graph_algorithms.rs`, `mst`), negative weights taken; a forest when the graph is not connected; a total that overflows is refused (S4) |
+| `graph.components` | `<graph>` | LIST of LISTs, edges read both ways; every node in one, an isolated node a group of one |
+| `graph.scc` | `<graph>` | LIST of LISTs, each mutually reachable; every node in one, an isolated node a group of one |
+| `graph.mst` | `<graph>` | MAP `edges` (`[ from to weight ]`), `weight`; edges read both ways, so `A -> B` and `B -> A` are two candidates and the lighter is reported in its own direction, self-loops never chosen (`graph_algorithms.rs`, `mst`), negative weights taken; a forest when the graph is not connected; a total that overflows is refused (S4) |
 | `graph.bellmanford` | `<start> <graph>` | `graph.paths`' rows (`dijkstra.rs:69-76`): `node`, `path` or NODATA, never an infinite distance (S4); each distance the nearest `f64` to its path's exact sum (S5, D207) |
-| `graph.maxflow` | `<sink> <source> <graph>` | MAP `flow`, `edges` (`[ from to share ]`, every edge whose share is above 0.0); every capacity above 0.0 counts, however small beside the largest (D193 §1); a sink the source cannot reach answers `flow` 0.0 |
+| `graph.maxflow` | `<sink> <source> <graph>` | MAP `flow`, `edges` (`[ from to share ]`, every edge whose share is above 0.0); every capacity above 0.0 counts, however small beside the largest (D193 §1); a sink the source cannot reach answers `flow` 0.0; `-0.0` is a capacity of zero, accepted, since it is not below 0.0 |
 
 Over the empty graph, `graph.toposort`, `graph.components` and
 `graph.scc` answer `[ ]`, `graph.mst` answers `edges=[ ]` and
@@ -344,7 +349,12 @@ its Title-cased form: `[ :my_node ]` lists a node named `My Node`, which
 `"My Node"` finds and `:my_node` does not. Title case splits words at
 digits and inner capitals as well as underscores (`make_graph.rs:9-11`),
 so `[ :N1 ]` lists `N 1` and `[ :nodeA ]` lists `Node A`; `:N1` names
-nothing, in both engines. The reliable spelling is a name read back from
+nothing, in both engines. The word boundaries are `convert_case`'s, and
+the engines agree on every name because both resolve the same version:
+the reference pins `convert_case = "0.7.1"` (`reference/Bund/Cargo.toml:85`,
+`reference/Bund/Cargo.lock:1900-1901`), and Bund2's `convert_case = "0.7"`
+(`crates/bund2-stdlib/Cargo.toml`) resolves to 0.7.1 in the workspace lock file (its `convert_case` entry).
+The reliable spelling is a name read back from
 the graph's own answers. One rule holds across the family, so
 `graph.paths` and `graph.bellmanford` refuse the same operands, with
 different texts (see the preservation analysis) (**D211**, B, which
@@ -398,7 +408,8 @@ An impossible question is an error a program catches with `?try`
   and reported as the cycle it is. How: S5.
 - `GRAPH.BELLMANFORD: the graph could need N relaxations, past the 2^76
   its exact sums hold`, for a graph of nodes × (edges + 1) ≥ 2^76, which
-  no graph that fits in memory is (S5);
+  no graph a program can write as a literal is: the least such graph has
+  about 2^38 nodes and as many edges (S5);
 - `GRAPH.MAXFLOW: the source and the sink are one node: A`, checked before
   any capacity;
 - `GRAPH.MAXFLOW: a capacity must not be below zero: A -> B weighs -1`,
@@ -413,7 +424,9 @@ the `graph_operand` that `graph.paths`, `graph.allpath` and
 be a list`. Of the other four reference words, `graph.path` makes the same
 checks inline (`getpath.rs:14-43`); `graph` and `graph.` do not check
 `type` at all, taking a missing one as `"graph"` (`mod.rs:38-41`); and
-`graph!` checks nothing (`mod.rs:68-93`). A graph operand that is not a
+`graph!` refuses nothing: an operand that is not a LIST is pushed back
+and an empty list used in its place (`mod.rs:68-93`), and `type` is
+neither checked nor defaulted. A graph operand that is not a
 MAP is its own `type`, `nodes` and `edges` (`get_or_self`, in
 `crates/bund2-value`). So `"graph"` passes the type check and answers
 `Nodes list must be a list`, another STRING answers `unknown data type`,
@@ -464,7 +477,11 @@ handed (D39); the depth-first searches keep their own stack.
 Nothing panics, and nothing answers a plausible value where an invariant
 breaks (D37): a node index out of range when a name is asked for,
 `toposort` stalling with no cycle to name, Bellman–Ford's walk back
-reaching a node no edge relaxed, and `graph.maxflow` handed a capacity the
+reaching a node no edge relaxed (which cannot happen only because every
+comparison is exact, D207: a chain back to a node with no predecessor
+would be a simple path whose weight is both at least and below the
+relaxed node's distance; in `f64` rounding breaks that argument, so
+relaxing the exactness would make this error reachable), and `graph.maxflow` handed a capacity the
 reader refuses are each `Error::internal`. A sum that overflows is not an
 invariant broken but the program's numbers, so it is an ordinary error
 (S4, D199). In `graph.maxflow` only the total can overflow: each reverse
@@ -481,7 +498,7 @@ whole number of 2^-1074 units below 2^2098, so `Exact` holds a distance as
 that number in two's complement over 2,176 bits, and no sum of up to 2^76
 weights rounds or wraps; a graph that could need more relaxations is
 refused as an ordinary error, since it is the program's graph and not a
-broken invariant, and none that fits in memory can. Every comparison is
+broken invariant, and no graph a program can write as a literal reaches it. Every comparison is
 then exact, so a cycle is reported exactly when one is negative, and each
 distance is rounded once, at the end, to the nearest `f64`, ties to even.
 Over whole weights whose partial sums stay below 2^53 that is the sum
@@ -559,7 +576,8 @@ and syncs its state before any other, "as an embedder's native is"
 `type`, which every word that checks one refuses. So
 all 24 of these names, like `graph.path`, `graph.paths`, `graph.allpath`
 and `graph.transitiveclosure` and their forms, are `not reached` there and
-not promotable. `graph` and `graph.`, which only check a MAP, are
+not promotable. `graph` and `graph.`, which check only that `nodes` and
+`edges` are LISTs, a missing one defaulting to empty (`mod.rs:42-55`), are
 promotable (`PROMOTABLE.txt:139-140`). Syncing costs speed and never
 meaning.
 
@@ -644,8 +662,14 @@ which acceptance would ratify:
     truncated, an edge under 1 and a self-loop exist, a negative weight
     is taken, and a repeated edge takes its last weight (S2, "Current
     behaviour");
-  - **non-finite weights**: `graph.paths` answers `path=NaN`, and the new
-    words refuse the graph (D193 §3);
+  - **non-finite weights**: four answers. `graph.paths` answers
+    `path=NaN`; `graph.path` reads a NaN or −inf weight as 0 and drops the
+    edge, so a path through it is silently absent (`can not calculate
+    path`), and reads +inf as `WEIGHT_MAX`, which wraps like any saturated
+    weight (F227); and the new words refuse the graph (D193 §3). All run
+    in both engines over `A -> B` weighing NaN and `B -> A` weighing 1.0;
+    a swap from `graph.path` to `graph.bellmanford` meets a refusal where
+    there was a quiet no-path;
   - **operand casing**: none; all nine words with a node operand look it
     up as given (S2, D211). The names a program must write are the
     Title-cased ones, digits split: `"N 1"`, not `:N1` (S2);
@@ -741,7 +765,8 @@ reported cycle exactly, against the exact relaxation.
    since it does not check that the cycle is the one the walk back found),
    `mst_is_minimal` (at least 100 of its 200 graphs
    checked exhaustively), `max_flow_is_the_min_cut` (every source and
-   sink) and `max_flow_is_the_min_cut_across_magnitudes` (whole capacities
+   sink, flow equal to the cut, shares within capacity and conserved,
+   exactly) and `max_flow_is_the_min_cut_across_magnitudes` (whole capacities
    over thirteen orders of magnitude, flow equal to the cut exactly).
 4. **S3's order**: `traversal_orders_match_their_definitions`,
    `answers_follow_the_nodes_list`, `ties_and_edges_follow_the_graph_order`,
@@ -774,7 +799,8 @@ reported cycle exactly, against the exact relaxation.
    all answering `can not calculate path`, D206);
    `graph_path_from_a_node_to_itself_is_found_wherever_it_is_listed`
    (D198); and
-   `graph_path_drops_an_edge_under_one_before_the_lowest_is_kept`.
+   `graph_path_drops_an_edge_under_one_before_the_lowest_is_kept` (0.5,
+   NaN and −inf edges all dropped).
 9. **Depth**: a 200,000-node chain read by `read`, and the same chain
    closed into a cycle by adding the closing edge to the `Net` directly,
    through `dfs`, `scc`, `find_cycle` and `toposort` called directly, on
@@ -916,3 +942,12 @@ corrected reasons, 2026-10-24).
 | 4. Smaller points | "All nineteen" is the nine with a node operand; the refusal texts across the swap, and `graph.path`'s end-node slips, listed in the preservation analysis; the `usize` wrap cites every add and compare site; `bellman_ford.rs:69-81` cited for the relaxation beside `:91-97` |
 | Criterion 6 checks four of seven | `a_node_operand_is_looked_up_as_given` now drives all nine words with a node operand, both ends of `graph.maxflow` and `graph.path`; S2 states the `node_operand` argument |
 | Assumed: reading costs no more than the algorithm; a MAP can change under a cache; Title case changes only case and underscores | Each corrected where it applies (findings 1 and 2) |
+
+## The twelfth review, answered (2026-10-25)
+
+| Finding | Answer |
+|---|---|
+| 1. `graph.path` and a weight that is not finite | Run in both engines: a NaN or −inf edge is dropped (`can not calculate path`), +inf saturates. The cast's rule stated and cited to the Rust Reference under "Current behaviour"; the "non-finite weights" bullet names all four answers; `graph_path_drops_an_edge_under_one_before_the_lowest_is_kept` pins NaN and −inf; criterion 8 |
+| 2. Title case rests on one `convert_case` | S2 cites both pins and both locks, 0.7.1 in each |
+| 3. Smaller points | `graph!` "refuses nothing", with what it does to a non-LIST; `graph` and `graph.` check `nodes` and `edges`; S1 names the isolated node's group of one, `graph.mst`'s antiparallel candidates and `-0.0` as a zero capacity; `max_flow_is_the_min_cut` asserts equality, as its twin does; "fits in memory" restated as what a literal can hold |
+| Assumed: the cast rule; one `convert_case`; the three S1 behaviours; `Exact` makes the walk back safe | Stated (findings 1–3); S5 says the walk back's internal error is unreachable only because D207's comparison is exact |
