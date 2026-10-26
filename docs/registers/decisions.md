@@ -3666,6 +3666,49 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D216 — GPL crates are allowed, for `forecast.estimate!`
+
+**Raised 2026-10-26** by `cargo deny` failing CI on `8ef3725`, D215's build.
+`forecast.estimate!` and its alias `sample.analysis` fill two of their 28
+keys, `anomalies` and `breakouts`, from `anomaly_detection` 0.3.1
+(GPL-3.0-or-later) and `breakout` 0.3.0 (GPL-2.0-or-later)
+(`reference/Bund/src/stdlib/functions/forecast/estimation.rs:98-117`,
+`math/anomalies.rs:12`, `math/breakout.rs:6`), as the reference does
+(`reference/Bund/Cargo.toml:90-91`). Bund2 is Apache-2.0 (`Cargo.toml`,
+`license`), and `deny.toml` allowed no GPL licence. Three goldens show the
+two keys: `examples/estimator_demo`, `probes/forecast-words` and
+`probes/stat-forecast-forms`.
+
+- Blocks: CI on `development/0.52.0`
+- Depends on: D215, D38 (the reference's crate choices)
+- Options:
+  - **A. A `gpl` Cargo feature**, off by default, links both crates and
+    fills the two keys; the default build leaves them out, an approved
+    deviation over the three goldens.
+  - **B. Allow GPL** in `deny.toml`. Behaviour stays the reference's; a
+    distributed Bund2 binary links GPL code and is shipped under GPL terms.
+    The source stays Apache-2.0.
+  - **C. Drop both crates** and the two keys in every build.
+  - **D. Take D215 back out of scope.**
+- Status: **RESOLVED** by the repository owner, 2026-10-26: B ("Allow
+  GPL"). `deny.toml` allows `GPL-3.0-or-later` and `GPL-2.0-or-later`,
+  with a comment naming the two crates and this decision.
+
+**What this means for a binary.** The default build of `bund2` links both
+crates, so a binary distributed from this workspace carries GPL-3.0-or-
+later obligations (GPL-2.0-or-later is compatible upward). The source
+files remain Apache-2.0, which the GPL can absorb. Any later move to
+remove the obligation is option A or C above, each a deviation over the
+three goldens.
+
+**The same failure, the other half.** Three advisories came in with D215,
+each ignored in `deny.toml` with its reason, as D38's five are, on the
+owner's ruling of the same date ("Ignore, with reasons"): RUSTSEC-2022-0013
+and RUSTSEC-2022-0006, `regex` 0.2.11 and its `thread_local`, reached
+through `markov-chain` 0.1.1, whose one regex is a fixed pattern in
+`train_string`, which Bund2 never calls; and RUSTSEC-2024-0436, `paste`
+unmaintained, reached through `argmin` under `augurs-forecaster`.
+
 ## D215 — `bund/forecast` is in scope, in the default build
 
 **Raised 2026-10-25** by the repository owner, choosing "Forecasting" from
