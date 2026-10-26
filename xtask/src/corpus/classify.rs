@@ -493,8 +493,9 @@ const IN_SCOPE_WORDS: &[(&str, &str)] = &[
     ("stat.mean.arithmetic.", "D175"),
     ("stat.mean.arithmetic.,", "D175"),
     // D214, 2026-10-25: the text and colour half of `bund/console`, which
-    // print once and return. The spinners and the three timed effects stay
-    // under D15.
+    // print once and return. *(2026-10-26: D217 took the rest, and the
+    // directory left `DEFERRED_PATHS`; these rows are now redundant and
+    // kept as D214's record.)*
     ("console.text", "D214"),
     ("console.text.red", "D214"),
     ("console.text.green", "D214"),
@@ -514,18 +515,9 @@ const IN_SCOPE_WORDS: &[(&str, &str)] = &[
 /// Registration paths that are out of scope, longest prefix first.
 /// `reference/` prefix implied.
 const DEFERRED_PATHS: &[(&str, Deferral)] = &[
-    // D15: only basic console output is in scope — print, println, nl, space
-    // (rust_multistackvm/src/stdlib/print.rs:63-68). Every word under
-    // console/ is presentation: spinners (`spinoff`, console/spinner.rs:11),
-    // colour (`rusty_termcolor`, console/spinner.rs:12), the typewriter
-    // animation (console/terminal.rs:35), and terminal control.
-    (
-        "Bund/src/stdlib/functions/console",
-        Deferral {
-            decision: "D15",
-            reason: "console presentation: spinners, animation, colour",
-        },
-    ),
+    // `bund/console` is no longer here: D15 deferred it whole, D214
+    // (2026-10-25) took fourteen of its words into scope and D217
+    // (2026-10-26) the other seventeen.
     // D26: the embedded database layer is not a mandatory layer. Deferred
     // pending a decision on what replaces it.
     (
@@ -573,6 +565,30 @@ const DEFERRED_PATHS: &[(&str, Deferral)] = &[
     // directory is in scope.
 ];
 
+/// Classes registered inside a deferred path, with the decision that
+/// deferred them. A program reaches one by naming it, `:OLLAMA object`, and
+/// then calling its methods through `!`, so no word the program invokes is
+/// out of scope although the program is: `ai/ollama_api_demo` read as
+/// in scope once D217 brought its console words in. Matched against the
+/// program's atoms.
+const DEFERRED_CLASSES: &[(&str, &str, &str)] = &[
+    (
+        "OLLAMA",
+        "D28",
+        "an `ai` class (`ai/ollama.rs:155`) that asks a network server",
+    ),
+    (
+        "DEEPSEEK",
+        "D28",
+        "an `ai` class (`ai/deepseek.rs`) that asks a network service",
+    ),
+    (
+        "IMAGE",
+        "D28",
+        "an `image` class (`image/image_class.rs`) — not essential",
+    ),
+];
+
 pub struct Classifier;
 
 impl Classifier {
@@ -593,6 +609,16 @@ impl Classifier {
             }
         }
         Some((Effect::Pure, site))
+    }
+
+    /// Whether a class name a program uses was deferred, and by which
+    /// decision and for what reason.
+    pub fn deferred_class(name: &str) -> Option<(&'static str, &'static str)> {
+        let name = name.trim_start_matches(':');
+        DEFERRED_CLASSES
+            .iter()
+            .find(|(c, _, _)| *c == name)
+            .map(|(_, d, r)| (*d, *r))
     }
 
     /// Whether a word is out of scope, and under which decision.

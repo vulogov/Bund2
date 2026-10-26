@@ -285,14 +285,18 @@ fn run_file(
         let _ = std::io::Read::read_to_end(&mut stdout, &mut buf);
         buf
     });
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    // 150 s, not the 30 it was: since D217 the suite holds
+    // `code_snippets/string_wrap_demo`, which types its text at the
+    // reference's 50 ms a character and takes 60 s plainly, in the oracle as
+    // in Bund2. The deadline is for a run that never finishes, not a slow one.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(150);
     let status = loop {
         match child.try_wait().map_err(|e| format!("wait: {e}"))? {
             Some(s) => break s,
             None if std::time::Instant::now() > deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err("did not finish within 30 s".into());
+                return Err("did not finish within 150 s".into());
             }
             None => std::thread::sleep(std::time::Duration::from_millis(2)),
         }

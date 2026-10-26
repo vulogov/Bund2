@@ -24,15 +24,23 @@
 #    132  programs in the corpus
 #     51  non-hermetic, dropped by filter 1
 #     81  hermetic
-#      3  hermetic but out of scope, dropped by filter 2
-#     18  hermetic and in scope but not reproducible, dropped by filter 3
-#     60  in this file
+#     11  hermetic but out of scope, dropped by filter 2
+#      8  hermetic and in scope but not reproducible, dropped by filter 3
+#     62  in this file
 #
 #
 # Hermetic but excluded by a scope decision:
-#   reference/Bund/examples/ai/ollama_api_demo.bund  [D15] console presentation: spinners, animation, colour
-#   reference/Bund/examples/code_snippets/string_wrap_demo.bund  [D15] console presentation: spinners, animation, colour
-#   reference/Bund/examples/console/typewriter_demo.bund  [D15] console presentation: spinners, animation, colour
+#   reference/Bund/examples/ai/ollama_api_demo.bund  [D28] an `ai` class (`ai/ollama.rs:155`) that asks a network server
+#   reference/Bund/examples/image/image_blur_and_save.bund  [D28] an `image` class (`image/image_class.rs`) — not essential
+#   reference/Bund/examples/image/image_export.bund  [D28] an `image` class (`image/image_class.rs`) — not essential
+#   reference/Bund/examples/image/image_print.bund  [D28] an `image` class (`image/image_class.rs`) — not essential
+#   reference/Bund/examples/image/image_print_blur.bund  [D28] an `image` class (`image/image_class.rs`) — not essential
+#   reference/Bund/examples/image/image_print_brighten.bund  [D28] an `image` class (`image/image_class.rs`) — not essential
+#   reference/Bund/examples/image/image_print_contrast.bund  [D28] an `image` class (`image/image_class.rs`) — not essential
+#   reference/Bund/examples/image/image_print_crop.bund  [D28] an `image` class (`image/image_class.rs`) — not essential
+#   reference/Bund/examples/image/image_print_grayscale.bund  [D28] an `image` class (`image/image_class.rs`) — not essential
+#   reference/Bund/examples/image/image_print_thumbnail.bund  [D28] an `image` class (`image/image_class.rs`) — not essential
+#   reference/Bund/examples/image/image_upscale_and_save.bund  [D28] an `image` class (`image/image_class.rs`) — not essential
 
 reference/Bund/examples/bund_dynamic_demos/compile_and_apply.bund
 reference/Bund/examples/bund_dynamic_demos/create_lambda_on_the_fly.bund
@@ -54,10 +62,12 @@ reference/Bund/examples/code_snippets/fmt_conditional_with_display_demo.bund
 reference/Bund/examples/code_snippets/internal_bus_demo.bund
 reference/Bund/examples/code_snippets/pull_demo.bund
 reference/Bund/examples/code_snippets/sorting_numbers_in_list.bund
+reference/Bund/examples/code_snippets/string_wrap_demo.bund
 reference/Bund/examples/code_snippets/textexpression_demo.bund
 reference/Bund/examples/code_snippets/tryexcept_demo.bund
 reference/Bund/examples/code_snippets/tryexcept_demo_divide_to_0.bund
 reference/Bund/examples/conditional_move_to_workbench.bund
+reference/Bund/examples/console/typewriter_demo.bund
 reference/Bund/examples/estimator_demo.bund
 reference/Bund/examples/forecast_mstl_demo.bund
 reference/Bund/examples/graph_algorithms/more_complex_graph_shortpath.bund

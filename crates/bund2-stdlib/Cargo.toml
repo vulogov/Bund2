@@ -198,6 +198,10 @@ rstats = "=2.1.15"
 # The console text words' escapes (D214) are `rusty-termcolor`'s, pinned to the
 # reference's 0.1.62; its printing functions are not called (they `println!`).
 rusty-termcolor = "=0.1.62"
+# The spinner's end marks (D217) are `colored`'s, at the 2.2.0 `spinoff`
+# resolves in the reference's lock; `spinoff` itself is reproduced, since it
+# `expect`s its writes.
+colored = "=2.2.0"
 # The forecasting words' crates (D215), each pinned to the version the
 # reference's lock file resolves, so a forecast, an outlier interval or a
 # cluster is the crate's own: augurs for MSTL, the MAD and DBSCAN outlier

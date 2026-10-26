@@ -1,0 +1,42 @@
+//
+// Probe: the spinners and timed effects of `bund/console` (D217), the
+// words among them whose bytes do not depend on timing or chance.
+//
+//   - **`console.typewriter`** writes the message a character at a time,
+//     with no newline after.
+//   - **`console.text.rainbow`** draws three passes of seven frames, each
+//     from the start of the line, and ends with a newline.
+//   - **`spinner.text`** and its colours print one line each; with no
+//     spinner running there is no empty line before it, and a number is
+//     converted.
+//   - **A spinner's endings with no spinner running** consume their message
+//     and print nothing.
+//
+// Not here: `console.spinner`, whose frames depend on timing, and
+// `console.text.matrix` and `spinner.text.randomcolor`, which draw at
+// random. A golden strips ANSI, so the colours are pinned by the oracle
+// comparison recorded in D217, not by this file.
+//
+"probe: console.typewriter writes the message, with no newline" println
+"typed" console.typewriter nl
+
+"probe: console.text.rainbow draws its frames and a newline" println
+"rainbow" console.text.rainbow
+
+"probe: spinner.text and its colours print one line each" println
+"plain" spinner.text
+"red" spinner.text.red
+"green" spinner.text.green
+"blue" spinner.text.blue
+"magenta" spinner.text.magenta
+"cyan" spinner.text.cyan
+"yellow" spinner.text.yellow
+42 spinner.text
+
+"probe: with no spinner running, the endings print nothing" println
+"stopped" console.spinner.stop
+"done" console.spinner.success
+"failed" console.spinner.fail
+"careful" console.spinner.warning
+"note" console.spinner.info
+"after" println

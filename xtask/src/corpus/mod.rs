@@ -720,7 +720,7 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     // Hand-kept, and deliberately so: each entry is a judgement with a reason,
     // not something a program can derive. A word listed here that some golden
     // *does* run is reported, because then the entry is wrong.
-    const NO_GOLDEN_CAN_HOLD: [(&str, &str); 17] = [
+    const NO_GOLDEN_CAN_HOLD: [(&str, &str); 20] = [
         ("$", "the oracle does not take `$` as a word"),
         (
             "<-",
@@ -764,6 +764,17 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
         (
             "console.text.randomcolor",
             "writes a random colour escape on every run (D214)",
+        ),
+        // D217: a spinner's frames are drawn by a thread at 80 ms, so how many
+        // reach the output depends on timing; the other two draw at random.
+        (
+            "console.spinner",
+            "draws frames from a thread, as many as time allows (D217)",
+        ),
+        ("console.text.matrix", "decodes over random symbols (D217)"),
+        (
+            "spinner.text.randomcolor",
+            "writes a random colour escape on every run (D217)",
         ),
         // D215: the chain picks each step at random, so two oracle runs of
         // one series answer different means, or refuse.
@@ -1665,6 +1676,11 @@ fn task4<'a>(
         let mut unknown = Vec::new();
         let mut deferred = Vec::new();
         let atoms = p.atom_set();
+        for a in &atoms {
+            if let Some((d, r)) = Classifier::deferred_class(a) {
+                deferred.push((a.trim_start_matches(':').to_string(), d, r));
+            }
+        }
         for w in p.word_set() {
             if let Some((d, _)) = Classifier::deferral_of(reg, w) {
                 deferred.push((w.to_string(), d.decision, d.reason));

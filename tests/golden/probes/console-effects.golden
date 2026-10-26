@@ -1,0 +1,26 @@
+# golden for tests/probes/console-effects.bund
+# captured by `cargo xtask golden` from reference/Bund via target/oracle
+# normalised: id and stamp (F14), dict member order (F15), ANSI stripped
+# verified: two oracle runs produced identical output
+## exit
+0
+## output
+probe: console.typewriter writes the message, with no newline
+typed
+probe: console.text.rainbow draws its frames and a newline
+rainbowrainbowrainbowrainbowrainbowrainbowrainbowrainbowrainbowrainbowrainbowrainbowrainbowrainbowrainbowrainbowrainbowrainbowrainbowrainbowrainbow
+probe: spinner.text and its colours print one line each
+plain
+red
+green
+blue
+magenta
+cyan
+yellow
+42
+probe: with no spinner running, the endings print nothing
+after
+╭╮
+╰╯
+╭╮
+╰╯

@@ -796,6 +796,9 @@ the text and colour words with `console.box`, `console.clear` and
 `console.title`, are in scope. The spinners and the three timed effects
 stay out under this decision.
 
+**Note, 2026-10-26.** Closed by **D217**: the spinners and the three timed
+effects are in scope too, so nothing of `bund/console` is deferred.
+
 ## D16 — dynamic dispatch by computed name
 `<string> ptr !` and `` `<name> ! `` are preserved exactly as they behave
 today. **The world is permanently open**: a call target may be named by a
@@ -3665,6 +3668,73 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
 - Depends on: D48 and D55 (the palette runs the four new fixed-effect
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
+
+## D217 — the rest of `bund/console`: spinners and timed effects
+
+**Raised 2026-10-26** by the repository owner, choosing "console spinners
+and timed effects, under D15" from what was still out of scope. D214
+brought the fourteen text and colour words in and left these seventeen
+under D15.
+
+The seventeen: `console.spinner`, `.stop`, `.success`, `.fail`,
+`.warning` and `.info`, one shared spinner per process
+(`reference/Bund/src/stdlib/functions/console/spinner.rs:14-146`);
+`spinner.text` and its six colours and a random one, a coloured line
+printed after an empty one while a spinner runs (`:148-171,250-280`);
+and `console.typewriter`, `console.text.matrix` and
+`console.text.rainbow`, which sleep 50 ms between frames
+(`console/terminal.rs:27-37`, `spinner.rs:209-248`;
+`rusty-termcolor-0.1.62/src/effects.rs`, `typewriter`, `matrix_effect`,
+`rainbow_text`).
+
+The spinner is `spinoff` 0.8.0's `Dots`, ten frames at 80 ms, drawn by a
+thread it spawns (`spinoff-0.8.0/src/lib.rs`, `new_with_stream`), and its
+end marks are `colored` 2.2.0's bold `✓`, `✗`, `⚠` and `ℹ`. **Neither crate
+can be called as it is**: `spinoff` `expect`s every write and the join of
+its thread, and `rusty-termcolor`'s effects `unwrap` every flush, so a
+closed standard output panics (D37). Each is reproduced, frame for frame,
+with its writes made fallible: the spinner thread drops a failed write,
+as `say!` does, since nothing is left to report it to, and the words'
+own writes go through the fallible path.
+
+- Blocks: nothing
+- Depends on: D15, D214, D37, D21
+- Options:
+  - **A. All seventeen**, reproduced as above, on `colored` 2.2.0 for the
+    marks so their escapes, and whether a pipe gets any, are the
+    reference's.
+  - **B. The deterministic ones only**: `spinner.text*` and the three
+    effects, leaving the spinner thread out.
+  - **C. Leave D15 as it stands.**
+- Recommendation: A.
+- Status: **RESOLVED** by the repository owner, 2026-10-26: "console
+  spinners and timed effects". A. D15's note of the same date records it;
+  `bund/console` leaves `DEFERRED_PATHS` whole.
+
+### Built, 2026-10-26
+
+- **The seventeen**, in `crates/bund2-stdlib/src/console_effects.rs`:
+  the spinner as a thread drawing `Dots` and blanking its line on stop,
+  in a process-wide slot; the endings, `spinner.text*` and the three
+  effects, each written from the pinned source.
+- **Byte for byte**: one program running the three effects and every
+  `spinner.text` colour writes 2,191 identical bytes in the oracle and in
+  Bund2; a program starting, warning, informing, stopping and failing a
+  spinner wrote identical bytes too in the run compared, frames included,
+  though how many frames reach the output depends on timing.
+- **Scope**: `bund/console` has left `DEFERRED_PATHS`. Two corpus
+  programs, `console/typewriter_demo` and `code_snippets/string_wrap_demo`,
+  join the suite with goldens captured from the oracle, and pass. A third,
+  `ai/ollama_api_demo`, would have joined: its only deferred words were
+  console ones, and it reaches the `ai` class `OLLAMA` by naming it,
+  `:OLLAMA object`, which no word scan sees. `cargo xtask corpus` now
+  reads a program's atoms against `DEFERRED_CLASSES` (`OLLAMA`, `DEEPSEEK`,
+  `IMAGE`, `xtask/src/corpus/classify.rs`), so it stays out under D28;
+  ten `image/` examples move with it from "not reproducible" to "out of
+  scope", the truer reason, and the suite is otherwise unchanged.
+- **Probe**: `tests/probes/console-effects.bund`. `console.spinner`,
+  `console.text.matrix` and `spinner.text.randomcolor` are listed as words
+  no golden can hold. Conformance 143/156 → 146/159, ceiling 146/159.
 
 ## D216 — GPL crates are allowed, for `forecast.estimate!`
 

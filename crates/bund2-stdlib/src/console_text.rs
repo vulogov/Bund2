@@ -29,7 +29,7 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
 /// The message, as `stdlib_console_text_base` reads it (`spinner.rs:173-183`):
 /// `conv(STRING)` and then `cast_string`, so a number prints as its text and
 /// a value `conv` refuses stops the word with `conv`'s own sentence.
-fn message(vm: &mut dyn Vm) -> Result<String, Error> {
+pub(crate) fn message(vm: &mut dyn Vm) -> Result<String, Error> {
     let v = vm
         .pull()
         .ok_or_else(|| Error("CONSOLE: NO DATA #1".into()))?;
@@ -41,7 +41,7 @@ fn message(vm: &mut dyn Vm) -> Result<String, Error> {
 
 /// The coloured line `rusty_termcolor::println_colored` prints:
 /// `{color}{text}{RESET}` and a newline (`formatting.rs`, `println_colored`).
-fn colored(text: &str, color: &Color) -> String {
+pub(crate) fn colored(text: &str, color: &Color) -> String {
     format!("{color}{text}{RESET}")
 }
 
@@ -88,7 +88,7 @@ fn fade(vm: &mut dyn Vm, from: &Color, to: &Color) -> Result<(), Error> {
 
 /// The terminal words' operand (`terminal.rs:16-22`): `cast_string` with no
 /// `conv` first, so only a string-carrying value passes.
-fn cast_message(vm: &mut dyn Vm, word: &str) -> Result<String, Error> {
+pub(crate) fn cast_message(vm: &mut dyn Vm, word: &str) -> Result<String, Error> {
     let v = vm
         .pull()
         .ok_or_else(|| Error(format!("CONSOLE::{word}: NO DATA #1")))?;
