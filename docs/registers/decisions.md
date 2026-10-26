@@ -3669,6 +3669,61 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D219 — a parse error from `bund.compile` or `bund.eval`: the reference's prefix, Bund2's reason
+
+**Raised 2026-10-26** by D218's triage, which left it open: a string that
+does not parse fails in both engines, under the same prefix, and then in
+each parser's own words. The owner asked for options and a recommendation.
+
+- Blocks: nothing
+- Depends on: D194 (a program that does not parse exits 1), F66 (the
+  reference's error text carries Rust locations), RFC-0003 (Bund2's parser
+  is its own, not pest)
+- What the reference does: `bund_parse` re-raises pest's error as its
+  `Display` (`reference/bund_language_parser/src/lib.rs:31-32`): ` -->
+  line:col`, the source line with a caret, and `= expected <rule names>`.
+  `bund.compile` puts `BUND.COMPILE error in parsing of BUND code: ` before
+  it (`reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:46`);
+  `bund.eval` (`!!`) re-raises it bare
+  (`reference/Bund/src/stdlib/helpers/eval.rs:40-41`). Both parse the string
+  with `\n` appended (`bund_interpreter.rs:30`, `eval.rs:8`), so an error at
+  the end of input points at the line after it. Measured, 2026-10-26:
+
+      "1 2 3 }" compile   oracle  BUND.COMPILE error in parsing of BUND code:  --> 1:7 … = expected EOI, integer, float, string, literal, atom, stack, name, ptr, command, lambda, list, or ctx
+                          Bund2   BUND.COMPILE error in parsing of BUND code: line 1: unexpected character `}`
+      "[ 1 2" compile     oracle  … --> 2:1 … = expected integer, float, …
+                          Bund2   … line 1: unclosed block, expected `]`
+      "q\"x" !!           oracle   --> 1:1 … = expected EOI, integer, …
+                          Bund2   expected whitespace or end of input, found `\`
+
+  The rule list is nearly the same every time, and the position is often
+  the start of the statement that failed rather than the failure. The full
+  text carries F66's location, so no program can match it whole.
+- Options:
+  - **A.** Reproduce pest's text: its positions, the end-of-input line, the
+    rule names, the caret block. A second error model kept in step with a
+    grammar Bund2 does not parse with; no golden needs it.
+  - **B.** The reference's prefix, then Bund2's parser's reason, as built.
+  - **C.** Pest's shape (` --> L:C`) with Bund2's reason. The positions would
+    still disagree where pest names the statement's start.
+- Recommended: B.
+- Status: **RESOLVED — B**, by the repository owner, 2026-10-26 ("B"). A
+  deviation with no golden to accept: no corpus program fails to parse, so
+  `conform` cannot move. A top-level parse error is the same choice already
+  made — Bund2's report under D194 against pest's block — and is ruled with
+  it.
+
+### Built, the same day
+
+Nothing in Bund2 changes. The fuzzer approves the pair
+(`parse_errors` in `xtask/src/fuzz/compare.rs`): the oracle's first line
+ends in ` --> line:col`, Bund2's message has the same prefix, and what
+follows it, after `line N: ` where `compile` renders one, opens with one of
+the parser's sentences. `parse_sentences_are_all_recognised` runs eleven
+unparseable sources through `bund2_syntax::compile` and fails if the parser
+writes a sentence the list lacks. The four parse-error findings of D218's
+last sweeps replay as agreeing.
+
 ## D218 — a grammar fuzzer, comparing the tiers and the oracle
 
 **Raised 2026-10-26** by the repository owner, choosing the grammar fuzzer
@@ -3833,6 +3888,9 @@ All twelve are the three classes left above: D33 or D106 (8), the parse
 error's text (4). No tier difference in either; Tier 1 compiled 226 and 685
 bodies. `crates/bund2-cli/tests/panic_tier.rs` needed a native that still
 panics, F95's no longer does, and takes F104's (`list io.graph`).
+
+**Dated note, 2026-10-26:** the open item above is ruled — **D219**, B: the
+reference's prefix, then Bund2's parser's reason; the fuzzer approves it.
 
 ## D217 — the rest of `bund/console`: spinners and timed effects
 

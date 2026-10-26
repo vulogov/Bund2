@@ -176,7 +176,62 @@ pub(crate) fn approved_message(bund2: &str, oracle: &str) -> Option<&'static str
     {
         return Some("F120");
     }
+    if parse_errors(b, o) {
+        return Some("D219");
+    }
     (b == o && (b != bund2 || o != oracle)).then_some("D196")
+}
+
+/// The sentences Bund2's parser writes (`bund2_syntax`, `Parser::err`), by
+/// their opening words; `parse_sentences_are_all_recognised` holds this to
+/// the parser.
+const PARSE_SENTENCES: &[&str] = &[
+    "unclosed block, expected",
+    "empty block:",
+    "expected a term, found end of input",
+    "unterminated string",
+    "unterminated escape",
+    "unterminated literal",
+    "expected whitespace or end of input",
+    "expected a name, found end of input",
+    "unexpected character",
+    "nesting deeper than",
+    "Error converting FLOAT to VALUE:",
+    "Error converting INT to VALUE:",
+];
+
+/// D219: a parse error from `bund.compile` or `bund.eval` is the reference's
+/// prefix and then each parser's own reason. The reference's is pest's,
+/// ` --> line:col` on the first line (`reference/bund_language_parser/src/lib.rs:31-32`,
+/// re-raised bare by `reference/Bund/src/stdlib/helpers/eval.rs:40-41` and
+/// under `BUND.COMPILE error in parsing of BUND code:` by
+/// `reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:46`); Bund2's
+/// is its parser's sentence, after `line N: ` where `compile` renders one.
+/// Both must be parse errors, under the same prefix.
+fn parse_errors(bund2: &str, oracle: &str) -> bool {
+    let Some(at) = oracle.rfind(" --> ") else {
+        return false;
+    };
+    let place = &oracle[at + " --> ".len()..];
+    let is_place = place.split_once(':').is_some_and(|(l, c)| {
+        !l.is_empty()
+            && !c.is_empty()
+            && l.chars().all(|ch| ch.is_ascii_digit())
+            && c.chars().all(|ch| ch.is_ascii_digit())
+    });
+    if !is_place {
+        return false;
+    }
+    let prefix = oracle[..at].trim_end();
+    let Some(rest) = bund2.strip_prefix(prefix) else {
+        return false;
+    };
+    let rest = rest.trim_start();
+    let rest = match rest.strip_prefix("line ").and_then(|r| r.split_once(": ")) {
+        Some((n, r)) if n.chars().all(|ch| ch.is_ascii_digit()) => r,
+        _ => rest,
+    };
+    PARSE_SENTENCES.iter().any(|p| rest.starts_with(p)) || rest.contains("` needs a name after it")
 }
 
 /// A message without the wrappers each lambda a failure leaves adds.
@@ -505,6 +560,61 @@ mod tests {
             "Lambda content evaluation returned error: Context is empty"
         ));
         assert!(!ruled_stop("Context is empty for a while"));
+    }
+
+    #[test]
+    fn a_parse_error_is_approved_by_d219_under_the_same_prefix() {
+        let compile = "BUND.COMPILE error in parsing of BUND code:";
+        assert_eq!(
+            approved_message(
+                &format!("{compile} line 1: expected whitespace or end of input, found `\\`"),
+                &format!("{compile}  --> 1:1")
+            ),
+            Some("D219")
+        );
+        assert_eq!(
+            approved_message("unclosed block, expected `}`", " --> 2:1"),
+            Some("D219")
+        );
+        // Not a parse error on Bund2's side, or not under the same prefix.
+        assert_eq!(approved_message("Context is empty", " --> 1:1"), None);
+        assert_eq!(
+            approved_message("unterminated string", &format!("{compile}  --> 1:1")),
+            None
+        );
+        assert_eq!(approved_message("unterminated string", "x --> a:b"), None);
+    }
+
+    /// Every sentence Bund2's parser writes is one `parse_errors` knows.
+    #[test]
+    fn parse_sentences_are_all_recognised() {
+        let deep = format!("{}1", "{ ".repeat(1000));
+        for src in [
+            "{ 1",
+            "[ ]",
+            "\"oops",
+            "\"oops\\",
+            "'oops",
+            "`",
+            "q\\\"x",
+            "}",
+            "1_000",
+            "1_000.5",
+            deep.as_str(),
+        ] {
+            let Err(e) = bund2_syntax::compile(src) else {
+                panic!("{src:?} was expected not to parse");
+            };
+            assert!(
+                parse_errors(&e.to_string(), " --> 1:1"),
+                "{src:?}: {e} is not in PARSE_SENTENCES"
+            );
+            assert!(
+                parse_errors(&format!("P: {}", e.render(src)), "P:  --> 1:1"),
+                "{src:?}: {}",
+                e.render(src)
+            );
+        }
     }
 
     #[test]
