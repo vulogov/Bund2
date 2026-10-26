@@ -994,15 +994,15 @@ fn step_sweep(
 
 /// What the tier did over a whole `conform` run — RFC-0005 criterion 2.
 #[derive(Default)]
-struct TierTotal {
+pub(crate) struct TierTotal {
     /// Bodies compiled, summed over every program.
-    bodies: usize,
+    pub(crate) bodies: usize,
     /// Entries that ran compiled code, summed the same way.
-    entered: usize,
+    pub(crate) entered: usize,
     /// Programs that compiled at least one body.
-    programs: usize,
+    pub(crate) programs: usize,
     /// Programs that printed a `--stats` line at all.
-    reported: usize,
+    pub(crate) reported: usize,
 }
 
 impl TierTotal {
@@ -1012,7 +1012,7 @@ impl TierTotal {
     /// normalises, so it arrives here as one line of the text about to be
     /// compared with a golden. It is removed whether or not it parses: a
     /// golden never holds one.
-    fn take(&mut self, output: &mut String) {
+    pub(crate) fn take(&mut self, output: &mut String) {
         const MARK: &str = "bund2: tier compiled ";
         const FLOORS: &str = "bund2: floors: ";
         // **By line, rejoined as `normalise` joins them** — with `\n` between

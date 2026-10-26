@@ -491,6 +491,96 @@ fn load_core_words(repo: &Path) -> BTreeSet<String> {
     out
 }
 
+/// **Words no golden can ever hold — F175.**
+///
+/// Coverage's list of implemented words no golden runs read as "probes to
+/// write" until someone tried to write them. Eleven cannot be written,
+/// each for a reason that will not change: a golden is captured from the
+/// oracle and holds its output, so a word the oracle lacks, a word that
+/// needs a terminal, and a word whose *output* names the machine or the
+/// moment are all out of reach whatever Bund2 does. Without this the
+/// remainder never reaches zero and nobody can tell finished from abandoned.
+///
+/// Hand-kept, and deliberately so: each entry is a judgement with a reason,
+/// not something a program can derive. A word listed here that some golden
+/// *does* run is reported, because then the entry is wrong.
+pub(crate) const NO_GOLDEN_CAN_HOLD: [(&str, &str); 20] = [
+    ("$", "the oracle does not take `$` as a word"),
+    (
+        "<-",
+        "alias of `stacks_left`, which only Bund2 registers (F71)",
+    ),
+    (
+        "←",
+        "alias of `stacks_left`, which only Bund2 registers (F71)",
+    ),
+    ("password", "reads a terminal"),
+    (
+        "log.error",
+        "its one line carries a wall clock in the oracle",
+    ),
+    (
+        "debug.display_distributed_info",
+        "its only output is a reporter line with a wall clock",
+    ),
+    (
+        "debug.display_memstat",
+        "prints this process's memory, which moves between runs",
+    ),
+    (
+        "debug.display_hostinfo",
+        "prints crate versions, and the two engines are different crates",
+    ),
+    (
+        "system.ip",
+        "names the machine, and fails without a network",
+    ),
+    (
+        "system.ipv6",
+        "names the machine, and fails on a host without IPv6",
+    ),
+    (
+        "system.locale",
+        "names the machine, and fails where no locale is set",
+    ),
+    // D214: a golden strips the escape, but a probe's raw bytes must
+    // agree between a plain and a stepped run (`debugger_step.rs`).
+    (
+        "console.text.randomcolor",
+        "writes a random colour escape on every run (D214)",
+    ),
+    // D217: a spinner's frames are drawn by a thread at 80 ms, so how many
+    // reach the output depends on timing; the other two draw at random.
+    (
+        "console.spinner",
+        "draws frames from a thread, as many as time allows (D217)",
+    ),
+    ("console.text.matrix", "decodes over random symbols (D217)"),
+    (
+        "spinner.text.randomcolor",
+        "writes a random colour escape on every run (D217)",
+    ),
+    // D215: the chain picks each step at random, so two oracle runs of
+    // one series answer different means, or refuse.
+    ("forecast.markov", "samples a Markov chain at random (D215)"),
+    (
+        "forecast.markov,",
+        "samples a Markov chain at random (D215)",
+    ),
+    (
+        "forecast.markov.",
+        "samples a Markov chain at random (D215)",
+    ),
+    (
+        "forecast.markov.,",
+        "samples a Markov chain at random (D215)",
+    ),
+    (
+        "forecast.mstl,",
+        "restores its list and pulls it as `n`, so refuses in both engines (D215)",
+    ),
+];
+
 /// `cargo xtask coverage` — words with a test over words in scope.
 ///
 /// Deliberately *not* folded into `conform`. Conformance is goldens passed
@@ -707,95 +797,8 @@ pub fn run_coverage(_args: &[String]) -> Result<(), String> {
     }
     bund2_api::sayln!();
 
-    // **Which of those no golden can ever hold — F175.**
-    //
-    // The list above read as "probes to write" until someone tried to write
-    // them. Eleven cannot be written, each for a reason that will not change:
-    // a golden is captured from the oracle and holds its output, so a word the
-    // oracle lacks, a word that needs a terminal, and a word whose *output*
-    // names the machine or the moment are all out of reach whatever Bund2
-    // does. Without this the remainder never reaches zero and nobody can tell
-    // finished from abandoned.
-    //
-    // Hand-kept, and deliberately so: each entry is a judgement with a reason,
-    // not something a program can derive. A word listed here that some golden
-    // *does* run is reported, because then the entry is wrong.
-    const NO_GOLDEN_CAN_HOLD: [(&str, &str); 20] = [
-        ("$", "the oracle does not take `$` as a word"),
-        (
-            "<-",
-            "alias of `stacks_left`, which only Bund2 registers (F71)",
-        ),
-        (
-            "←",
-            "alias of `stacks_left`, which only Bund2 registers (F71)",
-        ),
-        ("password", "reads a terminal"),
-        (
-            "log.error",
-            "its one line carries a wall clock in the oracle",
-        ),
-        (
-            "debug.display_distributed_info",
-            "its only output is a reporter line with a wall clock",
-        ),
-        (
-            "debug.display_memstat",
-            "prints this process's memory, which moves between runs",
-        ),
-        (
-            "debug.display_hostinfo",
-            "prints crate versions, and the two engines are different crates",
-        ),
-        (
-            "system.ip",
-            "names the machine, and fails without a network",
-        ),
-        (
-            "system.ipv6",
-            "names the machine, and fails on a host without IPv6",
-        ),
-        (
-            "system.locale",
-            "names the machine, and fails where no locale is set",
-        ),
-        // D214: a golden strips the escape, but a probe's raw bytes must
-        // agree between a plain and a stepped run (`debugger_step.rs`).
-        (
-            "console.text.randomcolor",
-            "writes a random colour escape on every run (D214)",
-        ),
-        // D217: a spinner's frames are drawn by a thread at 80 ms, so how many
-        // reach the output depends on timing; the other two draw at random.
-        (
-            "console.spinner",
-            "draws frames from a thread, as many as time allows (D217)",
-        ),
-        ("console.text.matrix", "decodes over random symbols (D217)"),
-        (
-            "spinner.text.randomcolor",
-            "writes a random colour escape on every run (D217)",
-        ),
-        // D215: the chain picks each step at random, so two oracle runs of
-        // one series answer different means, or refuse.
-        ("forecast.markov", "samples a Markov chain at random (D215)"),
-        (
-            "forecast.markov,",
-            "samples a Markov chain at random (D215)",
-        ),
-        (
-            "forecast.markov.",
-            "samples a Markov chain at random (D215)",
-        ),
-        (
-            "forecast.markov.,",
-            "samples a Markov chain at random (D215)",
-        ),
-        (
-            "forecast.mstl,",
-            "restores its list and pulls it as `n`, so refuses in both engines (D215)",
-        ),
-    ];
+    // **Which of those no golden can ever hold — F175.** See
+    // [`NO_GOLDEN_CAN_HOLD`].
     let held_out: Vec<(&str, &str)> = NO_GOLDEN_CAN_HOLD
         .iter()
         .copied()

@@ -2886,6 +2886,14 @@ inconsistent as well as misattributed.
 **Status:** REPRODUCED, in `crates/bund2-stdlib/src/oop.rs`'s `wrap_word`. The
 text is observable through `?try`.
 
+- **Note, 2026-10-26 — the status above is stale.** F40's FIX was built on
+  2026-10-19 and replaced the reproduction: Bund2's `wrap` now says
+  `Stack is too shallow for inline WRAP`, `WRAP NO OBJECT IN #1` and
+  `WRAP NO DATA IN #1` (`crates/bund2-stdlib/src/oop.rs`,
+  `the_wrapped_value_words_report_their_misuse`). Found when D218's fuzzer
+  reported the difference and the registers were searched for its ruling;
+  the fuzzer treats the three as approved under F40.
+
 ## F83 — three tags are routed to a conversion that refuses them by name
 
 `Value::conv` sends CLASS and OBJECT to `value_map_conversion`:

@@ -369,7 +369,7 @@ const RUN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 /// language, or a terminal narrower than a golden's longest displayed line,
 /// still shows through. Eighty columns is what the goldens are known to
 /// pass at.
-const PINNED_HOST: [(&str, &str); 6] = [
+pub(crate) const PINNED_HOST: [(&str, &str); 6] = [
     ("LANGUAGE", "en_US"),
     ("LC_ALL", "en_US.UTF-8"),
     ("LANG", "en_US.UTF-8"),

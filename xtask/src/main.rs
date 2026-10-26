@@ -51,6 +51,11 @@ Oracle
                 a token, that the token is near the cited line. Catches stale
                 line numbers; cannot check that a line means what the prose
                 says.
+  fuzz          Generate programs from bund.pest's terms and run each under
+                Tier 0, Tier 1 at --jit-threshold 1 and the oracle; report
+                where they part, cut down, in
+                target/fuzz/findings/<seed> (D218).
+                --seed N --count N, --no-oracle, --replay <file>. Local only.
   render        RFC-0001 criterion D3, differentially: parse every rendering
                 the goldens hold back into a BundValue, render it, compare.
                 Values Bund2 cannot build yet are counted apart from ones it
@@ -108,6 +113,7 @@ mod conform;
 mod corpus;
 mod depth;
 mod effects;
+mod fuzz;
 mod golden;
 mod guide;
 mod layout;
@@ -206,6 +212,13 @@ fn main() -> std::process::ExitCode {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(err) => {
                 bund2_api::errln!("xtask depth: {err}");
+                std::process::ExitCode::FAILURE
+            }
+        },
+        "fuzz" => match fuzz::run(&args) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(err) => {
+                bund2_api::errln!("xtask fuzz: {err}");
                 std::process::ExitCode::FAILURE
             }
         },

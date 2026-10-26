@@ -3669,6 +3669,89 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D218 — a grammar fuzzer, comparing the tiers and the oracle
+
+**Raised 2026-10-26** by the repository owner, choosing the grammar fuzzer
+from the tooling the research planned and nothing built: RFC-10's
+"Grammar-directed fuzzer from `bund.pest`" (`docs/research/05-rfc-roadmap.md`
+§2 and §6), whose design is `04-consolidated-architecture.md` §3.8: generate
+programs from the grammar, run each under every tier, and compare every
+stack, the workbench and the error. The roadmap's RFC-10 number went to the
+class hierarchy, so the fuzzer never had an RFC or a decision.
+
+What already compares engines: `cargo xtask conform` runs a fixed corpus
+against goldens with the tier off, at its default threshold and at
+`--jit-threshold 1`; `xtask parity` compares token streams. Both are fixed
+inputs. AOT was withdrawn (D83), so "every tier" is Tier 0 and Tier 1.
+
+The open question is what a generated program is compared against.
+
+- Blocks: nothing
+- Depends on: D83, D36, D37, D171, F14, F15, F66
+- Options:
+  - **A. The tiers and the oracle.** Tier 0 against Tier 1 at threshold 1,
+    where any difference is a Bund2 bug; and Tier 0 against the oracle, which
+    reaches words the goldens never run, at the cost of triage: a difference
+    there is a Bund2 bug, a new defect in the reference, or a deviation
+    already approved.
+  - **B. The tiers only**, as §3.8 states it.
+  - **C. The oracle only**, leaving the tiers to `conform`.
+- And where it runs:
+  - **Local only**: `cargo xtask fuzz`, reproducible from a seed.
+  - **A short CI run**, tiers only, since the oracle's triage cannot be
+    automated.
+- Recommendation: A, local only.
+- Status: **RESOLVED** by the repository owner, 2026-10-26: "grammar fuzzer",
+  then "Tiers and oracle" and "Local only". A. CI is unchanged.
+
+### Built, 2026-10-26
+
+- **`cargo xtask fuzz`** (`xtask/src/fuzz/`). Every term of the grammar is
+  generated (`reference/bund_language_parser/bund.pest:7-20`) in a form its
+  rule accepts, so every program parses. A program is a few statements, each
+  a word's operands then the word, typed by `docs/arity.md` three times in
+  four; and in one in three a body the program runs (`execute`, `!`,
+  `times`, `map`). Seeded (SplitMix64, program *i* is seed + *i*), so
+  `--seed` reproduces a run on any host.
+- **The vocabulary** is every in-scope word Bund2 registers whose effect is
+  pure or stdout, less `NO_GOLDEN_CAN_HOLD` and a list of its own with a
+  reason for each (`generate::LEFT_OUT`): loops with no bound, words that
+  define words (D171's runaway recursion), words that read a file or sleep,
+  and words that answer at random in both engines (`id.uuid`, `id.ulid`,
+  `encode.base64` of a value, F74's two). 450 words.
+- **Three runs a program**: Tier 0, Tier 1 at `--jit-threshold 1`, the oracle;
+  ten seconds and 1.5 GB each, memory read from `ps`, since the oracle has no
+  guard (D171). The tiers are compared exactly. The oracle is compared by
+  parts, since D36 changed the report: what the program wrote before failing,
+  the message with the reference's wrappers taken off (`Attempt to evaluate
+  value …`, `Error parsing token:`, `bail!`'s Rust location, F66), and the
+  dump. Bund2 runs with `--raw-values` so the dump renders as the oracle's.
+  Normalised as a golden is (F14, F15), and also: a context's nanoid stack
+  name, the oracle's `env_logger` lines, whose clock and module path are no
+  contract, and D194's exit 1 for a program that does not parse. F40's
+  approved texts are not findings.
+- **Never a finding, but counted**: a program the oracle answers two ways (the
+  second run is taken only when Bund2 disagrees), one it aborts on (D37), one
+  a tier answers two ways, one that outlasts the bound everywhere.
+- **A finding is cut down** a line at a time while the same kind survives,
+  and written to `target/fuzz/findings/<seed>/`; `--replay` prints all three
+  runs of one.
+- **Tier 1 has to be given something to compile.** The first 2,000 programs
+  compiled no body, so the tiers agreed by never differing: the tier compiles
+  a body when it runs and only one of integer literals and integer operators.
+  Bodies are now written from that subset two times in three, and the report
+  totals `--stats` as `conform` does (D141), saying so when nothing compiled.
+- **Measured**, `--seed 2026 --count 1000`, 249 s: 605 agreed, 390 found, 5
+  compared to nothing; Tier 1 compiled 231 bodies in 221 programs. One tier
+  difference: after a compiled body has run, an error inside `map`'s body is
+  reported by Tier 1 with the reference's `MAP: lambda execution returns
+  error:` wrapper and by Tier 0 without it, at different locations. The
+  findings are not triaged here; the causes seen most are Bund2 restoring a
+  name it could not cast where the oracle has consumed it (`name_arg` in
+  `crates/bund2-stdlib/src/stack.rs`, measured on eight words), shallow-stack
+  messages worded differently, that wrapper, and `lambda=`'s text
+  (`reference/rust_multistackvm/src/multistackvm_lambdas.rs:43`).
+
 ## D217 — the rest of `bund/console`: spinners and timed effects
 
 **Raised 2026-10-26** by the repository owner, choosing "console spinners
