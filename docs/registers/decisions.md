@@ -3752,6 +3752,88 @@ The open question is what a generated program is compared against.
   messages worded differently, that wrapper, and `lambda=`'s text
   (`reference/rust_multistackvm/src/multistackvm_lambdas.rs:43`).
 
+### The tier difference, fixed, 2026-10-26
+
+On the owner's "fix the tier difference". `{ < 100 }` compiles, `<` being an
+inlined site guarded on two integers; under `map`, with two integers left
+beneath the items by `{ 5 3 } execute`, the guard meets a boolean, compiled
+code calls the native `<`, and it fails. Tier 0 notes a failure in `run_to`
+before the frames unwind (D173), so its report places the failure inside the
+body, names the innermost message and prints a traceback. A compiled body has
+no `run_to`; its frame (D139, its `ip` kept by `Vm::tier_at` before every
+call) was removed in `push_frame_once` before anything noted the failure, so
+the report fell back to `map`'s place and the message with every wrapper.
+**The failure is now noted there, before the frame goes** (`Interp`,
+`push_frame_once`), and a failure already noted deeper is kept. The message
+text was never different: `Error::context` wraps it the same way in both
+tiers, and only what the report chose to show differed. Pinned by
+`crates/bund2-cli/tests/report_tier.rs`, which fails without the change. After
+it, `--seed 2026 --count 1000` finds no tier difference, nor does a tier-only
+`--seed 90000 --count 4000`, in which Tier 1 compiled 881 bodies in 845
+programs.
+
+### The oracle findings triaged, 2026-10-26
+
+On the owner's "triage what the fuzzer found against the oracle, start with
+name_arg and continue", with "two internal errors in Bund2" and "message
+wording". Every finding was given one of CLAUDE.md's three dispositions.
+
+**Bund2 bugs, fixed** — F230's seven: a stack name that is not a string
+spent, not restored; eleven stack-layer guards, `type`, `type.of`, `?type`
+and `seq`'s; `ifthenelse` checking each branch as it pulls it; the case
+words', `do.`'s, `var?`'s and `lambda=`'s texts; a stack named `""` tagged;
+the last stack dropped replaced under a fresh name, not `main`;
+`string.regex` and `string.wildcard` pulling both operands before casting.
+
+**The two internal errors** were the reference's crashes caught: both are
+refusals now, in ordinary words. `periodic.detect` on fewer than four values
+is F229; `string.distance.jarowinkler` is F95's dated note, a port of
+`natural`'s function that answers every pair the crate answers, to the bit.
+
+**Approved, taught to the fuzzer** (`xtask/src/fuzz/compare.rs`,
+`generate.rs`), each with the ruling beside it in the code:
+
+- D196 and D173: the reference's wrappers — `Lambda content evaluation
+  returned error:`, `<WORD>: lambda execution returns error:`, the
+  evaluator's `Attempt to evaluate value … returned error:` — are removed from
+  both messages before comparing, with trailing blanks.
+- F18 and D105: the guard at the arity a word consumes, sixteen texts; the
+  message and the dump both differ, and the output before still compares.
+- F53: `execute.`'s guard reads the workbench.
+- F120 and D57: `convert.to_dict` makes a MAP; its refusals name 11 for 26,
+  and the word is left out of the vocabulary, every answer differing.
+- F60 and F72: `Context is empty` stops the comparison, as the output
+  before it; a bare `endcontext` is left out; and the words that move the
+  ring without naming a stack are not written inside `( … )`, where the two
+  engines close on different stacks.
+- F58 and D34: no `( … )` is written inside `{ }` or `[ ]`, where the
+  reference hoists it to the top-level stream. Most of the first run's state
+  findings were this.
+- The oracle's pest-format report (`Error occured:`, no box) is read as an
+  error, so a `bund.compile` that fails in both is compared as one.
+
+**Approved, not filtered.** D30 and D33 (an integer against a float compares
+by the values denoted; the reference answers true to all four orderings
+across kinds, F47) and D106 (strings sort by code point; the oracle's order
+is its own) are reached by ordinary programs, so they still surface: five
+and three of four thousand programs.
+
+**Open: a parse error's text.** `bund.compile` and `bund.eval` on a string
+that does not parse report under the reference's prefix in both engines,
+and then each parser's own words: pest's `--> 1:1` and its expected-token
+list against Bund2's `line 1: expected whitespace or end of input, found
+\``. No decision covers the wording, and Bund2's parser is not pest, so
+it cannot match without one. Three findings in four thousand programs. Not
+adopted silently; for the owner.
+
+**Measured after**, the generator changed as above so a seed writes other
+programs than before: `--seed 2026 --count 1000`, 992 agreed and 4 found
+(was 605 and 390); `--seed 50000 --count 3000`, 2973 agreed and 8 found.
+All twelve are the three classes left above: D33 or D106 (8), the parse
+error's text (4). No tier difference in either; Tier 1 compiled 226 and 685
+bodies. `crates/bund2-cli/tests/panic_tier.rs` needed a native that still
+panics, F95's no longer does, and takes F104's (`list io.graph`).
+
 ## D217 — the rest of `bund/console`: spinners and timed effects
 
 **Raised 2026-10-26** by the repository owner, choosing "console spinners

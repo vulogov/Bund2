@@ -173,14 +173,19 @@ fn ifthenelse_base(vm: &mut dyn Vm, side: crate::wb::Side, prefix: &str) -> Resu
             "Workbench is too shallow for inline {prefix}"
         )));
     }
-    let then_val = crate::pull::operand(vm, prefix, 1)?;
-    let else_val = crate::pull::operand(vm, prefix, 2)?;
-    // Numbered from the top, as the reference numbers them (`:33`, `:41`).
-    for (v, n) in [(&then_val, 1), (&else_val, 2)] {
+    // Numbered from the top, as the reference numbers them, and each checked
+    // as it is pulled (`:27-46`): a first operand that is not a lambda fails
+    // before the second leaves the stack. Pulling both first spent one more
+    // value than the reference does (found by `cargo xtask fuzz`, D218).
+    let pull_lambda = |vm: &mut dyn Vm, n: usize| {
+        let v = crate::pull::operand(vm, prefix, n)?;
         if v.dt() != LAMBDA {
             return Err(Error(format!("{prefix}: #{n} parameter must be lambda")));
         }
-    }
+        Ok(v)
+    };
+    let then_val = pull_lambda(vm, 1)?;
+    let else_val = pull_lambda(vm, 2)?;
     let cond_val = side
         .pull(vm)
         .ok_or_else(|| Error(format!("{prefix} returns: NO DATA #3")))?;

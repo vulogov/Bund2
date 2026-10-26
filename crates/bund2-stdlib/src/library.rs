@@ -35,8 +35,13 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
 /// number is cased as its own text rather than refused: `42 string.upper` is
 /// `"42"`. Then `to_case`, from `convert_case`.
 fn case_word(vm: &mut dyn Vm, case: Case, prefix: &str) -> Result<(), Error> {
+    // The guard names the word in lower case, `string_upper` where the other
+    // messages say `STRING_UPPER` (`reference/rust_multistackvm/src/stdlib/string/case.rs:9,15`).
     if vm.depth() < 1 {
-        return Err(Error(format!("Stack is too shallow for inline {prefix}")));
+        return Err(Error(format!(
+            "Stack is too shallow for inline {}",
+            prefix.to_lowercase()
+        )));
     }
     let v = crate::pull::operand(vm, prefix, 1)?;
     if let Some(why) = v.conv_refusal() {

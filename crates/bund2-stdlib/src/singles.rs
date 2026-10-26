@@ -662,7 +662,10 @@ fn var_read(vm: &mut dyn Vm) -> Result<(), Error> {
         .ok_or_else(|| Error("VAR? returns error: This Dynamic type is not string".into()))?;
     let v = vm
         .var(&name)
-        .ok_or_else(|| Error(format!("VAR? returned: Variable {name} is not registered")))?;
+        // `VM::get_var`'s sentence, its spelling kept, under the word's wrapper
+        // (`reference/rust_multistackvm/src/multistackvm_vars.rs:72`,
+        // `stdlib/vars/resolve.rs:17`); found by `cargo xtask fuzz` (D218).
+        .ok_or_else(|| Error(format!("VAR? returned: VAR not regustered: {name}")))?;
     vm.push(v);
     Ok(())
 }
@@ -1248,13 +1251,15 @@ fn pattern_match(vm: &mut dyn Vm, wild: bool, prefix: &str) -> Result<(), Error>
         return Err(Error(format!("Stack is too shallow for inline {prefix}")));
     }
     let not_string = || Error(format!("{prefix} returns: This Dynamic type is not string"));
-    // The subject is on top and the pattern beneath it.
-    let subj = crate::pull::operand(vm, prefix, 1)?
-        .as_str()
-        .ok_or_else(not_string)?;
-    let pat = crate::pull::operand(vm, prefix, 2)?
-        .as_str()
-        .ok_or_else(not_string)?;
+    // The subject is on top and the pattern beneath it, and **both are
+    // pulled before either is cast** (`regex.rs:26-33`, `wildmatch.rs`'s the
+    // same), so a subject that is not a string has spent the pattern too.
+    // Casting the first before pulling the second left the pattern behind
+    // (found by `cargo xtask fuzz`, D218).
+    let subj = crate::pull::operand(vm, prefix, 1)?;
+    let pat = crate::pull::operand(vm, prefix, 2)?;
+    let subj = subj.as_str().ok_or_else(not_string)?;
+    let pat = pat.as_str().ok_or_else(not_string)?;
     let hit = if wild {
         wildmatch::WildMatch::new(&pat).matches(&subj)
     } else {
@@ -1292,6 +1297,72 @@ fn hamming(vm: &mut dyn Vm) -> Result<(), Error> {
         }
         Err(e) => Err(Error(format!("{prefix} returned hamming error: {e:?}"))),
     }
+}
+
+/// Jaro-Winkler as `natural` 0.5.0 computes it, **refusing where the crate
+/// panics** (F95).
+///
+/// A line-for-line port of `natural::distance::jaro_winkler_distance` and
+/// `get_common_chars` (`natural-0.5.0/src/distance.rs:11-71`), the crate the
+/// reference links (`reference/Bund/Cargo.toml:58`). Lengths are bytes and
+/// positions are characters, as there, and the two sums wrap as the
+/// reference's release build does, so every pair the crate answers gets the
+/// crate's answer to the bit. The crate slices `&s[s_index..e_index]`
+/// (`:41`), which panics when the window starts past the shorter string or
+/// splits a character — `"abc" "a"`, `"héllo" "hello"` — and the oracle
+/// aborts there. Here that slice is checked, and the word refuses. Found by
+/// `cargo xtask fuzz` (D218); D49's catch had reported it as a Bund2 defect.
+pub(crate) fn jaro_winkler(str1: &str, str2: &str, prefix: &str) -> Result<f32, Error> {
+    fn common(str1: &str, str2: &str, ordering: bool, prefix: &str) -> Result<Vec<char>, Error> {
+        let mut found = Vec::new();
+        if str1.is_empty() || str2.is_empty() {
+            return Ok(found);
+        }
+        let max_length = str1.len().max(str2.len());
+        let match_buffer = (max_length / 2).wrapping_sub(1);
+        let (f, s) = if ordering { (str2, str1) } else { (str1, str2) };
+        for (i, c) in f.chars().enumerate() {
+            let s_index = i.saturating_sub(match_buffer);
+            let e_index = if s.len() <= i.wrapping_add(match_buffer) {
+                s.len()
+            } else {
+                i.wrapping_add(match_buffer).wrapping_add(1)
+            };
+            let Some(window) = s.get(s_index..e_index) else {
+                return Err(Error(format!(
+                    "{prefix}: Jaro-Winkler is undefined for {str1:?} and {str2:?}: \
+                     the window {s_index}..{e_index} does not fit {s:?}"
+                )));
+            };
+            if window.contains(c) {
+                found.push(c);
+            }
+        }
+        Ok(found)
+    }
+    let matches1 = common(str1, str2, false, prefix)?;
+    let matches2 = common(str1, str2, true, prefix)?;
+    if matches1.is_empty() || matches2.is_empty() || matches1.len() != matches2.len() {
+        return Ok(0.0);
+    }
+    let mut t = 0.0;
+    for (a, b) in matches1.iter().zip(matches2.iter()) {
+        if a != b {
+            t += 0.5;
+        }
+    }
+    let f1 = matches1.len() as f32 / str1.len() as f32;
+    let f2 = matches2.len() as f32 / str2.len() as f32;
+    let f3 = (matches1.len() as f32 - t) / matches1.len() as f32;
+    Ok((f1 + f2 + f3) / 3.0)
+}
+
+fn jarowinkler(vm: &mut dyn Vm) -> Result<(), Error> {
+    let prefix = "STRING.DISTANCE.JAROWINKLER";
+    let (a, b) = two_strings(vm, prefix)?;
+    let d = jaro_winkler(&a, &b, prefix)?;
+    vm.push(BundValue::float(f64::from(d)));
+    Ok(())
 }
 
 /// `:` — **enable the collecting mode**
@@ -1500,13 +1571,7 @@ pub fn register(r: &mut Registry) {
     );
     r.register_native(
         "string.distance.jarowinkler",
-        |vm| {
-            distance_f(
-                vm,
-                |a, b| f64::from(natural::distance::jaro_winkler_distance(a, b)),
-                "STRING.DISTANCE.JAROWINKLER",
-            )
-        },
+        jarowinkler,
         eff(2, 1),
         WordKind::Sync,
     );
@@ -1726,8 +1791,10 @@ fn do_stack(vm: &mut dyn Vm) -> Result<(), Error> {
     do_base(vm, crate::wb::Side::Stack, "do")
 }
 
+/// Both guards say `do`, the workbench's too
+/// (`reference/rust_multistackvm/src/stdlib/logic/do_fun.rs:7,37`).
 fn do_wb(vm: &mut dyn Vm) -> Result<(), Error> {
-    do_base(vm, crate::wb::Side::Bench, "do.")
+    do_base(vm, crate::wb::Side::Bench, "do")
 }
 
 /// `concat_with_space` and its alias `sp` — append a value to the TEXTBUFFER
@@ -1783,6 +1850,38 @@ mod f18_tests {
         let stream = bund2_syntax::compile(src).map_err(|e| e.render(src))?;
         i.eval(&stream).map_err(|e| e.0)?;
         Ok(i)
+    }
+
+    /// **Jaro-Winkler answers as `natural` does, and refuses where it panics**
+    /// (F95). The values are the oracle's, printed by it on 2026-10-26; the
+    /// three refusals abort the oracle.
+    #[test]
+    fn jarowinkler_answers_as_natural_and_refuses_where_it_panics() {
+        for (a, b, want) in [
+            ("a", "a", 1.0_f32),
+            ("a", "b", 0.0),
+            ("", "a", 0.0),
+            ("ab", "a", 0.833_333_3),
+            ("martha", "marhta", 0.944_444_4),
+            ("dixon", "dicksonx", 0.766_666_65),
+            ("zz", "A", 0.0),
+        ] {
+            assert_eq!(jaro_winkler(a, b, "J"), Ok(want), "{a:?} {b:?}");
+        }
+        for (a, b) in [("abc", "a"), ("héllo", "hello"), ("a,b,c", "{}")] {
+            let e = jaro_winkler(a, b, "J").expect_err("the crate panics here");
+            assert!(e.0.starts_with("J: Jaro-Winkler is undefined for"), "{e:?}");
+        }
+        for src in [
+            "\"abc\" \"a\" string.distance.jarowinkler",
+            "\"abc\" return \"a\" string.distance.jarowinkler.",
+        ] {
+            let Err(e) = run(src) else {
+                panic!("{src} was expected to fail");
+            };
+            assert!(e.contains("Jaro-Winkler is undefined"), "{src}: {e}");
+            assert!(!e.contains("internal error"), "{src}: {e}");
+        }
     }
 
     /// **`bund.eval-file`'s three error paths**, which no probe can hold: a

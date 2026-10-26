@@ -358,8 +358,12 @@ impl Stacks {
         let dropped_current = &*self.current.name == name;
         self.others.remove(name);
         self.order.retain(|n| &**n != name);
+        // The last stack gone, `ensure` adds one under a fresh nanoid
+        // (`reference/rust_multistack/src/ts_ensure.rs:5-6`, `ts_add.rs:5-9`),
+        // not under `main`; values pushed after carry that name. Found by
+        // `cargo xtask fuzz` (D218), which normalises the id as F14's.
         if self.order.is_empty() {
-            self.order.push_back(Rc::from("main"));
+            self.order.push_back(Rc::from(bund2_value::fresh_name()));
         }
         self.settle(!dropped_current);
         if self.current_name() != before {

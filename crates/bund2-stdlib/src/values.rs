@@ -576,8 +576,11 @@ fn get_lambda(vm: &mut dyn Vm) -> Result<(), Error> {
             vm.push(body);
             Ok(())
         }
+        // `VM::get_lambda`'s own sentence under the word's wrapper
+        // (`reference/rust_multistackvm/src/multistackvm_lambdas.rs:43`,
+        // `bund_fun.rs:156`); found by `cargo xtask fuzz` (D218).
         None => Err(Error(format!(
-            "LAMBDA.GET returned: {name} is not a lambda"
+            "LAMBDA.GET returned: VM Lambda {name} not registered"
         ))),
     }
 }
@@ -589,6 +592,10 @@ fn get_lambda(vm: &mut dyn Vm) -> Result<(), Error> {
 /// `?type` is the one that pulls, and it pulls the *name* rather than the
 /// value (`:40-47`).
 fn value_type(vm: &mut dyn Vm) -> Result<(), Error> {
+    // The guard first, in its own words (`value_types.rs:7-9`).
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for inline type".into()));
+    }
     let v = crate::pull::top(vm, "TYPE")?;
     vm.push(BundValue::str(v.type_name()));
     Ok(())
@@ -599,6 +606,11 @@ fn value_type(vm: &mut dyn Vm) -> Result<(), Error> {
 /// The reference casts `type_of()`, a `u16`, to `i64` (`:27`), so the number
 /// on the stack is the `dt` verbatim.
 fn value_type_of(vm: &mut dyn Vm) -> Result<(), Error> {
+    // `value_types.rs:22-24`; without it an empty stack reported `NO DATA`
+    // (found by `cargo xtask fuzz`, D218).
+    if vm.depth() < 1 {
+        return Err(Error("Stack is too shallow for inline type.of".into()));
+    }
     let v = crate::pull::top(vm, "TYPE")?;
     vm.push(BundValue::int(i64::from(v.dt())));
     Ok(())
@@ -613,6 +625,12 @@ fn value_type_of(vm: &mut dyn Vm) -> Result<(), Error> {
 ///
 /// [`type_name`]: bund2_value::BundValue::type_name
 fn value_if_type(vm: &mut dyn Vm) -> Result<(), Error> {
+    // The name and the receiver beneath it, guarded together and in `type.of`'s
+    // words (`value_types.rs:37-39`); without it a lone value was pulled and
+    // refused as a name (found by `cargo xtask fuzz`, D218).
+    if vm.depth() < 2 {
+        return Err(Error("Stack is too shallow for inline type.of".into()));
+    }
     let name = crate::pull::operand(vm, "TYPE", 1)?;
     let Some(name) = name.unboxed().as_str() else {
         return Err(Error(

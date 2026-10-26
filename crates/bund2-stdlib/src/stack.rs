@@ -27,18 +27,15 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect::fixed(consumes, produces)
 }
 
-/// Pull a name off the stack, as every `_in` word does.
-/// Pull a stack name, **restoring it if it is not a string**.
+/// Pull a stack name, as every `_in` word does, **consuming it whether or not
+/// it is a string**.
 ///
-/// The restore is the point. `1 1 move` fails in both engines, but the
-/// reference leaves both values on the stack and an earlier version of this
-/// left none: it pulled first and reported second. That is observable, because
-/// the error path prints the stack (F18's own argument, and
-/// `reference/Bund/src/stdlib/helpers/print_error.rs:126-131`).
-///
-/// Found by `cargo xtask effects`, which flagged `move` and `move_from` as
-/// declaring an arity the probe disagreed with; the arity was right and the
-/// residual stack was not.
+/// The reference pulls first and casts second (`stdlib_clear_in_stack_inline`,
+/// `reference/rust_multistack/src/stdlib/clear.rs:52-53`, and every other
+/// inline wrapper in that directory), so a failed cast has already spent the
+/// operand: `7 8 clear_in` leaves `7` in the oracle. An earlier version
+/// restored the value, on the claim that `1 1 move` leaves both; measured
+/// against the oracle it leaves one. Found by `cargo xtask fuzz` (D218).
 ///
 /// **`what` is the reference's own lead-in, not the word's name.** Each
 /// stack-layer function reports a failed cast as
@@ -47,24 +44,45 @@ fn eff(consumes: u8, produces: u8) -> StackEffect {
 /// `dup_one_in` and `dup_many_in` (`reference/rust_multistack/src/stdlib/dup.rs:57`),
 /// `rotate_stack_left` for `rotate_stack_right`, `stack exists() returned`
 /// with a space and no `error`. So the caller passes the phrase. D105.
-fn name_arg(vm: &mut dyn Vm, what: &str) -> Result<String, Error> {
+///
+/// **`inline` is the depth guard's word**, which every wrapper checks before
+/// it pulls (`Stack is too shallow for inline <inline>()`, e.g.
+/// `reference/rust_multistack/src/stdlib/current.rs:26`): again the author's
+/// spelling, `dup_many` for `dup_one_in` (`dup.rs:78`). Without it an empty
+/// stack reported `NO DATA`; found by `cargo xtask fuzz` (D218).
+fn name_arg(vm: &mut dyn Vm, inline: &str, what: &str) -> Result<String, Error> {
+    shallow(vm, 1, inline)?;
     let v = vm.pull().ok_or_else(|| Error(format!("{what}: NO DATA")))?;
-    match v.as_str() {
-        Some(s) => Ok(s),
-        None => {
-            vm.push(v);
-            Err(Error(format!("{what}: This Dynamic type is not string")))
-        }
-    }
+    name_of(&v, what)
+}
+
+/// Cast an operand already pulled to a stack name. The words with two
+/// operands pull both before casting either (`dup.rs:71-72`, `swap.rs:90-91`,
+/// `stack_move.rs:70-71`), so a bad name has spent the operand beneath it too.
+fn name_of(v: &BundValue, what: &str) -> Result<String, Error> {
+    v.as_str()
+        .ok_or_else(|| Error(format!("{what}: This Dynamic type is not string")))
+}
+
+/// Pull two operands at once, as the reference's two-operand wrappers do —
+/// top first. The caller has checked the depth.
+fn two(vm: &mut dyn Vm, what: &str) -> Result<(BundValue, BundValue), Error> {
+    let missing = || Error(format!("{what}: NO DATA"));
+    let top = vm.pull().ok_or_else(missing)?;
+    let below = vm.pull().ok_or_else(missing)?;
+    Ok((top, below))
 }
 
 /// Pull a count, as `dup_many` and `swap` do. `what` as for [`name_arg`].
 fn count_arg(vm: &mut dyn Vm, what: &str) -> Result<i64, Error> {
     let v = vm.pull().ok_or_else(|| Error(format!("{what}: NO DATA")))?;
-    match v.as_int() {
-        Some(n) => Ok(n),
-        None => Err(Error(format!("{what}: This Dynamic type is not integer"))),
-    }
+    count_of(&v, what)
+}
+
+/// Cast an operand already pulled to a count; see [`name_of`].
+fn count_of(v: &BundValue, what: &str) -> Result<i64, Error> {
+    v.as_int()
+        .ok_or_else(|| Error(format!("{what}: This Dynamic type is not integer")))
 }
 
 fn shallow(vm: &dyn Vm, need: usize, word: &str) -> Result<(), Error> {
@@ -111,7 +129,7 @@ fn dup_many(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn dup_one_in(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "Operation dup_in() returned error")?;
+    let name = name_arg(vm, "dup_many", "Operation dup_in() returned error")?;
     let Some(top) = vm.pull_from(&name) else {
         // `reference/rust_multistack/src/ts_stack_op.rs:46`'s sentence for a stack
         // with nothing to copy; it does not name the stack.
@@ -135,8 +153,9 @@ fn dup_many_in(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
         return Err(Error("Stack is too shallow for inline dup_many()".into()));
     }
-    let name = name_arg(vm, "Operation dup_in() returned error")?;
-    let n = count_arg(vm, "Operation dup_in() returned error")?;
+    let (name, n) = two(vm, "Operation dup_in() returned error")?;
+    let name = name_of(&name, "Operation dup_in() returned error")?;
+    let n = count_of(&n, "Operation dup_in() returned error")?;
     let Some(top) = vm.pull_from(&name) else {
         // `reference/rust_multistack/src/ts_stack_op.rs:46`'s sentence for a stack
         // with nothing to copy; it does not name the stack.
@@ -167,7 +186,7 @@ fn drop_word(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn drop_in(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "Operation drop_in() returned error")?;
+    let name = name_arg(vm, "drop_in", "Operation drop_in() returned error")?;
     // Both refusals are the reference's
     // (`reference/rust_multistack/src/ts_drop.rs:30-46`, wrapped at
     // `stdlib/drop.rs:31`). Bund2 dropped from a stack that was not there, or
@@ -254,8 +273,9 @@ fn swap_in(vm: &mut dyn Vm) -> Result<(), Error> {
     // crossed and the value that must be a string is the one pulled first.
     // Confirmed against the oracle: `1 :t swap_in` works and `:t 1 swap_in`
     // errors.
-    let name = name_arg(vm, "Operation swap_in() returned error")?;
-    let n = count_arg(vm, "Operation dup() returned error")?;
+    let (name, n) = two(vm, "Operation swap_in() returned error")?;
+    let name = name_of(&name, "Operation swap_in() returned error")?;
+    let n = count_of(&n, "Operation dup() returned error")?;
     if vm.depth_of(&name) < 2 {
         return Err(Error(format!(
             "Swap in stack {name} had failed. Stack too shallow."
@@ -292,7 +312,7 @@ fn clear(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn clear_in(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "Operation clear_in() returned error")?;
+    let name = name_arg(vm, "clear_in", "Operation clear_in() returned error")?;
     // `reference/rust_multistack/src/stdlib/clear.rs:27-33`.
     if !vm.stack_exists(&name) {
         return Err(Error(format!(
@@ -330,7 +350,7 @@ fn current(vm: &mut dyn Vm) -> Result<(), Error> {
 /// its caller is CLAUDE.md's "follow the call one level further" failure,
 /// committed while investigating a divergence caused by the same habit.*
 fn to_current(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "Operation to_current() returned error")?;
+    let name = name_arg(vm, "to_current", "Operation to_current() returned error")?;
     if !vm.stack_exists(&name) {
         return Err(Error(format!("Stake with name {name} noexists")));
     }
@@ -339,13 +359,17 @@ fn to_current(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn to_stack(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "Operation to_stack() returned error")?;
+    let name = name_arg(vm, "to_stack", "Operation to_stack() returned error")?;
     vm.to_stack(&name);
     Ok(())
 }
 
 fn ensure_stack(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "Operation ensure_stack() returned error")?;
+    let name = name_arg(
+        vm,
+        "ensure_stack",
+        "Operation ensure_stack() returned error",
+    )?;
     vm.ensure_stack(&name);
     Ok(())
 }
@@ -372,14 +396,16 @@ fn ensure_stack_with_capacity(vm: &mut dyn Vm) -> Result<(), Error> {
             "Stack is too shallow for inline set_stack_capacity()".into(),
         ));
     }
-    let name = name_arg(vm, "capacity casting error #1")?;
-    let cap = count_arg(vm, "capacity casting error #2")?;
+    // Both pulled, then both cast (`ensure_stack.rs:36-59`).
+    let (name, cap) = two(vm, "capacity returns")?;
+    let name = name_of(&name, "capacity casting error #1")?;
+    let cap = count_of(&cap, "capacity casting error #2")?;
     vm.ensure_stack_with_capacity(&name, cap.max(0) as usize);
     Ok(())
 }
 
 fn stack_exists(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "stack exists() returned")?;
+    let name = name_arg(vm, "stack_exists", "stack exists() returned")?;
     let e = vm.stack_exists(&name);
     vm.push(BundValue::boolean(e));
     Ok(())
@@ -402,7 +428,7 @@ fn stack_exists(vm: &mut dyn Vm) -> Result<(), Error> {
 /// `1 2 3 :box move` hangs the oracle. Taking the contents once and then
 /// pushing cannot feed itself, so this moves three values and returns.
 fn move_word(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "Operation move() returned error")?;
+    let name = name_arg(vm, "move", "Operation move() returned error")?;
     let mut moved = Vec::new();
     while let Some(v) = vm.pull() {
         moved.push(v);
@@ -429,8 +455,9 @@ fn move_from(vm: &mut dyn Vm) -> Result<(), Error> {
     if vm.depth() < 2 {
         return Err(Error("Stack is too shallow for inline move_from()".into()));
     }
-    let from = name_arg(vm, "Operation move_from() returned error")?;
-    let to = name_arg(vm, "Operation move_from() returned error")?;
+    let (from, to) = two(vm, "Operation move_from() returned error")?;
+    let from = name_of(&from, "Operation move_from() returned error")?;
+    let to = name_of(&to, "Operation move_from() returned error")?;
     let mut moved = Vec::new();
     while let Some(v) = vm.pull_from(&from) {
         moved.push(v);
@@ -472,13 +499,9 @@ fn return_word(vm: &mut dyn Vm) -> Result<(), Error> {
 /// It takes a stack name, which an earlier version did not: that one moved the
 /// workbench's top to the *current* stack, which is `take`. The name is pulled
 /// before the workbench is touched, so a failure there leaves the workbench
-/// alone — and the name is restored if it is not a string, so `9 :t return_to`
-/// with an empty workbench leaves the `9` where the reference leaves it.
+/// alone, and spent, as [`name_arg`] says.
 fn return_to(vm: &mut dyn Vm) -> Result<(), Error> {
-    if vm.depth() < 1 {
-        return Err(Error("Stack is too shallow for inline return_to()".into()));
-    }
-    let name = name_arg(vm, "Operation return_to() returned error")?;
+    let name = name_arg(vm, "return_to", "Operation return_to() returned error")?;
     let Some(v) = vm.pull_workbench() else {
         // `reference/rust_multistack/src/ts_workbench.rs:57`.
         return Err(Error(format!(
@@ -490,13 +513,9 @@ fn return_to(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn return_from(vm: &mut dyn Vm) -> Result<(), Error> {
-    // `reference/rust_multistack/src/stdlib/workbench.rs:35-37`.
-    if vm.depth() < 1 {
-        return Err(Error(
-            "Stack is too shallow for inline return_from()".into(),
-        ));
-    }
-    let name = name_arg(vm, "Operation return_from() returned error")?;
+    // `reference/rust_multistack/src/stdlib/workbench.rs:35-37`; the guard is
+    // `name_arg`'s.
+    let name = name_arg(vm, "return_from", "Operation return_from() returned error")?;
     let Some(v) = vm.pull_from(&name) else {
         // `reference/rust_multistack/src/ts_workbench.rs:41`.
         return Err(Error(format!(
@@ -520,7 +539,11 @@ fn rotate_current_right(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn rotate_stack_left(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "Operation rotate_stack_left() returned error")?;
+    let name = name_arg(
+        vm,
+        "rotate_stack_left",
+        "Operation rotate_stack_left() returned error",
+    )?;
     let cur = vm.current_name();
     vm.to_stack(&name);
     vm.rotate_left();
@@ -532,7 +555,11 @@ fn rotate_stack_left(vm: &mut dyn Vm) -> Result<(), Error> {
 /// *left* rotation (`reference/rust_multistack/src/stdlib/rotate.rs:88,102`).
 /// No golden covers it, so conformance cannot move.
 fn rotate_stack_right(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "Operation rotate_stack_left() returned error")?;
+    let name = name_arg(
+        vm,
+        "rotate_stack_right",
+        "Operation rotate_stack_left() returned error",
+    )?;
     let cur = vm.current_name();
     vm.to_stack(&name);
     vm.rotate_right();
@@ -592,7 +619,7 @@ fn fold(vm: &mut dyn Vm) -> Result<(), Error> {
 ///
 /// Same order as `fold`: no reversal, so the list reads top-first.
 fn fold_stack(vm: &mut dyn Vm) -> Result<(), Error> {
-    let name = name_arg(vm, "Operation fold_stack() returned error")?;
+    let name = name_arg(vm, "fold_stack", "Operation fold_stack() returned error")?;
     let mut items = Vec::new();
     while let Some(v) = vm.pull_from(&name) {
         // The same marker (`ts_list.rs:46-48`).
@@ -941,5 +968,33 @@ mod tests {
         i.push(BundValue::int(1));
         run(&mut i, "dup").expect("dup resolves through the alias");
         assert_eq!(i.depth(), 2);
+    }
+
+    /// **A name that is not a string is spent**, as the reference pulls and
+    /// then casts; a word with two operands has pulled both. Each row is
+    /// `7`, the operands, the word, and what the oracle left, measured
+    /// 2026-10-26 (D218's fuzzer found the restore).
+    #[test]
+    fn a_name_that_is_not_a_string_is_consumed() {
+        for (operands, word, left) in [
+            (&[8][..], "clear_in", 1),
+            (&[8], "drop_in", 1),
+            (&[8], "move", 1),
+            (&[8], "return_to", 1),
+            (&[8], "stack_exists", 1),
+            (&[2, 8], "dup_many_in", 1),
+            (&[8, 9], "move_from", 1),
+            (&[8, 9], "ensure_stack_with_capacity", 1),
+            // `swap_in`'s operands are crossed (`swap.rs:90-92`): both go.
+            (&[8], "swap_in", 0),
+        ] {
+            let mut i = interp();
+            i.push(BundValue::int(7));
+            for n in operands {
+                i.push(BundValue::int(*n));
+            }
+            assert!(run(&mut i, word).is_err(), "{word} refuses an INTEGER name");
+            assert_eq!(i.depth(), left, "{word} after {operands:?}");
+        }
     }
 }

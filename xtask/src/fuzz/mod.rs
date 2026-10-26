@@ -224,10 +224,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     for i in 0..count {
         let program_seed = seed.wrapping_add(i as u64);
-        let mut g = generate::Gen {
-            rng: generate::Rng::new(program_seed),
-            vocab: &vocab,
-        };
+        let mut g = generate::Gen::new(program_seed, &vocab);
         let n = 1 + g.rng.below(statements);
         let lines = g.program(n);
         let (verdict, bodies) = judge_counting(&engines, &lines)?;
@@ -558,6 +555,23 @@ fn judge_with(
 fn against_oracle(t0: &Ran, o: &Ran) -> Option<(Class, String)> {
     let b = compare::bund2_parts(&t0.output);
     let r = compare::oracle_parts(&o.output);
+    // F60 and F72: where Bund2 refuses to close a context never opened, the
+    // reference drops a stack and runs on; only the output before compares.
+    if let Some(be) = &b.error
+        && compare::ruled_stop(be)
+    {
+        // The reference runs on past this point, so it may print more.
+        if !r.before.starts_with(&b.before) {
+            return Some((
+                Class::State,
+                format!(
+                    "before any error, {}",
+                    compare::first_difference(&b.before, &r.before)
+                ),
+            ));
+        }
+        return None;
+    }
     match (&b.error, &r.error) {
         (Some(e), None) => {
             return Some((
@@ -581,6 +595,13 @@ fn against_oracle(t0: &Ran, o: &Ran) -> Option<(Class, String)> {
                 compare::first_difference(&b.before, &r.before)
             ),
         ));
+    }
+    // F18's guards leave what the reference's second pull spent, so the dump
+    // differs with the message, by ruling.
+    if let (Some(be), Some(re)) = (&b.error, &r.error)
+        && compare::f18_guard(be, re)
+    {
+        return None;
     }
     if b.after != r.after {
         return Some((

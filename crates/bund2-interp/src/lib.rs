@@ -1349,6 +1349,18 @@ impl Interp {
             let outer_entry = self.tier_entry.replace(who);
             let outer_shadow = self.tier_shadow.take();
             let answered = tier.enter(&body, self);
+            // **D173's traceback, taken while the body's frame is still here.**
+            // Tier 0 notes a failure in `run_to`, before the frames unwind, so
+            // the report names the value that failed inside the body and the
+            // innermost message. A compiled body fails with no `run_to` of its
+            // own, and its frame (D139, its `ip` kept by `Vm::tier_at`) is
+            // removed just below: noted after that, a failure under `map`
+            // was reported at `map` with every wrapper, and the tiers'
+            // reports differed (found by `cargo xtask fuzz`, D218). A failure
+            // already noted deeper is kept: the innermost wins.
+            if let Some(Err(e)) = &answered {
+                self.note_failure(e);
+            }
             let handed_back =
                 may_hand_back && matches!(answered, Some(Ok(()))) && self.pending_tail.is_some();
             if self.tier_shadow.take().is_some() && !handed_back {
@@ -3830,11 +3842,16 @@ mod tests {
         let cur = i.stacks.current_name().to_string();
         assert_eq!(i.depth(), i.depth_of(&cur), "depth reads the current stack");
         assert_eq!(i.stacks.names().count(), 3);
-        // Dropping every stack leaves `main`, empty and current.
+        // Dropping every stack leaves one, empty and current, under a fresh
+        // id-shaped name as the reference's `ensure` gives it
+        // (`reference/rust_multistack/src/ts_ensure.rs:5-6`), not `main`.
         for name in ["a", "c", "main"] {
             i.drop_stack(name);
         }
-        assert_eq!(i.stacks.current_name(), "main");
+        let fresh = i.stacks.current_name().to_string();
+        assert_eq!(fresh.chars().count(), 21, "{fresh}");
+        assert!(!["a", "c", "main"].contains(&fresh.as_str()));
+        assert_eq!(i.stacks.names().count(), 1);
         assert_eq!(i.depth(), 0);
     }
 

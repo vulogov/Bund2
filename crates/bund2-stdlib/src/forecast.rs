@@ -381,6 +381,19 @@ fn periodic(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
     use augurs::seasons::Detector;
     let source = get_data(vm, side, Mode::Consume, prefix)
         .map_err(|e| Error(format!("{prefix} NO DATA #2: {}", e.0)))?;
+    // **Fewer than four values have no periodogram, and the crate panics on
+    // them.** Its segment is `min(2 * (n / 3), n / 2)` values
+    // (`augurs-seasons-0.9.0/src/periodogram.rs:74,165`), below two for
+    // `n < 4`, and Welch then cuts the series into windows of zero
+    // (`welch-sde-0.1.0/src/welch.rs:84`), which panics; the oracle aborts
+    // there. Measured over lengths 0 to 400: 0 (`list periodic.detect`), 1, 2
+    // and 3 panic and nothing else does. Found by `cargo xtask fuzz` (D218).
+    if source.len() < 4 {
+        return Err(Error(format!(
+            "{prefix}: a periodogram needs four values or more, and the series has {}",
+            source.len()
+        )));
+    }
     let periods = augurs::seasons::PeriodogramDetector::default().detect(&source);
     if periods.is_empty() {
         vm.push(floats(&source));
@@ -532,6 +545,26 @@ mod tests {
             e.ends_with("FORECAST.MARKOV forecasting does not returned a prognisis"),
             "{e}"
         );
+    }
+
+    /// **Fewer than four values: the oracle aborts, Bund2 refuses** (F229).
+    /// Four is the first length the periodogram answers.
+    #[test]
+    fn periodic_refuses_a_series_too_short_for_a_periodogram() {
+        for (src, n) in [
+            ("list periodic.detect", 0),
+            ("[ 5.0 ] periodic.detect", 1),
+            ("[ 1.0 2.0 3.0 ] periodic.detect", 3),
+        ] {
+            let e = run(src).expect_err(src);
+            assert!(
+                e.ends_with(&format!(
+                    "PERIODIC.DETECT: a periodogram needs four values or more, and the series has {n}"
+                )),
+                "{src}: {e}"
+            );
+        }
+        run("[ 1.0 2.0 3.0 4.0 ] periodic.detect").expect("four values answer");
     }
 
     /// **Where the reference aborts, Bund2 refuses** (F228): the oracle

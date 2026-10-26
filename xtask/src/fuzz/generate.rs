@@ -120,6 +120,21 @@ pub(crate) const LEFT_OUT: &[(&str, &str)] = &[
     // F74: a hash set's order, different every run in both engines.
     ("string.tokenize.unique", "answers in hash order (F74)"),
     ("string.tokenize.stemmed", "answers in hash order (F74)"),
+    // F60 and F72, FIX: written bare, no context is open, the reference's
+    // guard cannot fire and it drops the current stack; Bund2 refuses. That
+    // approved difference is all a bare `endcontext` can show (`( … )`
+    // closes its own context without it).
+    ("endcontext", "closes a context never opened (F60, F72)"),
+    // F120, CORRECTED by D57: a MAP where the reference makes a MATRIX, so
+    // every answer and every refusal differs by ruling.
+    (
+        "convert.to_dict",
+        "a MAP, where the reference makes a MATRIX (F120)",
+    ),
+    (
+        "convert.to_dict.",
+        "a MAP, where the reference makes a MATRIX (F120)",
+    ),
 ];
 
 /// The operand counts and types `docs/arity.md` records, by word.
@@ -199,6 +214,20 @@ const FLOATS: &[&str] = &[
     "0.0", "1.5", "-0.25", "3.", "2.5e3", "1.0e-2", "-0.0", "100.125", "0.1",
 ];
 
+/// The words that change which stack is current without naming one. Inside
+/// `( … )` the context then closes on another stack, and where it returns is
+/// F72's ruled difference: Bund2 to the stack the context was opened from,
+/// the reference to whatever its deque holds next.
+const RING_WORDS: &[&str] = &[
+    "stacks_right",
+    "stacks_left",
+    "->",
+    "→",
+    "<-",
+    "←",
+    "drop_stack",
+];
+
 /// The words a compiled body is made of: the integer fragments Tier 1
 /// lowers (`bund2_ir::Op`), plus the stack words beside them.
 const TIER_WORDS: &[&str] = &[
@@ -208,9 +237,22 @@ const TIER_WORDS: &[&str] = &[
 pub(crate) struct Gen<'a> {
     pub(crate) rng: Rng,
     pub(crate) vocab: &'a [Word],
+    /// How many `{ }` and `[ ]` enclose the term being written.
+    blocks: usize,
+    /// How many `( )` do.
+    contexts: usize,
 }
 
-impl Gen<'_> {
+impl<'a> Gen<'a> {
+    pub(crate) fn new(seed: u64, vocab: &'a [Word]) -> Self {
+        Gen {
+            rng: Rng::new(seed),
+            vocab,
+            blocks: 0,
+            contexts: 0,
+        }
+    }
+
     fn int(&mut self) -> String {
         // Mostly small, so a count or an index is usually in range.
         if self.rng.chance(70) {
@@ -239,6 +281,9 @@ impl Gen<'_> {
     /// One or more terms inside a bracket; the grammar has `term+`, so never
     /// none.
     fn bracketed(&mut self, open: &str, close: &str, depth: usize) -> String {
+        let block = open != "(";
+        self.blocks += usize::from(block);
+        self.contexts += usize::from(!block);
         let n = 1 + self.rng.below(3);
         let mut parts = vec![open.to_string()];
         for _ in 0..n {
@@ -249,6 +294,8 @@ impl Gen<'_> {
             }
         }
         parts.push(close.to_string());
+        self.blocks -= usize::from(block);
+        self.contexts -= usize::from(!block);
         parts.join(" ")
     }
 
@@ -259,7 +306,9 @@ impl Gen<'_> {
             .rng
             .pick(&[Kind::Int, Kind::Int, Kind::Float, Kind::Str, Kind::Any])
             .unwrap_or(&Kind::Int);
+        self.blocks += 1;
         let items: Vec<String> = (0..n).map(|_| self.value(kind, depth + 1)).collect();
+        self.blocks -= 1;
         format!("[ {} ]", items.join(" "))
     }
 
@@ -297,6 +346,11 @@ impl Gen<'_> {
             }
             9 => self.list(depth),
             10 => self.bracketed("{", "}", depth),
+            // F58, approved by D34: inside `{ }` or `[ ]` the reference hoists a
+            // `( … )` and its terms to the top-level stream, and Bund2 keeps it
+            // where it is written. Every program holding one would show that
+            // ruled difference and nothing else, so a block gets a block.
+            _ if self.blocks > 0 => self.bracketed("{", "}", depth),
             _ => self.bracketed("(", ")", depth),
         }
     }
@@ -319,6 +373,7 @@ impl Gen<'_> {
     /// (D4), and some now and then from anything, to test the decline.
     fn body_run(&mut self, depth: usize) -> Vec<String> {
         let mut body = vec!["{".to_string()];
+        self.blocks += 1;
         if self.rng.chance(65) {
             let n = 1 + self.rng.below(6);
             for _ in 0..n {
@@ -339,6 +394,7 @@ impl Gen<'_> {
             }
         }
         body.push("}".to_string());
+        self.blocks -= 1;
         let body = body.join(" ");
         match self.rng.below(4) {
             0 => vec![body, "execute".into()],
@@ -363,6 +419,10 @@ impl Gen<'_> {
             out.push(self.term(depth));
             return out;
         };
+        if self.contexts > 0 && RING_WORDS.contains(&w.name.as_str()) {
+            out.push(self.term(depth));
+            return out;
+        }
         let typed = self.rng.chance(75);
         let n = match w.consumes {
             Some(n) if typed => n,
@@ -408,22 +468,10 @@ mod tests {
                 kind: Kind::Str,
             },
         ];
-        let a = Gen {
-            rng: Rng::new(7),
-            vocab: &vocab,
-        }
-        .program(20);
-        let b = Gen {
-            rng: Rng::new(7),
-            vocab: &vocab,
-        }
-        .program(20);
+        let a = Gen::new(7, &vocab).program(20);
+        let b = Gen::new(7, &vocab).program(20);
         assert_eq!(a, b);
-        let c = Gen {
-            rng: Rng::new(8),
-            vocab: &vocab,
-        }
-        .program(20);
+        let c = Gen::new(8, &vocab).program(20);
         assert_ne!(a, c);
     }
 
@@ -436,15 +484,44 @@ mod tests {
             consumes: Some(1),
             kind: Kind::Any,
         }];
-        let mut g = Gen {
-            rng: Rng::new(1),
-            vocab: &vocab,
-        };
+        let mut g = Gen::new(1, &vocab);
         for line in g.program(500) {
             for empty in ["{ }", "[ ]", "( )"] {
                 assert!(!line.contains(empty), "{line}");
             }
         }
+    }
+
+    /// F58: no `( … )` inside a `{ }` or a `[ ]`, at any depth, where the
+    /// reference would hoist it.
+    #[test]
+    fn no_context_is_written_inside_a_block() {
+        let vocab = vec![Word {
+            name: "dup".into(),
+            consumes: Some(1),
+            kind: Kind::Any,
+        }];
+        let mut g = Gen::new(3, &vocab);
+        let mut contexts = 0;
+        for line in g.program(2000) {
+            let mut open: Vec<&str> = Vec::new();
+            for t in line.split(' ') {
+                match t {
+                    "{" | "[" | "(" => {
+                        if t == "(" {
+                            contexts += 1;
+                            assert!(!open.iter().any(|o| *o != "("), "{line}");
+                        }
+                        open.push(t);
+                    }
+                    "}" | "]" | ")" => {
+                        open.pop();
+                    }
+                    _ => {}
+                }
+            }
+        }
+        assert!(contexts > 0, "contexts are still written at the top");
     }
 
     #[test]

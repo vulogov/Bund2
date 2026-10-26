@@ -56,8 +56,10 @@ fn conf_i64(conf: &BundValue, key: &str, default: i64) -> i64 {
 /// config :N 3 set                                ->  [0.0, 1.0, 2.0]
 /// ```
 fn seq(vm: &mut dyn Vm) -> Result<(), Error> {
+    // The guard is `seq_ranged`'s text (`seq.rs:54-56`); without it an empty
+    // stack reported `NO DATA` (found by `cargo xtask fuzz`, D218).
     let Some(conf) = vm.pull() else {
-        return Err(Error("SEQ_OP returns: NO DATA #1".into()));
+        return Err(Error("Stack is too shallow for inline SEQ".into()));
     };
     let kind = conf_get(&conf, "type")
         .and_then(|v| v.as_str())

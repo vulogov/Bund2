@@ -27,6 +27,31 @@ const APPROVED_MESSAGES: &[(&str, &str, &str)] = &[
     ),
     ("UNWRAP NO OBJECT IN #1", "WRAP NO OBJECT IN #1", "F40"),
     ("UNWRAP NO DATA IN #1", "WRAP NO DATA IN #1", "F40"),
+    // F53, FIX: `execute.` guards the workbench it pulls from, not the main
+    // stack (`reference/rust_multistackvm/src/stdlib/execute.rs:117`).
+    (
+        "Stack is too shallow for inline execute()",
+        "Stack is too shallow for inline EXECUTE.()",
+        "F53",
+    ),
+    // F18 as D105 applies it: the two-operand `math.*` words guard at two and
+    // name themselves, where the reference guards at one as `float_op`
+    // (`reference/Bund/src/stdlib/functions/math/math.rs:55`).
+    (
+        "Stack is too shallow for inline float_op",
+        "Stack is too shallow for inline MATH.NROOT",
+        "F18, D105",
+    ),
+    (
+        "Stack is too shallow for inline float_op",
+        "Stack is too shallow for inline MATH.PERIMETER",
+        "F18, D105",
+    ),
+    (
+        "Stack is too shallow for inline float_op",
+        "Stack is too shallow for inline MATH.POWER",
+        "F18, D105",
+    ),
     // F40, FIX: `complex`'s guard names `pair`
     // (`reference/rust_multistackvm/src/stdlib/artefacts.rs:27`).
     (
@@ -35,6 +60,45 @@ const APPROVED_MESSAGES: &[(&str, &str, &str)] = &[
         "F40",
     ),
 ];
+
+/// F18, FIX, and D105 after it: these words guard at the arity they consume,
+/// so where the reference pulls one operand and then misses the second
+/// (`NO DATA #2`, or a cast of what it found), Bund2 fails before pulling and
+/// leaves the stack as it was. The message and the dump both differ, by
+/// ruling.
+const F18_GUARDS: &[&str] = &[
+    "Stack is too shallow for inline AT()",
+    "Stack is too shallow for inline complex()",
+    "Stack is too shallow for inline HEAD()",
+    "Stack is too shallow for inline pair()",
+    "Stack is too shallow for inline TAIL()",
+    "Stack is too shallow for inline STRING.DISTANCE.LEVENSHTEIN",
+    "Stack is too shallow for inline STRING.DISTANCE.DAMERAULEVENSHTEIN",
+    "Stack is too shallow for inline STRING.DISTANCE.HAMMING",
+    "Stack is too shallow for inline STRING.DISTANCE.JAROWINKLER",
+    "Stack is too shallow for inline STRING.DISTANCE.SIFT3",
+    "Stack is too shallow for inline STRING.REGEX",
+    "Stack is too shallow for inline STRING.REGEX.MATCHES",
+    "Stack is too shallow for inline STRING.WILDCARD",
+    "Stack is too shallow for inline MATH.NROOT",
+    "Stack is too shallow for inline MATH.PERIMETER",
+    "Stack is too shallow for inline MATH.POWER",
+];
+
+/// Whether Bund2 stopped where a ruling says the reference goes on: F60 and
+/// F72's `Context is empty`, which Bund2 says only where the reference's dead
+/// guard lets `endcontext` drop the current stack — a bare `endcontext`, or a
+/// `( … )` whose CONTEXT value collecting pushed rather than switched to. What
+/// either engine does after that point is not compared; what came before is.
+pub(crate) fn ruled_stop(bund2: &str) -> bool {
+    without_wrappers(bund2) == "Context is empty"
+}
+
+/// Whether Bund2 stopped on an F18 guard the reference does not have.
+pub(crate) fn f18_guard(bund2: &str, oracle: &str) -> bool {
+    let b = without_wrappers(bund2);
+    b != without_wrappers(oracle) && F18_GUARDS.contains(&b)
+}
 
 /// A context's stack name made a placeholder, as F14 makes `id` one.
 ///
@@ -94,10 +158,72 @@ pub(crate) fn without_log_lines(out: &str) -> String {
 
 /// The ruling under which two messages may differ, if one does.
 pub(crate) fn approved_message(bund2: &str, oracle: &str) -> Option<&'static str> {
-    APPROVED_MESSAGES
+    let (b, o) = (without_wrappers(bund2), without_wrappers(oracle));
+    if let Some(why) = APPROVED_MESSAGES
         .iter()
-        .find(|(o, b, _)| *o == oracle && *b == bund2)
+        .find(|(ot, bt, _)| *ot == o && *bt == b)
         .map(|(_, _, why)| *why)
+    {
+        return Some(why);
+    }
+    // F120, CORRECTED by D57: `convert.to_dict` targets MAP (11) where the
+    // reference targets MATRIX (26,
+    // `reference/rust_multistackvm/src/stdlib/convert/internal.rs:101,104`), so
+    // a refusal names the other target.
+    if let (Some(bt), Some(ot)) = (b.strip_suffix(" to 11"), o.strip_suffix(" to 26"))
+        && bt == ot
+        && bt.starts_with("CONVERT.TO_DICT")
+    {
+        return Some("F120");
+    }
+    (b == o && (b != bund2 || o != oracle)).then_some("D196")
+}
+
+/// A message without the wrappers each lambda a failure leaves adds.
+///
+/// The reference wraps a failure once per body it unwinds through —
+/// `Lambda content evaluation returned error: `
+/// (`reference/rust_multistackvm/src/multistackvm_lambda_eval.rs:13-18`), and
+/// `<WORD>: lambda execution returns error: ` from each looping word — and
+/// Bund2 reports the failure itself, with D173's traceback saying where it
+/// was; D196 ruled the wrapper is written once, at most. Only a leading
+/// wrapper is removed, so a message that merely mentions one is compared.
+///
+/// Also removed, from either engine's message: the evaluator's own
+/// `Attempt to evaluate value … returned error: `, which Bund2 keeps for the
+/// callers that want the reference's text (`Interp::eval`; `debug` is one),
+/// and trailing blanks — the reference's `… to stack {name}` with an empty
+/// name ends in a space that a report's row does not keep.
+pub(crate) fn without_wrappers(message: &str) -> &str {
+    const LAMBDA: &str = "Lambda content evaluation returned error: ";
+    const LOOP: &str = ": lambda execution returns error: ";
+    const EVAL: &str = "Attempt to evaluate value ";
+    const EVAL_END: &str = " returned error: ";
+    let mut m = message.trim_end();
+    loop {
+        if let Some(rest) = m.strip_prefix(LAMBDA) {
+            m = rest;
+            continue;
+        }
+        if m.starts_with(EVAL)
+            && let Some(i) = m.find(EVAL_END)
+        {
+            m = &m[i + EVAL_END.len()..];
+            continue;
+        }
+        // `MAP: …`, `TIMES: …`, `FOR.: …`: one word, upper case, then the
+        // wrapper.
+        if let Some(i) = m.find(LOOP)
+            && m[..i]
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c == '.' || c == '_' || c == '*')
+            && i > 0
+        {
+            m = &m[i + LOOP.len()..];
+            continue;
+        }
+        return m;
+    }
 }
 
 /// A run cut into its three parts.
@@ -113,7 +239,7 @@ pub(crate) struct Parts {
 pub(crate) fn oracle_parts(out: &str) -> Parts {
     const ROW: &str = "│ Error    ┆ ";
     let Some(row) = out.find(ROW) else {
-        return clean(out);
+        return pest_parts(out).unwrap_or_else(|| clean(out));
     };
     // The box opens on the `╭` before the row, which may follow output the
     // program wrote without a newline.
@@ -205,6 +331,50 @@ pub(crate) fn oracle_message(raw: &str) -> String {
         }
     }
     strip_rust_locations(&m)
+}
+
+/// The oracle's other report: an error whose text holds a pest parse error
+/// — `bund.compile`'s and `bund.eval`'s, on a string that does not parse — is
+/// printed as `Error occured:`, the message, pest's caret block, and then the
+/// dump (`reference/Bund/src/stdlib/helpers/print_error.rs`), with no box. The
+/// message is its first line, which ends at pest's ` --> line:col`.
+fn pest_parts(out: &str) -> Option<Parts> {
+    const HEAD: &str = "Error occured";
+    const DUMP: &str = "Content of the stack";
+    let head = out.find(HEAD)?;
+    let start = out[..head].rfind('\n').map_or(0, |i| i + 1);
+    let msg_from = out[head..].find('\n').map(|i| head + i + 1)?;
+    let msg_end = out[msg_from..]
+        .find('\n')
+        .map_or(out.len(), |i| msg_from + i);
+    let message = without_escapes(&out[msg_from..msg_end]);
+    let after = out[msg_end..]
+        .find(DUMP)
+        .map(|i| msg_end + i)
+        .map_or("", |d| &out[out[..d].rfind('\n').map_or(0, |i| i + 1)..]);
+    Some(Parts {
+        before: out[..start].to_string(),
+        error: Some(oracle_message(&message)),
+        after: after.to_string(),
+    })
+}
+
+/// A line with its ANSI colour escapes removed.
+fn without_escapes(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            for c in chars.by_ref() {
+                if c.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// Remove every ` (<path>.rs:<line>:<col>)`.
@@ -313,6 +483,73 @@ mod tests {
         assert_eq!(p.error, None);
         assert_eq!(p.before, "1\n2\n");
         assert_eq!(bund2_parts("1\n2\n"), p);
+    }
+
+    #[test]
+    fn the_evaluators_wrapper_and_trailing_blanks_are_not_compared() {
+        assert_eq!(
+            approved_message(
+                "Attempt to evaluate value Value { data: String(\"x\") } returned error: i(x) for stack returned: Inline x not registered",
+                "i(x) for stack returned: Inline x not registered"
+            ),
+            Some("D196")
+        );
+        assert_eq!(
+            approved_message(
+                "VM inline function returned error: Nothing has been returned from workbench to stack",
+                "VM inline function returned error: Nothing has been returned from workbench to stack "
+            ),
+            Some("D196")
+        );
+        assert!(ruled_stop(
+            "Lambda content evaluation returned error: Context is empty"
+        ));
+        assert!(!ruled_stop("Context is empty for a while"));
+    }
+
+    #[test]
+    fn the_wrappers_a_lambda_adds_are_approved_by_d196() {
+        assert_eq!(
+            approved_message(
+                "Stack is too shallow for inline ==",
+                "MAP: lambda execution returns error: Lambda content evaluation returned error: Stack is too shallow for inline =="
+            ),
+            Some("D196")
+        );
+        assert_eq!(
+            approved_message(
+                "Workbench is too shallow for inline STRING.REGEX.",
+                "FOR.: lambda execution returns error: Lambda content evaluation returned error: Workbench is too shallow for inline STRING.REGEX."
+            ),
+            Some("D196")
+        );
+        assert_eq!(
+            approved_message("x", "Lambda content evaluation returned error: y"),
+            None
+        );
+        assert_eq!(
+            approved_message(
+                "CONVERT.TO_DICT returned error: Can not convert lambda to 11",
+                "CONVERT.TO_DICT returned error: Can not convert lambda to 26"
+            ),
+            Some("F120")
+        );
+        assert_eq!(
+            approved_message("a b: lambda execution returns error: x", "x"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_pest_error_is_read_as_an_error() {
+        let out = "x\n\u{1b}[33mError occured\u{1b}[0m:\n   \u{1b}[31mAttempt to evaluate value Value { data: String(\"compile\") } returned error: BUND.COMPILE error in parsing of BUND code:  --> 1:1\n  |\n1 | q\n  = expected EOI\n[BUND]  Content of the stack\n╭╮\n╰╯";
+        let p = oracle_parts(out);
+        assert_eq!(p.before, "x\n");
+        assert_eq!(
+            p.error.as_deref(),
+            Some("BUND.COMPILE error in parsing of BUND code:  --> 1:1")
+        );
+        assert_eq!(p.after, "[BUND]  Content of the stack\n╭╮\n╰╯");
     }
 
     #[test]

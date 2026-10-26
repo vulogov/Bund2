@@ -156,6 +156,12 @@ fn format_id(n: u64) -> String {
     out
 }
 
+/// A fresh name in an id's shape, for a stack the engine names itself: a
+/// context's, and the one that replaces the last stack dropped.
+pub fn fresh_name() -> String {
+    format_id(mint())
+}
+
 /// Cut a string to `width` characters, marking that it was cut.
 fn truncate(s: &str, width: usize) -> String {
     if s.chars().count() <= width {
@@ -557,8 +563,12 @@ thread_local! {
 pub fn intern_stack_name(name: &str) -> StackSym {
     STACK_NAMES.with(|t| {
         let mut t = t.borrow_mut();
-        if let Some(i) = t.iter().position(|n| &**n == name) {
-            return StackSym(i as u32);
+        // Index 0 is the placeholder for no stack, and it is spelled `""`, so
+        // the search starts past it: a stack a program names `""` — `""
+        // fold_stack` makes one (F70) — is a stack, and its values carry the
+        // tag, as the reference's do (found by `cargo xtask fuzz`, D218).
+        if let Some(i) = t.iter().skip(1).position(|n| &**n == name) {
+            return StackSym(i as u32 + 1);
         }
         t.push(Rc::from(name));
         StackSym((t.len() - 1) as u32)
@@ -711,7 +721,7 @@ impl BundValue {
     /// the same counter the identity uses, so the name is unique per process
     /// and has a nanoid's shape and width.
     pub fn context() -> Self {
-        Self::named_context(format_id(mint()))
+        Self::named_context(fresh_name())
     }
     /// End of input. Carries no payload — `Val::Exit`
     /// (`reference/rust_dynamic/src/create_special.rs:85-96`).
@@ -2727,6 +2737,16 @@ mod render_tests {
             attr: h.attr.clone(),
             payload: Rc::clone(&h.payload),
         }))
+    }
+
+    /// A stack named `""` is a stack: its symbol is not the placeholder for
+    /// none, and the name comes back (D218's fuzzer, via `"" fold_stack`).
+    #[test]
+    fn a_stack_named_empty_is_interned_as_a_stack() {
+        let sym = intern_stack_name("");
+        assert!(!sym.is_none());
+        assert_eq!(stack_name(sym).as_deref(), Some(""));
+        assert_eq!(intern_stack_name(""), sym);
     }
 
     /// **D170: `Tags` answers as the `BTreeMap` it replaced.** Keys iterate

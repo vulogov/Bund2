@@ -3355,6 +3355,20 @@ golden, as F85 is. The distance itself stays undefined for those operands:
 computing one would be an answer the reference never gives. Criterion 28's
 palette reaches the panic on many operand pairs and runs on.
 
+**Dated note, 2026-10-26 — refused, not caught** (D218's fuzzer, which
+classes an internal error as a finding). Reporting the panic as an internal
+error says the defect is Bund2's, and it is the operand that has no
+distance. `jaro_winkler` (`crates/bund2-stdlib/src/singles.rs`) is now a
+line-for-line port of `natural-0.5.0/src/distance.rs:11-71`, lengths in bytes
+and the two sums wrapping as the reference's release build does, with the
+slice at `:41` checked: where the crate would panic, both forms refuse with
+`<PREFIX>: Jaro-Winkler is undefined for "<a>" and "<b>": the window
+<s>..<e> does not fit "<s>"`. Every pair the crate answers gets its answer to
+the bit (seven compared with the oracle, pinned by
+`jarowinkler_answers_as_natural_and_refuses_where_it_panics`). The
+disposition is unchanged — the distance stays undefined for those operands;
+only the class of the report changes, as F228's is a refusal.
+
 ## F96 — a native that files a tail request and then fails leaves the request to run later
 
 **A Bund2 defect, latent**, found by RFC-0005's tenth review (S3.2).
@@ -3587,6 +3601,12 @@ index is 0` and exits 101. A one-element list draws.
 `internal error: native io.graph panicked: …` through the reporter and exits 0
 (`crates/bund2-stdlib/src/host.rs`, `io_graph`). No chart is invented for
 these inputs, because the reference never draws one.
+
+**Dated note, 2026-10-26.** The last panic of this class a program can
+reach on purpose, now F95's is a refusal, so
+`crates/bund2-cli/tests/panic_tier.rs` (RFC-0005 criterion 29) panics here.
+Making this a refusal too would leave that criterion with no real panic to
+run; a test native would be needed first.
 
 ## F105 — `generator` crashes on a parameter of the wrong kind
 
@@ -4242,6 +4262,87 @@ and D37 gains a stated exception for bytes read from a file Bund2 did not
 write, because bincode builds the nested value before any check could run. A
 wide, shallow BLOB over the cap is refused too, which is the conservative
 side. No corpus program reads a BLOB, so conformance does not move.
+
+## F230 — the fuzzer's first triage: operands kept that the reference spends, guards missing, messages in Bund2's words
+
+**Bund2 defects; found 2026-10-26** by `cargo xtask fuzz` (D218), each
+measured on both engines and fixed the same day. All are paths that fail;
+none is reached by a corpus program, which is why no golden saw them.
+
+1. **A stack name that is not a string was restored.** `name_arg`
+   (`crates/bund2-stdlib/src/stack.rs`) pushed back the value it could not
+   cast, on the claim in its own comment that `1 1 move` leaves both values.
+   Measured, it leaves one: every stack-layer wrapper pulls and then casts
+   (`reference/rust_multistack/src/stdlib/clear.rs:52-53`,
+   `stack_move.rs:29-30`, and the rest of that directory). The three words
+   with two operands and `ensure_stack_with_capacity` pull **both** before
+   casting either (`dup.rs:71-72`, `swap.rs:90-91`, `stack_move.rs:70-71`,
+   `ensure_stack.rs:36-59`), so a bad name spends the operand beneath it
+   too. `7 8 clear_in` leaves `7` and `7 8 swap_in` leaves nothing, in both
+   engines now; twenty-one such programs compared.
+2. **Depth guards missing, so an empty stack said `NO DATA`.** Eleven of
+   the stack-layer words that take a name, each in its author's spelling
+   (`Stack is too shallow for inline to_current()`, `current.rs:26`;
+   `dup_many()` for `dup_one_in`, `dup.rs:78`); `type` and `type.of`
+   (`reference/rust_multistackvm/src/stdlib/values/value_types.rs:7,23`);
+   `?type`, which needs two and says `type.of` (`:37-39`); and `seq`
+   (`reference/Bund/src/stdlib/functions/math/seq.rs:54-56`).
+3. **`ifthenelse` and its aliases pulled both branches before checking
+   either.** The reference checks the first as it pulls it (`ifthenelse_fun.rs:27-36`),
+   so `7 -2 [ 1 ] ?false*` leaves `7 -2` there and left `7` here.
+4. **Messages in Bund2's words.** The case words' guard says
+   `string_upper`, lower case (`case.rs:9,37,65,93,121`), where Bund2 said
+   `STRING_UPPER`; `do.`'s says `do` (`do_fun.rs:37`), not `do.`; `var?`
+   says `VAR? returned: VAR not regustered: <name>`, its spelling kept
+   (`reference/rust_multistackvm/src/multistackvm_vars.rs:72`,
+   `stdlib/vars/resolve.rs:17`), where Bund2 said `Variable <name> is not
+   registered`; `lambda=` says `LAMBDA.GET returned: VM Lambda <name> not
+   registered` (`multistackvm_lambdas.rs:43`, `bund_fun.rs:156`), where Bund2
+   said `<name> is not a lambda`.
+
+5. **A stack named `""` carried no tag.** The stack-name table keeps `""`
+   at index 0 for "no stack", and `intern_stack_name` searched from there,
+   so `"" fold_stack` — which creates the stack and makes it current (F70)
+   — left values untagged where the reference tags them `"stack": ""`.
+6. **Dropping the last stack brought back `main`.** The reference's `ensure`
+   adds a stack under a fresh nanoid (`reference/rust_multistack/src/ts_ensure.rs:5-6`,
+   `ts_add.rs:5-9`), and F72 records the oracle doing so; Bund2 recreated
+   `main`. It now takes a fresh name, as a context's stack does.
+7. **`string.regex` and `string.wildcard` cast the subject before pulling
+   the pattern.** The reference pulls both and then casts
+   (`reference/Bund/src/stdlib/functions/string/regex.rs:26-33`), so
+   `7 -2 9 string.regex` leaves `7` in both engines now; Bund2 left `7 -2`.
+
+**Disposition: FIXED 2026-10-26**, Bund2 bugs. Pinned by
+`a_name_that_is_not_a_string_is_consumed` (`stack.rs`),
+`a_stack_named_empty_is_interned_as_a_stack` (`bund2-value`) and
+`the_held_current_stack_follows_every_move_of_the_ring` (`bund2-interp`, its
+last assertion changed from `main` to a fresh name); the rest by the fuzzer's
+findings, replayed to agreement.
+
+## F229 — `periodic.detect` aborts on a series of fewer than four values
+
+**An original-implementation defect, shared by Bund2 until today; found
+2026-10-26** by `cargo xtask fuzz` (D218). `periodic.detect` hands the series
+to `augurs`' periodogram, whose segment is `min(2 * (n / 3), n / 2)` values
+(`augurs-seasons-0.9.0/src/periodogram.rs:74,165`), below two for `n < 4`;
+Welch then cuts the series into windows of zero
+(`welch-sde-0.1.0/src/welch.rs:84`), and `slice::windows(0)` panics. The
+oracle aborts with a backtrace through
+`welch_sde::welch::Welch::dfts`. Bund2 caught the panic and reported it as an
+internal error, which tells the reader the defect is Bund2's.
+
+    [ 5 ] sort periodic.detect      → oracle: a panic; Bund2: internal error
+    list periodic.detect            → the same
+
+Measured over lengths 0 to 400: 0, 1, 2 and 3 panic and nothing else does.
+
+- Behavioural, in a library word (D215). Disposition: **DIVERGE** (D37), as
+  F228: Bund2 refuses with `PERIODIC.DETECT: a periodogram needs four values
+  or more, and the series has <n>`, under each form's prefix. No golden can
+  hold it: the oracle's side is a backtrace. Test:
+  `periodic_refuses_a_series_too_short_for_a_periodogram`
+  (`crates/bund2-stdlib/src/forecast.rs`).
 
 ## F228 — `forecast.estimate!` aborts on a value that is not normal
 

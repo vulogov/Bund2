@@ -703,9 +703,11 @@ pub fn register(r: &mut Registry) {
     dist!(
         "string.distance.jarowinkler.",
         "STRING.DISTANCE.JAROWINKLER.",
-        |a, b| Ok(BundValue::float(f64::from(
-            natural::distance::jaro_winkler_distance(a, b)
-        )))
+        |a, b| Ok(BundValue::float(f64::from(crate::singles::jaro_winkler(
+            a,
+            b,
+            "STRING.DISTANCE.JAROWINKLER."
+        )?)))
     );
     // The one that can refuse: hamming is undefined for unequal lengths
     // (`distance.rs:77-82`).
