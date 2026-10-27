@@ -639,32 +639,86 @@ fn method_float_init(vm: &mut dyn Vm) -> Result<(), Error> {
 /// `Number`'s `.data`, and `+` on strings is no number. A comparison's answer
 /// is the word's BOOL, bare.
 fn operator_method(vm: &mut dyn Vm, class: &str, op: &str, number: bool) -> Result<(), Error> {
-    if vm.depth() < 2 {
+    let (data, operands) = receiver_and(vm, class, op, 1)?;
+    let operand = only(operands, class, op)?;
+    let answer = operate(vm, data, op, operand)?;
+    match number {
+        true => push_number(vm, answer),
+        false => {
+            vm.push(answer);
+            Ok(())
+        }
+    }
+}
+
+/// Pull the receiver and the `below` operands beneath it, nearest first, and
+/// answer the receiver's `.data` with them — each operand unwrapped when it is
+/// an object carrying `.data`, and left for the word to refuse when not.
+fn receiver_and(
+    vm: &mut dyn Vm,
+    class: &str,
+    method: &str,
+    below: usize,
+) -> Result<(BundValue, Vec<BundValue>), Error> {
+    if vm.depth() < below + 1 {
         return Err(Error(format!(
-            "Stack is too shallow for method '{class}::{op}'"
+            "Stack is too shallow for method '{class}::{method}'"
         )));
     }
     let obj = vm
         .pull()
         .ok_or_else(|| Error(format!("{class}: NO DATA #1")))?;
-    let operand = vm
-        .pull()
-        .ok_or_else(|| Error(format!("{class}: NO DATA #2")))?;
+    let mut operands = Vec::with_capacity(below);
+    for n in 2..below + 2 {
+        let v = vm
+            .pull()
+            .ok_or_else(|| Error(format!("{class}: NO DATA #{n}")))?;
+        operands.push(match v.dt() {
+            OBJECT => locate(&v, ".data").unwrap_or(v),
+            _ => v,
+        });
+    }
     let data = locate(&obj, ".data")
         .ok_or_else(|| Error(format!("{class}: NO WRAPPED DATA WAS FOUND")))?;
-    let operand = match operand.dt() {
-        OBJECT => locate(&operand, ".data").unwrap_or(operand),
-        _ => operand,
-    };
-    vm.push(operand);
-    vm.push(data);
+    Ok((data, operands))
+}
+
+/// The one operand `receiver_and` was asked for.
+fn only(operands: Vec<BundValue>, class: &str, method: &str) -> Result<BundValue, Error> {
+    let [operand] = <[BundValue; 1]>::try_from(operands)
+        .map_err(|_| Error(format!("{class}::{method} took other than one operand")))?;
+    Ok(operand)
+}
+
+/// `left op right`, by the stack word: `left` is pushed last, because every
+/// operator takes the top as its left operand.
+fn operate(
+    vm: &mut dyn Vm,
+    left: BundValue,
+    op: &str,
+    right: BundValue,
+) -> Result<BundValue, Error> {
+    vm.push(right);
+    vm.push(left);
     vm.apply(BundValue::call(op))?;
-    if !number {
-        return Ok(());
+    vm.pull()
+        .ok_or_else(|| Error(format!("'{op}' left no answer for a method")))
+}
+
+/// A comparison's answer as a Rust `bool`, for the methods that branch on one.
+fn compare(vm: &mut dyn Vm, left: BundValue, op: &str, right: BundValue) -> Result<bool, Error> {
+    match operate(vm, left, op, right)?.unboxed() {
+        BundValue::Bool(b, _) => Ok(*b),
+        other => Err(Error(format!(
+            "'{op}' answered {}, not a BOOL, for a method",
+            other.dt()
+        ))),
     }
-    let Some(answer) = vm.pull() else {
-        return Err(Error(format!("{class}::{op} left no answer")));
-    };
+}
+
+/// An `Integer` object for an INTEGER, a `Float` object for a FLOAT, anything
+/// else bare — D223's rule for every answer that is a number.
+fn push_number(vm: &mut dyn Vm, answer: BundValue) -> Result<(), Error> {
     let name = match answer.dt() {
         bund2_value::INTEGER => "Integer",
         bund2_value::FLOAT => "Float",
@@ -677,6 +731,93 @@ fn operator_method(vm: &mut dyn Vm, class: &str, op: &str, number: bool) -> Resu
     vm.push(BundValue::str(name));
     object_word(vm)
 }
+
+/// `max` and `min` — **D224**. Smalltalk's `self > aMagnitude ifTrue: [self]
+/// ifFalse: [aMagnitude]`, so a tie answers the operand: `3 :max 3.0 :Float
+/// object !` is the `Integer` 3. The answer is a number object by its type.
+fn extremum(vm: &mut dyn Vm, method: &str, op: &str) -> Result<(), Error> {
+    let (data, operands) = receiver_and(vm, "Magnitude", method, 1)?;
+    let operand = only(operands, "Magnitude", method)?;
+    let keep = compare(vm, data.clone(), op, operand.clone())?;
+    push_number(vm, if keep { data } else { operand })
+}
+
+fn magnitude_max(vm: &mut dyn Vm) -> Result<(), Error> {
+    extremum(vm, "max", ">")
+}
+
+fn magnitude_min(vm: &mut dyn Vm) -> Result<(), Error> {
+    extremum(vm, "min", "<")
+}
+
+/// `between` — **D224**. `min max :between obj !`: the deeper operand is the
+/// lower bound, so the source reads in order. Smalltalk's `min <= self and:
+/// [self <= max]`, short-circuited as `and:` is — a receiver below `min`
+/// answers false without the upper comparison running. Inclusive at both
+/// ends; a bare BOOL.
+fn magnitude_between(vm: &mut dyn Vm) -> Result<(), Error> {
+    let (data, operands) = receiver_and(vm, "Magnitude", "between", 2)?;
+    let [max, min] = <[BundValue; 2]>::try_from(operands)
+        .map_err(|_| Error("Magnitude::between took other than two operands".into()))?;
+    let within = compare(vm, data.clone(), ">=", min)? && compare(vm, data, "<=", max)?;
+    vm.push(BundValue::boolean(within));
+    Ok(())
+}
+
+/// `negated` — **D224**. The value times −1, by `*`: INTEGER stays INTEGER
+/// and wraps at its edge as `*` wraps (−9223372036854775808 negates to
+/// itself), and a FLOAT keeps its sign of zero right (`0.0` negates to
+/// `-0.0`, which `0 -` would not give).
+fn number_negated(vm: &mut dyn Vm) -> Result<(), Error> {
+    let (data, _) = receiver_and(vm, "Number", "negated", 0)?;
+    let answer = operate(vm, data, "*", BundValue::int(-1))?;
+    push_number(vm, answer)
+}
+
+/// `abs` — **D224**. `negated` when the value is below 0, else the value,
+/// so an INTEGER stays one: `math.abs` refuses an INTEGER, this does not.
+fn number_abs(vm: &mut dyn Vm) -> Result<(), Error> {
+    let (data, _) = receiver_and(vm, "Number", "abs", 0)?;
+    let answer = match compare(vm, data.clone(), "<", BundValue::int(0))? {
+        true => operate(vm, data, "*", BundValue::int(-1))?,
+        false => data,
+    };
+    push_number(vm, answer)
+}
+
+/// The methods that are not one operator — D224: slot, method, native, and
+/// what each does to its receiver (D179).
+const MAGNITUDE_METHODS: &[(&str, &str, bund2_api::NativeFn, MethodEffect)] = &[
+    ("max", ".magnitude_max", magnitude_max, CONSUME_ONE),
+    ("min", ".magnitude_min", magnitude_min, CONSUME_ONE),
+    (
+        "between",
+        ".magnitude_between",
+        magnitude_between,
+        MethodEffect::Consume {
+            below: 2,
+            produces: 1,
+        },
+    ),
+];
+
+const NUMBER_METHODS: &[(&str, &str, bund2_api::NativeFn, MethodEffect)] = &[
+    ("abs", ".number_abs", number_abs, CONSUME_NONE),
+    ("negated", ".number_negated", number_negated, CONSUME_NONE),
+];
+
+/// The receiver and one operand in, one answer out — every operator, and
+/// `max` and `min`.
+const CONSUME_ONE: MethodEffect = MethodEffect::Consume {
+    below: 1,
+    produces: 1,
+};
+
+/// The receiver in, one answer out.
+const CONSUME_NONE: MethodEffect = MethodEffect::Consume {
+    below: 0,
+    produces: 1,
+};
 
 /// The slot, the method's name and its native, for each operator — D223.
 macro_rules! operators {
@@ -1174,23 +1315,18 @@ fn register_wrapped(r: &mut Registry) {
     //
     // **D223: their methods are Bund's operators**, each slot named for the
     // word it runs. Every one consumes the receiver and the operand beneath
-    // it and answers one value in their place.
-    for (name, parent, ops) in [
-        ("Magnitude", "Value", MAGNITUDE_OPERATORS),
-        ("Number", "Magnitude", NUMBER_OPERATORS),
+    // it and answers one value in their place. **D224** adds `max`, `min`
+    // and `between` to `Magnitude` and `abs` and `negated` to `Number`.
+    for (name, parent, ops, more) in [
+        ("Magnitude", "Value", MAGNITUDE_OPERATORS, MAGNITUDE_METHODS),
+        ("Number", "Magnitude", NUMBER_OPERATORS, NUMBER_METHODS),
     ] {
         let mut c = BundValue::class(Default::default())
             .set(".class_name", BundValue::str(name))
             .set(".super", BundValue::list(vec![BundValue::str(parent)]));
-        for &(slot, method, f) in ops {
-            r.register_method(
-                method,
-                f,
-                MethodEffect::Consume {
-                    below: 1,
-                    produces: 1,
-                },
-            );
+        let operators = ops.iter().map(|&(s, m, f)| (s, m, f, CONSUME_ONE));
+        for (slot, method, f, effect) in operators.chain(more.iter().copied()) {
+            r.register_method(method, f, effect);
             c = c.set(slot, BundValue::ptr(method));
         }
         r.register_class(name, c);
@@ -2020,6 +2156,82 @@ mod tests {
             // The word's own refusal, unchanged.
             (
                 "\"a\" :< 2 :Integer object !",
+                "COMPARE: unsupported operand #2",
+            ),
+        ] {
+            let e = err_of(src);
+            assert!(e.contains(want), "{src}:\n  got {e}\n want {want}");
+        }
+    }
+
+    /// **D224.** `max`, `min` and `between` on `Magnitude`, `abs` and
+    /// `negated` on `Number`: each answer's value and the class of a number
+    /// answer, the tie that answers the operand, the edges `*` wraps, and
+    /// the refusals.
+    #[test]
+    fn magnitudes_bound_and_numbers_negate() {
+        for (src, want, class) in [
+            ("7 :max 3 :Integer object !", "7", Some("Integer")),
+            ("3 :max 7 :Integer object !", "7", Some("Integer")),
+            ("7 :min 3 :Integer object !", "3", Some("Integer")),
+            ("2.5 :max 3 :Integer object !", "3", Some("Integer")),
+            ("2.5 :min 3 :Integer object !", "2.5", Some("Float")),
+            // A tie answers the operand, as Smalltalk's `max:` does.
+            ("3.0 :max 3 :Integer object !", "3.0", Some("Float")),
+            ("3 :min 3.0 :Float object !", "3", Some("Integer")),
+            ("1 10 :between 5 :Integer object !", "true", None),
+            ("1 10 :between 1 :Integer object !", "true", None),
+            ("1 10 :between 10 :Integer object !", "true", None),
+            ("1 10 :between 0 :Integer object !", "false", None),
+            ("1 10 :between 11.5 :Float object !", "false", None),
+            ("10 1 :between 5 :Integer object !", "false", None),
+            // Below `min`, `and:` stops: the upper bound is never compared.
+            ("1 \"a\" :between 0 :Integer object !", "false", None),
+            (":abs -4 :Integer object !", "4", Some("Integer")),
+            (":abs 4 :Integer object !", "4", Some("Integer")),
+            (":abs -2.5 :Float object !", "2.5", Some("Float")),
+            (":negated 3 :Integer object !", "-3", Some("Integer")),
+            (":negated -2.5 :Float object !", "2.5", Some("Float")),
+            (":negated 0.0 :Float object !", "-0.0", Some("Float")),
+            // `*` wraps at the INTEGER edge, so negating the least is itself.
+            (
+                ":negated -9223372036854775807 1 - :Integer object !",
+                "-9223372036854775808",
+                Some("Integer"),
+            ),
+        ] {
+            let mut i = run_src(src).expect(src);
+            assert_eq!(i.depth(), 1, "{src}: one answer");
+            if let Some(class) = class {
+                let asked = format!("{src} \"{class}\" ?is");
+                let is = run_src(&asked).expect(&asked);
+                let is = is.peek().expect("an answer").render(true);
+                assert!(is.contains("Bool(true)"), "{asked}: {is}");
+                unwrap_word(&mut i).expect("a number object");
+            }
+            let got = i.peek().expect("an answer").render(true);
+            assert!(got.contains(&format!("({want})")), "{src}: {got}");
+        }
+
+        for (src, want) in [
+            (
+                ":max 2 :Integer object !",
+                "Stack is too shallow for method 'Magnitude::max'",
+            ),
+            (
+                "1 :between 2 :Integer object !",
+                "Stack is too shallow for method 'Magnitude::between'",
+            ),
+            (
+                "true :abs true :Bool object !",
+                "VM no method abs has been registered",
+            ),
+            (
+                "1 :max 1 :Value object !",
+                "VM no method max has been registered",
+            ),
+            (
+                "\"a\" :max 2 :Integer object !",
                 "COMPARE: unsupported operand #2",
             ),
         ] {

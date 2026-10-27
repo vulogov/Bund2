@@ -1502,9 +1502,10 @@ mod honesty_tests {
             // `bool_object` does and for its reason: a rebound `object` must
             // reach them too (RFC-0010 S1).
             "oop.rs: empty_of",
-            // D223: an operator method applies a CALL to the stack word of
-            // its own name, so a rebound `+` reaches `Number`'s `+` too.
-            "oop.rs: operator_method",
+            // D223, D224: every number method applies a CALL to an operator
+            // word through `operate`, so a rebound `+` reaches `Number`'s `+`
+            // too.
+            "oop.rs: operate",
             "oop.rs: run_init",
             "seq.rs: loop_base",
             "seq.rs: loop_over_base",

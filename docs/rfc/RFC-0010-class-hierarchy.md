@@ -18,7 +18,7 @@
 - Decisions consumed: D23 (`!` builds from the class value), D25 (a class must
   carry its own `.class_name`), D72 (Bund2 may carry what the reference does
   not)
-- Decisions produced: **D96**, answering all three questions below; **D222** (2026-10-27) re-parents `Integer` and `Float` under `Magnitude` ← `Number`; **D223** (2026-10-27) gives those two operator methods — see the amendments at the end
+- Decisions produced: **D96**, answering all three questions below; **D222** (2026-10-27) re-parents `Integer` and `Float` under `Magnitude` ← `Number`; **D223** (2026-10-27) gives those two operator methods; **D224** (2026-10-27) adds `max`, `min`, `between`, `abs` and `negated` — see the amendments at the end
 - Grounded against the pinned submodules and the oracle on 2026-10-05
 
 ## Summary
@@ -469,6 +469,44 @@ Display                     .super []            format, display
         └── Value           .super [Object]      .init
             ├── Magnitude   .super [Value]       <, <=, >, >=, ==, !=
             │   └── Number  .super [Magnitude]   +, -, *, /
+            │       ├── Integer   .super [Number]   .init
+            │       └── Float     .super [Number]   .init
+            ├── Bool        .super [Value]       .init
+            └── List        .super [Value]       .init, push
+                ├── Floats      .super [List]    .init, push
+                └── Intervals   .super [List]    .init, push, overlap
+```
+
+## Amendment, 2026-10-27 — `max`, `min`, `between`, `abs` and `negated` (D224)
+
+On the owner's request, **D224**: `Magnitude` gains `max`, `min` and
+`between`, and `Number` gains `abs` and `negated`, Smalltalk's names. None is
+one of Bund's words — `math.max` and `math.min` are series statistics and
+`math.abs` refuses an INTEGER — so each is built from D223's operators, run
+by name on the wrapped value:
+
+- `max` and `min` are Smalltalk's `self > aMagnitude ifTrue: [self] ifFalse:
+  [aMagnitude]` and its mirror, so a tie answers the operand.
+- `between` is `min <= self and: [self <= max]`, inclusive and
+  short-circuited; `min max :between obj !`, the deeper operand the lower
+  bound. It answers a bare BOOL.
+- `negated` is the value times −1, by `*`; `abs` is `negated` when the
+  value is below 0. Both keep an INTEGER an INTEGER and wrap at its edge as
+  `*` does.
+
+A number answer is an `Integer` or `Float` object by its type, D223's rule.
+No golden moved. `magnitudes_bound_and_numbers_negate`
+(`crates/bund2-stdlib/src/oop.rs`) is the record, and the diagram is current:
+
+### Bund2's hierarchy, as registered
+
+```
+Display                     .super []            format, display
+└── Printable               .super [Display]     str, print, println
+    └── Object              .super [Printable]   .id, .timestamp
+        └── Value           .super [Object]      .init
+            ├── Magnitude   .super [Value]       <, <=, >, >=, ==, !=, max, min, between
+            │   └── Number  .super [Magnitude]   +, -, *, /, abs, negated
             │       ├── Integer   .super [Number]   .init
             │       └── Float     .super [Number]   .init
             ├── Bool        .super [Value]       .init

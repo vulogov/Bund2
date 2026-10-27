@@ -3669,6 +3669,60 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D224 — `max`, `min` and `between` on `Magnitude`; `abs` and `negated` on `Number`
+
+**Raised 2026-10-27** by the repository owner: "add max, min and between to
+Magnitude, abs and negated to Number".
+
+- Blocks: nothing
+- Depends on: D223 (operators run by name on the wrapped value; a number
+  answer is an `Integer` or `Float` object), D222, D72, D179, RFC-0010
+- Status: **RESOLVED — built as requested**, 2026-10-27. The names are the
+  owner's (Smalltalk's); the semantics below follow Smalltalk and D223's
+  rulings, and each is a choice the owner may revisit.
+
+### Why not Bund's own words
+
+None of the five is one. Measured 2026-10-27 in both engines: `math.max` and
+`math.min` are series statistics (`3 7 math.max` answers 3.0 in the oracle,
+not 7), and `math.abs` refuses an INTEGER (`-4 math.abs` reports `FLOAT_OP
+returns error: This Dynamic type is not float`). So each method is built
+from D223's operator words, applied by name to the wrapped value, and keeps
+their mixing of INTEGER and FLOAT and their refusals.
+
+### What it is
+
+- **`max`, `min`** — Smalltalk's `self > aMagnitude ifTrue: [self] ifFalse:
+  [aMagnitude]` and its mirror with `<`. A tie answers the operand:
+  `3.0 :max 3 :Integer object !` is the `Float` 3.0. The answer is a number
+  object by its type (D223). The receiver and operand are consumed.
+- **`between`** — `min <= self and: [self <= max]`, inclusive at both ends
+  and short-circuited as `and:` is, so a receiver below `min` answers false
+  without comparing `max`. Written `min max :between obj !`: the deeper
+  operand is the lower bound, so the source reads in order; `10 1 :between`
+  is always false. A bare BOOL; three values consumed.
+- **`negated`** — the value times −1, by `*`. An INTEGER stays one and wraps
+  at its edge as `*` does — measured in both engines, Bund's integer
+  arithmetic wraps, and −9223372036854775808 negates to itself — and a FLOAT
+  keeps the sign of zero (`0.0` negates to `-0.0`, which `0 -` would lose).
+- **`abs`** — `negated` when `<` says the value is below 0, else the value.
+  An INTEGER stays one, unlike `math.abs`; the least INTEGER is its own
+  `abs`, by the same wrap.
+
+`abs` and `negated` consume the receiver alone. `Bool` and a bare `Value`
+have none of the five.
+
+### Built, the same day
+
+- `extremum`, `magnitude_between`, `number_negated` and `number_abs` in
+  `crates/bund2-stdlib/src/oop.rs`, registered from `MAGNITUDE_METHODS` and
+  `NUMBER_METHODS` beside D223's operator tables.
+- `magnitudes_bound_and_numbers_negate` pins values, answer classes, the
+  tie, the short-circuit, the wrap and the refusals.
+- RFC-0010's third amendment of 2026-10-27 draws the slots; the hierarchy
+  test reads it.
+- **No golden moved**, for D223's reason.
+
 ## D223 — `Magnitude` and `Number` methods: Bund's operators, run on the wrapped value
 
 **Raised 2026-10-27** by the repository owner: "add methods to `Magnitude`
@@ -3721,6 +3775,10 @@ existing text for a slot no ancestor carries.
   diagram.
 - **No golden moved**: the oracle has neither class, so no golden program
   can reach a method of one.
+
+*Note, 2026-10-27:* `max`, `min`, `between`, `abs` and `negated` are
+**D224**. `operator_method` is now built from helpers they share
+(`receiver_and`, `operate`, `push_number`); what it does is unchanged.
 
 ## D222 — `Magnitude` and `Number`: the class tree extended toward Smalltalk's, `Integer` and `Float` re-parented
 

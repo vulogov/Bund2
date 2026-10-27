@@ -1,6 +1,6 @@
 # Every part of Bund's object system: classes, objects, fields, methods,
 # constructors, inheritance, the base and value classes, and what Bund2
-# adds (D23, D25, D96).
+# adds (D23, D25, D96, D222, D223, D224).
 #
 #   make         run demo.bund
 #   make twice   run it twice and compare: nothing it prints varies

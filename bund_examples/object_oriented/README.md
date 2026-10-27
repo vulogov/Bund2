@@ -10,6 +10,7 @@ class trees and the built-in classes:
 - a method written once that asks each object for its own answer;
 - the base classes every object can reach;
 - the classes that wrap one value;
+- numbers as objects, compared and computed with by methods;
 - the words Bund2 adds, and the mistakes a program can catch.
 
     make            # run demo.bund
@@ -109,7 +110,7 @@ Each leaves the object on the stack. `.id`, `.timestamp`, `str` and
 | class | made by | keeps |
 |---|---|---|
 | `Value` | `<v> :Value object` | `v` as given, in `.data` |
-| `Integer`, `Float`, `Bool` | `<v> :Integer object`, … | `v` converted: `"42" :Integer object` holds 42 |
+| `Integer`, `Float`, `Bool` | `<v> :Integer object`, … | `v` converted: `"42" :Integer object` holds 42; in Bund2 an `Integer` or `Float` is also a `Number` (below) |
 | `True`, `False` | the words `True` and `False` | a Bool object |
 | `List` | `List`, or `<list> :List object` | a list; `push` adds to it |
 | `Floats` | `Floats`, … | a list that makes each item a FLOAT |
@@ -140,6 +141,39 @@ the basket with a pear in it, and `15.0 :overlap :bands var? !` answers
   from it (D96, RFC-0010). It looks up the tree and never down: a `Floats`
   is a `List`, and a `List` is not a `Floats`. The reference has no such
   word, so no golden can run it.
+- **Numbers, in a tree after Smalltalk's** (D222, D223, D224). `Integer`
+  and `Float` descend from `Number`, which descends from `Magnitude`, which
+  descends from `Value`. A `Bool` stays directly under `Value`. The
+  reference puts `Integer` and `Float` directly under `Value` and has
+  neither class, so none of this has a golden.
+
+      Value
+      ├── Magnitude   <  <=  >  >=  ==  !=  max  min  between
+      │   └── Number  +  -  *  /  abs  negated
+      │       ├── Integer
+      │       └── Float
+      └── Bool
+
+  **The operators are methods**, and an object stands where its value
+  would: each runs the word of the same name on the value inside. The top
+  is the left side, as for the words, so with `:two` holding an `Integer`
+  2, `5 :- :two var? !` is `5 2 -`, which is 2 − 5:
+
+      two - 5:                  -3
+      two < 5:                  true
+      two + half is a Float:    true 2.5
+      (two + 4) * 3:            18
+
+  A comparison answers true or false. Arithmetic answers a new `Integer`
+  or `Float` object, by the type of the result, so `Integer` plus 0.5 is a
+  `Float`, and the answer can take another method at once:
+  `3 :* 4 :+ :two var? ! !` is 18.
+
+  **`max`, `min`, `between`, `abs` and `negated`** are Smalltalk's.
+  `max` and `min` answer the winner as a number object, and on a tie the
+  operand. `between` takes the bounds low first, `1 3 :between :two var? !`,
+  and counts both ends as inside. `abs` and `negated` keep an `Integer` an
+  `Integer`, where the word `math.abs` refuses one.
 - **Workbench forms.** `?class.`, `?object.`, `resolve.class.`, `is.`,
   `?is.` and `#.` take their operand from the workbench and leave the
   answer there. `?is.` still takes the class name from the stack.
@@ -152,6 +186,7 @@ Each of these is an error the demo catches with `?try`:
     a slot no class has:      … VM no method colour has been registered
     a parent never registered: … OBJECT class Nobody not registered
     a misspelled word:        … i(Lsit) for stack returned: Inline Lsit not registered
+    a Bool compared:          … VM no method < has been registered
     ?is on a number:          … ?IS: NO OBJECT IN #2
 
 - **A missing parent is named.** The reference names the child instead,
@@ -159,12 +194,13 @@ Each of these is an error the demo catches with `?try`:
 - **A misspelled word is reported in the reference's words** (D197), the
   name it could not find twice over.
 - **A failed call leaves its object on the stack.** Dispatch looks at the
-  object without taking it, so the demo's handler drops the door.
+  object without taking it, so the demo's handler drops the door, and for
+  the `Bool`, the `Bool` and the operand beneath it.
 
 Every other line the demo prints is what the reference prints for the
 same program, less the Rust source paths the reference adds to an error's
-text (F66). The exceptions are the words Bund2 adds and the missing
-parent's name.
+text (F66). The exceptions are the words Bund2 adds, the number classes and
+their methods, and the missing parent's name.
 
 ## Writing Bund like this
 
