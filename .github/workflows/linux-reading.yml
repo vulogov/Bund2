@@ -53,6 +53,9 @@ jobs:
       - name: the suite, with the tier
         if: ${{ !cancelled() }}
         run: cargo test --workspace --no-fail-fast --features jit,relocation-test
+      - name: a panic under the tier, reported (D220)
+        if: ${{ !cancelled() }}
+        run: cargo test -p bund2-cli --no-fail-fast --features jit,panic-probe --test panic_tier
       - name: cite
         if: ${{ !cancelled() }}
         run: cargo xtask cite

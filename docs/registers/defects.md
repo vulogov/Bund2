@@ -3608,6 +3608,32 @@ reach on purpose, now F95's is a refusal, so
 Making this a refusal too would leave that criterion with no real panic to
 run; a test native would be needed first.
 
+**Status 2026-10-26: refused, on the owner's "verify input for `io.graph`
+and refuse rather than crash".** Measured against `rasciigraph` 0.2.0 itself,
+the entry's account was half right. An empty list panics (`src/lib.rs:146`,
+`series_inner[0]`). **A list of NaNs does not**: the crate draws an empty
+axis for it, as the oracle does; the first account had built its NaN list
+from a list literal, where `float.NaN` is a name, not a NaN. Two failures the
+entry did not name: a range too wide for the chart's rows (`[ 1.0e300
+-1.0e300 ]`: the rows are the range in units, clamped by `as u32` and `as
+i32`, so a value lands outside the grid and the crate indexes out of bounds,
+`:148-187`), and a range so wide the grid cannot be allocated (`[ 0.0 1.0e9 ]`
+asks for a billion rows of `String`s, `:93-101`), which exhausts memory.
+
+`io.graph` now draws with `ascii_plot` (`crates/bund2-stdlib/src/host.rs`), a
+line-for-line port of the crate's `plot` with the default configuration,
+wrapping where the crate's release build wraps, every cell written through a
+checked index, and D171's guard asked every 4,096 rows as the grid grows. It
+refuses `IO.GRAPH: an empty list has nothing to draw`, `IO.GRAPH: the range of
+these values is too wide for the chart's rows`, and the guard's own trip.
+`ascii_plot_draws_what_rasciigraph_draws` draws six thousand series both ways
+— identical text wherever the crate answers, a refusal wherever it panics —
+with `rasciigraph` kept as a dev-dependency for that comparison, built
+without overflow checks in the dev profile as the release build is
+(`[profile.dev.package.rasciigraph]`, as F227's `fast_paths`). Five charts
+compared through the binary are byte-identical to the oracle's. The panic
+`panic_tier.rs` needs is now D220's `test.panic`.
+
 ## F105 — `generator` crashes on a parameter of the wrong kind
 
 **An original-implementation defect, not reproduced**, found while implementing

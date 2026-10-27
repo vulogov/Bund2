@@ -74,6 +74,13 @@ debug = true
 [profile.dev.package.fast_paths]
 overflow-checks = false
 
+# `rasciigraph` raises 10 to a power that overflows `i32` for a range under
+# 1e-9 (`src/lib.rs:68`), which the reference's release build wraps. The
+# crate is only the yardstick `io.graph`'s port is tested against (F104), and
+# that test runs in the dev profile, so the yardstick must wrap there too.
+[profile.dev.package.rasciigraph]
+overflow-checks = false
+
 # Bund2 must not panic. An interpreter that aborts on an internal inconsistency
 # takes the user's program state with it and explains nothing; every failure
 # path has to produce a diagnostic instead. These are `restriction` lints, off

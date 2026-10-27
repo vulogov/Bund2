@@ -1629,9 +1629,10 @@ pub fn register_noeval_stubs(r: &mut Registry) {
 /// (`:35`), so `[ 1 2 ]` is refused. The chart always goes to the stack
 /// (`:48`), the `.` form included.
 ///
-/// **An empty list, or one of NaNs, panics inside `rasciigraph`** (F104). The
-/// reference crashes; here D49's guard turns the panic into a reported
-/// internal error. No chart is drawn, since the reference never draws one.
+/// **Where `rasciigraph` would crash, the word refuses** (F104). The chart is
+/// [`ascii_plot`], a port of the crate's, so every chart the crate draws is
+/// drawn the same; an empty list, a range too wide for the chart's rows, and
+/// a chart too large for memory are refused instead of aborting.
 fn io_graph(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
     guard(vm, side, prefix)?;
     let v = side
@@ -1655,11 +1656,217 @@ fn io_graph(vm: &mut dyn Vm, side: Side, prefix: &str) -> Result<(), Error> {
             }
         }
     }
-    vm.push(BundValue::str(rasciigraph::plot(
-        series,
-        rasciigraph::Config::default(),
-    )));
+    let check = || bund2_api::memguard::take().map(|t| t.error());
+    vm.push(BundValue::str(ascii_plot(&series, prefix, check)?));
     Ok(())
+}
+
+/// `rasciigraph::plot(series, Config::default())`, ported line for line from
+/// `rasciigraph-0.2.0/src/lib.rs:33-211`, **refusing where the crate
+/// crashes** (F104).
+///
+/// The default configuration fixes the parts this needs: no width (so no
+/// interpolation), height from the data, an offset of 3, no caption. The
+/// arithmetic is the crate's, wrapping where its release build wraps — the
+/// reference's, and Bund2's — so the text is the crate's to the character;
+/// `ascii_plot_draws_what_rasciigraph_draws` holds it to the crate. Three
+/// things are refused:
+///
+/// - **An empty list.** The crate reads the first value unconditionally
+///   (`:146`), and the oracle aborts with `index out of bounds`.
+/// - **A range the chart cannot hold.** The rows are the range in units
+///   (`:62-90`), clamped to `u32` and `i32`; past that, a value lands outside
+///   the grid (`[ 1e300 -1e300 ]`) and the crate indexes out of bounds. Every
+///   cell is written through a checked index here.
+/// - **A chart too large for memory.** The rows grow with the range, so
+///   `[ 0.0 1e9 ]` asks for a billion; the grid is built row by row and D171's
+///   guard is asked every few thousand, as `seq` asks it.
+///
+/// A list of NaNs draws, as it does in the crate: F104's first account said
+/// it panicked, which measured against the crate it does not.
+pub(crate) fn ascii_plot(
+    series: &[f64],
+    prefix: &str,
+    mut check: impl FnMut() -> Option<Error>,
+) -> Result<String, Error> {
+    use std::borrow::Cow;
+    const OFFSET: u32 = 3;
+    const ROWS_BETWEEN_CHECKS: usize = 4096;
+    if series.is_empty() {
+        return Err(Error(format!(
+            "{prefix}: an empty list has nothing to draw"
+        )));
+    }
+    let too_wide = || {
+        Error(format!(
+            "{prefix}: the range of these values is too wide for the chart's rows"
+        ))
+    };
+    let len_max = series.len();
+    // `min_max` (`:236-244`): NaNs are skipped by the comparisons.
+    let min = series
+        .iter()
+        .fold(f64::MAX, |accu, &x| if x < accu { x } else { accu });
+    let max = series
+        .iter()
+        .fold(f64::MIN, |accu, &x| if x > accu { x } else { accu });
+    let interval = (max - min).abs();
+    let height: u32 = if interval == 0f64 {
+        3
+    } else if interval <= 1f64 {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the crate's `as` casts, saturating as they do there"
+        )]
+        let exp = (-interval.log10()).ceil() as u32;
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the crate's `as` cast"
+        )]
+        let h = (interval * f64::from(10i32.wrapping_pow(exp))) as u32;
+        h
+    } else {
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the crate's `as` cast"
+        )]
+        let h = interval as u32;
+        h
+    };
+    let ratio = if interval != 0f64 {
+        f64::from(height) / interval
+    } else {
+        1f64
+    };
+    let min2 = (min * ratio).round();
+    let max2 = (max * ratio).round();
+    #[expect(clippy::cast_possible_truncation, reason = "the crate's `as` casts")]
+    let (int_min2, int_max2) = (min2 as i32, max2 as i32);
+    #[expect(clippy::cast_possible_truncation, reason = "the crate's `as` cast")]
+    let rows = f64::from(int_max2.wrapping_sub(int_min2)).abs() as i32;
+    let width = len_max as u32 + OFFSET;
+
+    let mut plot: Vec<Vec<Cow<'static, str>>> = Vec::new();
+    for i in 0..=rows {
+        if (i as usize).is_multiple_of(ROWS_BETWEEN_CHECKS)
+            && i > 0
+            && let Some(e) = check()
+        {
+            return Err(e);
+        }
+        plot.push(vec![Cow::Borrowed(" "); width as usize]);
+    }
+    let mut put = |r: i32, c: u32, s: Cow<'static, str>| -> Result<(), Error> {
+        let cell = usize::try_from(r)
+            .ok()
+            .and_then(|r| plot.get_mut(r))
+            .and_then(|line| line.get_mut(c as usize))
+            .ok_or_else(too_wide)?;
+        *cell = s;
+        Ok(())
+    };
+
+    let mut precision: i32 = 2;
+    let log_maximum = if min == 0f64 && max == 0f64 {
+        -1f64
+    } else {
+        f64::max(max.abs(), min.abs()).log10()
+    };
+    if log_maximum < 0f64 {
+        let digits = if log_maximum % 1f64 != 0f64 {
+            log_maximum.abs()
+        } else {
+            log_maximum.abs() - 1f64
+        };
+        #[expect(clippy::cast_possible_truncation, reason = "the crate's `as` cast")]
+        let digits = digits as i32;
+        precision += digits;
+    } else if log_maximum > 2f64 {
+        precision = 0;
+    }
+    #[expect(clippy::cast_sign_loss, reason = "never negative, as in the crate")]
+    let prec = precision as usize;
+    let max_label_width = usize::max(format!("{max:.prec$}").len(), format!("{min:.prec$}").len());
+    let mut y = int_min2;
+    loop {
+        if y > int_max2 {
+            break;
+        }
+        let magnitude = if rows > 0 {
+            max - f64::from(y.wrapping_sub(int_min2)) * interval / f64::from(rows)
+        } else {
+            f64::from(y)
+        };
+        let label = format!("{magnitude:lw$.prec$}", lw = max_label_width + 1);
+        let w = y.wrapping_sub(int_min2);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the crate's `as` cast, clamped at zero as there"
+        )]
+        let h = f64::max(f64::from(OFFSET) - label.len() as f64, 0f64) as u32;
+        put(w, h, Cow::Owned(label))?;
+        put(w, OFFSET - 1, Cow::Borrowed("┤"))?;
+        if y == int_max2 {
+            break;
+        }
+        y += 1;
+    }
+
+    #[expect(clippy::cast_possible_truncation, reason = "the crate's `as` casts")]
+    let at = |v: f64, base: f64| ((v * ratio).round() - base) as i32;
+    if !series[0].is_nan() {
+        let y0 = at(series[0], min2);
+        put(rows.wrapping_sub(y0), OFFSET - 1, Cow::Borrowed("┼"))?;
+    }
+    let base = f64::from(int_min2);
+    for x in 0..series.len() - 1 {
+        let col = x as u32 + OFFSET;
+        let (a, b) = (series[x], series[x + 1]);
+        if a.is_nan() && b.is_nan() {
+            continue;
+        }
+        if b.is_nan() && !a.is_nan() {
+            put(rows.wrapping_sub(at(a, base)), col, Cow::Borrowed("─"))?;
+            continue;
+        }
+        if a.is_nan() && !b.is_nan() {
+            put(rows.wrapping_sub(at(b, base)), col, Cow::Borrowed("─"))?;
+            continue;
+        }
+        let y0 = at(a, base);
+        let y1 = at(b, base);
+        if y0 == y1 {
+            put(rows.wrapping_sub(y0), col, Cow::Borrowed("─"))?;
+        } else {
+            if y0 > y1 {
+                put(rows.wrapping_sub(y1), col, Cow::Borrowed("╰"))?;
+                put(rows.wrapping_sub(y0), col, Cow::Borrowed("╮"))?;
+            } else {
+                put(rows.wrapping_sub(y1), col, Cow::Borrowed("╭"))?;
+                put(rows.wrapping_sub(y0), col, Cow::Borrowed("╯"))?;
+            }
+            #[expect(clippy::cast_possible_truncation, reason = "the crate's `as` casts")]
+            let (start, end) = (
+                (f64::min(f64::from(y0), f64::from(y1)) as i32).wrapping_add(1),
+                f64::max(f64::from(y0), f64::from(y1)) as i32,
+            );
+            for y in start..end {
+                put(rows.wrapping_sub(y), col, Cow::Borrowed("│"))?;
+            }
+        }
+    }
+
+    let mut res = plot
+        .into_iter()
+        .map(|line| line.concat())
+        .collect::<Vec<String>>()
+        .join("\n");
+    res.pop();
+    Ok(res)
 }
 
 pub fn register(r: &mut Registry, opts: &HostOptions) {
@@ -3833,6 +4040,80 @@ mod tests {
         let mut i = interp(HostOptions::default());
         let e = run(&mut i, &src).expect_err("refused, not fatal");
         assert!(e.contains("nesting deeper than"), "{e}");
+    }
+
+    /// **The port draws what the crate draws, and refuses where it crashes**
+    /// (F104). Six thousand series — short and long, ranges from 1e-12 to a
+    /// few thousand, negatives, NaNs, infinities, repeats — each drawn by
+    /// `rasciigraph::plot` under `catch_unwind` and by [`ascii_plot`]: where
+    /// the crate answers, the text is identical; where it panics, the port
+    /// refuses. Ranges stay small enough for the crate's own grid to fit.
+    #[test]
+    fn ascii_plot_draws_what_rasciigraph_draws() {
+        let mut state = 0x2026_1026_u64;
+        let mut next = move || {
+            state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        };
+        let (mut drawn, mut refused) = (0, 0);
+        for case in 0..6000 {
+            let len = (next() % 12) as usize;
+            let scale = [1e-12, 1e-6, 0.01, 0.5, 1.0, 7.0, 100.0, 2500.0][(next() % 8) as usize];
+            let series: Vec<f64> = (0..len)
+                .map(|_| match next() % 20 {
+                    0 => f64::NAN,
+                    1 if case % 7 == 0 => f64::INFINITY,
+                    2 => 0.0,
+                    _ => ((next() % 2001) as f64 - 1000.0) / 1000.0 * scale,
+                })
+                .collect();
+            let loud = std::panic::take_hook();
+            std::panic::set_hook(Box::new(|_| {}));
+            let crate_says = std::panic::catch_unwind(|| {
+                rasciigraph::plot(series.clone(), rasciigraph::Config::default())
+            });
+            std::panic::set_hook(loud);
+            let port_says = ascii_plot(&series, "IO.GRAPH", || None);
+            match crate_says {
+                Ok(text) => {
+                    assert_eq!(port_says.as_deref(), Ok(text.as_str()), "{series:?}");
+                    drawn += 1;
+                }
+                Err(_) => {
+                    assert!(port_says.is_err(), "{series:?}: the crate panics");
+                    refused += 1;
+                }
+            }
+        }
+        assert!(
+            drawn > 5000 && refused > 0,
+            "{drawn} drawn, {refused} refused"
+        );
+        for (series, why) in [
+            (vec![], "an empty list has nothing to draw"),
+            (vec![1e300, -1e300], "too wide for the chart's rows"),
+        ] {
+            let e = ascii_plot(&series, "IO.GRAPH", || None).expect_err("refused");
+            assert_eq!(
+                e.0.strip_prefix("IO.GRAPH: ").map(|m| m.contains(why)),
+                Some(true),
+                "{e:?}"
+            );
+        }
+        assert!(ascii_plot(&[f64::NAN, f64::NAN], "IO.GRAPH", || None).is_ok());
+        // A billion rows: the guard is asked while the grid grows, and its
+        // trip ends the word rather than the process. Here it trips at once.
+        let mut asked = 0;
+        let e = ascii_plot(&[0.0, 1.0e9], "IO.GRAPH", || {
+            asked += 1;
+            Some(Error("the OOM guard tripped".into()))
+        })
+        .expect_err("stopped by the guard");
+        assert_eq!(e.0, "the OOM guard tripped");
+        assert_eq!(asked, 1, "asked once, at the first chunk of rows");
     }
 
     #[test]

@@ -28,6 +28,9 @@ default = []
 # bund2-async depends on bund2-runtime, so it must NOT appear here.
 relocation-test = ["dep:bund2-jit", "bund2-jit/relocation-test"]
 jit = ["dep:bund2-jit", "bund2-jit/jit"]
+# One word that panics, `test.panic`, for `crates/bund2-cli/tests/panic_tier.rs`
+# (RFC-0005 criterion 29) and nothing else: no shipped build enables it (D220).
+panic-probe = []
 
 [lints]
 workspace = true

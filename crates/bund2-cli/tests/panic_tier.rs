@@ -8,11 +8,12 @@
 //! see a stream: a panic that reached the default hook would print there and
 //! the test would still pass (the twenty-third review's S10).
 //!
-//! The panic is a real one, F104's: `io.graph` panics inside `rasciigraph` on
-//! an empty list, so no test native is needed and the shipped binary is what
-//! runs. (It was F95's until `string.distance.jarowinkler` became a refusal,
-//! 2026-10-26.) Both configurations are one binary, chosen by
+//! The panic is `test.panic`'s, a word the `panic-probe` feature compiles in
+//! and no shipped build has (D220): this file runs only with the feature.
+//! It was a dependency's real panic — F95's, then F104's — until both became
+//! refusals on 2026-10-26 and no shipped native panicked any more. Both configurations are one binary, chosen by
 //! `--jit-threshold`, as in `exit_tier.rs`.
+#![cfg(feature = "panic-probe")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::process::Command;
@@ -32,7 +33,7 @@ fn program(pads: usize, tail: &str) -> String {
         ":drop :go alias\n\
          :w {{ {pad}\"tick\" println 1 2 + drop list go {tail} }} register\n\
          w w\n\
-         :io.graph :go alias\n\
+         :test.panic :go alias\n\
          w \"unreached\" println\n"
     )
 }
@@ -77,7 +78,7 @@ fn a_panicking_native_under_a_compiled_body_matches_without_the_tier() {
 
         // What Tier 0 does, stated once so the comparison below has a subject.
         assert!(
-            plain_out.contains("internal error: native `io.graph` panicked"),
+            plain_out.contains("internal error: native `test.panic` panicked"),
             "{label}: reported through the reporter, naming the native: {plain_out}"
         );
         // By whole line: the report quotes the source line that failed.

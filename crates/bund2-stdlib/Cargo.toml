@@ -10,6 +10,10 @@ publish                = false
 
 [dev-dependencies]
 bund2-interp.workspace = true
+# `io.graph` draws with a port of rasciigraph's `plot` that refuses where the
+# crate panics (F104); the crate stays as the reference the port is tested
+# against, at the version the reference links.
+rasciigraph = "=0.2.0"
 
 [dependencies]
 # `compile` is the oracle's own dump mode: it parses a string and pushes the
@@ -135,7 +139,7 @@ termimad = "0.31"
 # The host words' crates, pinned to the versions the oracle's lock resolves
 # (D38): `args.parse` splits with argmap, `fs.ls` walks with scan_dir, `fs.rm`
 # removes with fs_extra, `sleep.seconds` waits with spin_sleep,
-# `system.setproctitle` calls proctitle, `io.graph` draws with rasciigraph, and
+# `system.setproctitle` calls proctitle, and
 # `filename` absolutizes with path-absolutize -- lexically, so it answers for a
 # path that does not exist and resolves no symlink.
 # All are pure Rust; proctitle binds libc and compiles no C.
@@ -144,7 +148,6 @@ scan_dir = "=0.3.3"
 fs_extra = "=1.3.0"
 spin_sleep = "=1.3.3"
 proctitle = "=0.1.1"
-rasciigraph = "=0.2.0"
 path-absolutize = "=3.1.1"
 # `system.path.*` splits with unix_path rather than std::path, as the
 # reference does: it makes a component split mean the same thing on every host

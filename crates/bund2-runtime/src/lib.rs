@@ -209,6 +209,13 @@ impl Runtime {
         #[cfg_attr(not(feature = "jit"), allow(unused_mut))]
         let mut startup_defect = None;
         bund2_stdlib::register_all_with(&mut interp.registry, opts);
+        #[cfg(feature = "panic-probe")]
+        interp.registry.register_native(
+            "test.panic",
+            panic_probe,
+            bund2_api::StackEffect::opaque(0),
+            bund2_api::WordKind::Sync,
+        );
         // RFC-0008 §W2: the interpreter has no parser, so the line a console
         // is handed at a stop is run by the vocabulary's own `bund.eval`.
         interp.evaluator = Some(bund2_stdlib::eval_line);
@@ -388,6 +395,24 @@ impl Runtime {
     pub fn install_tier(&mut self, tier: Box<dyn bund2_api::Tier>) {
         self.interp.install_tier(std::rc::Rc::from(tier));
     }
+}
+
+/// `test.panic` — **D220's one exception to D37**, compiled only under the
+/// `panic-probe` feature, which no shipped build enables.
+///
+/// RFC-0005 criterion 29 asks that a native panicking under a compiled body
+/// be reported as Tier 0 reports it, with nothing on stderr and no abort, and
+/// only a process can see its streams (`crates/bund2-cli/tests/panic_tier.rs`).
+/// That test used a dependency's real panic — F95's, then F104's — until both
+/// became refusals (2026-10-26), leaving no shipped native that panics. This
+/// word is the panic the test needs; D49's guard is what it tests.
+#[cfg(feature = "panic-probe")]
+#[expect(
+    clippy::panic,
+    reason = "D220: the test-only panic criterion 29 exercises; never in a shipped build"
+)]
+fn panic_probe(_: &mut dyn bund2_api::Vm) -> Result<(), bund2_api::Error> {
+    panic!("test.panic: the panic-probe feature's deliberate panic (D220)");
 }
 
 #[cfg(test)]

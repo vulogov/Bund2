@@ -3669,6 +3669,45 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D220 — `test.panic`, a test-only word that panics, behind the `panic-probe` feature
+
+**Raised 2026-10-26** by the owner's "verify input for `io.graph` and refuse
+rather than crash". With F104 a refusal, as F95 had become one earlier the
+same day, no shipped native panics on purpose any more, and
+`crates/bund2-cli/tests/panic_tier.rs` — RFC-0005 criterion 29 at process
+level: a native that panics under a compiled body is reported as Tier 0
+reports it, nothing on stderr, no abort — had nothing to make panic. The
+in-process tests in `bund2-jit` (`lower.rs`) use a test native, but a
+process's streams can be seen only from outside it (the twenty-third
+review's S10).
+
+- Blocks: nothing
+- Depends on: D37 (Bund2 does not panic), D49 (a native's panic becomes a
+  reported internal error), F95, F104
+- Options:
+  - **A.** A cargo feature, `panic-probe`, that registers one word which
+    panics, compiled only for this test; CI runs the test with it.
+  - **B.** Drop the process-level test; keep the in-process ones.
+  - **C.** Leave `io.graph`'s empty-list panic in place for the test.
+- Recommended: A.
+- Status: **RESOLVED — A**, by the repository owner, 2026-10-26 ("Test-only
+  feature"). **D37's one exception:** `panic_probe`
+  (`crates/bund2-runtime/src/lib.rs`) calls `panic!` under
+  `#[expect(clippy::panic)]`, and exists only when `panic-probe` is enabled.
+  No shipped build enables it: the CLI's default and `jit` builds, a bundle's
+  runtime and `cargo xtask conform` do not, so `bund2 words`, coverage and
+  conformance never see the word.
+
+### Built, the same day
+
+`panic-probe` in `bund2-runtime` (the word, registered in `Runtime::build`
+after the vocabulary, where the CLI's registry is made and no stdlib test
+walks it) and in `bund2-cli` (forwarding). `panic_tier.rs` is
+`#![cfg(feature = "panic-probe")]` and aliases `test.panic` where it aliased
+`io.graph`. CI runs it on its own, `-p bund2-cli --features jit,panic-probe
+--test panic_tier`, in `ci.yml`'s tier job and in `linux-reading.yml`, and
+lints the feature's code with clippy; the workspace suites run without it.
+
 ## D219 — a parse error from `bund.compile` or `bund.eval`: the reference's prefix, Bund2's reason
 
 **Raised 2026-10-26** by D218's triage, which left it open: a string that

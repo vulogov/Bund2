@@ -56,12 +56,18 @@ jobs:
           cargo check --workspace --features relocation-test
           cargo check --workspace --features jit
           cargo check --workspace --features async
+          cargo clippy -p bund2-runtime -p bund2-cli --all-targets --features panic-probe,jit
       # RFC-0005's criteria are mostly held by tests behind `jit`, and until
       # this step every one of them was held by a command someone ran by hand
       # (the twenty-third review's S11). `relocation-test` gates criterion 4's
       # module, which `--features jit` alone does not build.
       - name: the tier's own tests
         run: cargo nextest run --workspace --features jit,relocation-test --profile ci
+      # Criterion 29 at process level: a native that panics under a compiled
+      # body. No shipped native panics, so the word is the test-only
+      # `test.panic`, compiled in by `panic-probe` for this one file (D220).
+      - name: a panic under the tier, reported
+        run: cargo nextest run -p bund2-cli --features jit,panic-probe --test panic_tier --profile ci
       # RFC-0005 criterion 15, asserted "so a later change cannot invert it
       # quietly": the mandatory vocabulary must not reach the optional tier or
       # the code generator, by any feature.
