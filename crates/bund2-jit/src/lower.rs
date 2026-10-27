@@ -1888,6 +1888,11 @@ pub struct Compiler {
     /// `&self`, which it must: a body entered beneath a compiled body runs
     /// through the same compiler (D145).
     floor_declines: std::cell::Cell<usize>,
+    /// **Machine-code bytes emitted, over the compiler's life** — D221 (Q27).
+    /// Code memory is never reclaimed (§S4, the research's §3.2a), so this is
+    /// what the function cap is a cap on; `--stats` reports it, and bytes a
+    /// function is how the cap would be stated in bytes.
+    code_bytes: usize,
     /// **The fragment table — `(registration id, Fragment)` pairs** §S6 has
     /// `bund2-stdlib` publish and this crate read.
     ///
@@ -2059,6 +2064,7 @@ impl Compiler {
             },
             words: Vec::new(),
             floor_declines: std::cell::Cell::new(0),
+            code_bytes: 0,
             table,
             crossable,
         })
@@ -2255,6 +2261,7 @@ impl Compiler {
             Adapter::Apply,
             cells,
         )?;
+        self.code_bytes += laid.code_bytes;
         let (entry, slots, resumes, syncs) = finish_jit(&mut self.emitter.module, laid)?;
         // The constants the emitted code baked, paired with the body positions
         // they came from. `Compiler::run` compares them against the body it is
@@ -2547,6 +2554,12 @@ impl Compiler {
     /// How many words this compiler has emitted.
     pub fn compiled_words(&self) -> usize {
         self.words.len()
+    }
+
+    /// **Machine-code bytes emitted for those words**, thunks and entries
+    /// included — D221.
+    pub fn code_bytes(&self) -> usize {
+        self.code_bytes
     }
 
     /// **How many of a word's values were inlined** — §S6's join, as a number a
@@ -2882,6 +2895,9 @@ struct Laid {
     slots: Box<[*const u8]>,
     resume_table: Vec<(usize, usize)>,
     syncs: usize,
+    /// Machine-code bytes of every function this body laid down — its thunks,
+    /// its body and its entry (D221).
+    code_bytes: usize,
 }
 
 /// **Emit one body into an existing module**, returning its entry and the slot
@@ -2903,6 +2919,7 @@ fn emit_into<M: cranelift_module::Module>(
     adapter: Adapter,
     cells: i64,
 ) -> Result<Laid, String> {
+    let mut code_bytes = 0usize;
     // Destructured once, so the body below reads as it did when the module and
     // the cache were separate parameters — and so this function stays inside
     // clippy's argument limit, which bundling them is the honest way to meet.
@@ -3161,6 +3178,7 @@ fn emit_into<M: cranelift_module::Module>(
         module
             .define_function(id, &mut cg)
             .map_err(|e| format!("define thunk {i}: {e}"))?;
+        code_bytes += defined_bytes(&cg);
         module.clear_context(&mut cg);
     }
 
@@ -3784,6 +3802,7 @@ fn emit_into<M: cranelift_module::Module>(
     module
         .define_function(body_id, &mut cg)
         .map_err(|e| format!("define bund2_body_{seq}: {e}"))?;
+    code_bytes += defined_bytes(&cg);
     module.clear_context(&mut cg);
 
     // --- the entry trampoline
@@ -3870,6 +3889,7 @@ fn emit_into<M: cranelift_module::Module>(
     module
         .define_function(entry_id, &mut cg)
         .map_err(|e| format!("define bund2_entry: {e}"))?;
+    code_bytes += defined_bytes(&cg);
     module.clear_context(&mut cg);
 
     Ok(Laid {
@@ -3878,7 +3898,15 @@ fn emit_into<M: cranelift_module::Module>(
         slots,
         resume_table,
         syncs,
+        code_bytes,
     })
+}
+
+/// The machine-code size of the function `cg` was just defined from: the
+/// context keeps the compiled code until `clear_context` (D221).
+fn defined_bytes(cg: &cranelift_codegen::Context) -> usize {
+    cg.compiled_code()
+        .map_or(0, |c| c.code_info().total_size as usize)
 }
 
 /// Finalise what [`emit_into`] laid down, and resolve the addresses.
@@ -3893,6 +3921,8 @@ fn finish_jit(module: &mut JITModule, laid: Laid) -> Result<Emitted, String> {
         mut slots,
         resume_table,
         syncs,
+        // Read by the caller before the body is finished (D221).
+        code_bytes: _,
     } = laid;
 
     module

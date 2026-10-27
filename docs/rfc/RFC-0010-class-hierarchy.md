@@ -18,7 +18,7 @@
 - Decisions consumed: D23 (`!` builds from the class value), D25 (a class must
   carry its own `.class_name`), D72 (Bund2 may carry what the reference does
   not)
-- Decisions produced: **D96**, answering all three questions below
+- Decisions produced: **D96**, answering all three questions below; **D222** (2026-10-27) re-parents `Integer` and `Float` under `Magnitude` ← `Number` — see the amendment at the end
 - Grounded against the pinned submodules and the oracle on 2026-10-05
 
 ## Summary
@@ -395,3 +395,48 @@ The case that matters is the diamond: `D` below `L` and `R`, both below
 through `L`, where C3 linearisation would answer `R`'s. Swapping the parents
 swaps the answer. Whether the language should encourage multiple parents
 stays the owner's question.
+
+## Amendment, 2026-10-27 — `Magnitude` and `Number` (D222)
+
+On the owner's ruling, **D222**: the hierarchy is extended toward
+Smalltalk's, and `Magnitude` ← `Number` is the first cut. It partly
+supersedes D96's "additive only" — it re-parents `Integer` and `Float`, which
+§S2 called the invisible half. **That was wrong**, and this corrects it: §2
+says `Integer` and `Float` are reachable through `object` with a literal
+name, and programs do it — `41 :Integer object` in the reference's own
+`object_execute.bund` and `wrap_unwrap_demo.bund`, and in the probe
+`object-execute-workbench`. An object carries its ancestry, so the insertion
+shows wherever such an object is dumped: `41 :Integer object
+debug.display_stack` names `Magnitude` and `Number` in Bund2 and not in the
+oracle. **No golden moved** — measured, `conform` stays 146/159 — because no
+golden program dumps an integer or float object; those that build one print
+something else. `integers_and_floats_are_numbers_and_magnitudes`
+(`crates/bund2-stdlib/src/oop.rs`) is the record no golden can be.
+
+`Magnitude` and `Number` have no `.init` and no methods yet, so construction
+consumes what it did — `Value`'s `.init` still takes the operand (§3) — and
+dispatch finds what it did, two levels further up. `Bool`, `List` and the
+printing root are as the reference declares them. §1's diagram is the
+reference's and is not edited; this is Bund2's, and
+`the_registry_is_the_hierarchy_rfc_0010_draws` reads it:
+
+### Bund2's hierarchy, as registered
+
+```
+Display                     .super []            format, display
+└── Printable               .super [Display]     str, print, println
+    └── Object              .super [Printable]   .id, .timestamp
+        └── Value           .super [Object]      .init
+            ├── Magnitude   .super [Value]
+            │   └── Number  .super [Magnitude]
+            │       ├── Integer   .super [Number]   .init
+            │       └── Float     .super [Number]   .init
+            ├── Bool        .super [Value]       .init
+            └── List        .super [Value]       .init, push
+                ├── Floats      .super [List]    .init, push
+                └── Intervals   .super [List]    .init, push, overlap
+```
+
+`?is` answers through `.super`, so `41 :Integer object :Number ?is` is true,
+and so is `:Magnitude ?is`.
+

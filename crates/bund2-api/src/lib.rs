@@ -1038,6 +1038,22 @@ pub trait Tier {
         None
     }
 
+    /// **`(bodies refused at the function cap, the cap)`** — D221, Q27's
+    /// answer. Compiled code is never freed, so a tier compiles a bounded
+    /// number of functions over its life; a body that becomes hot after that
+    /// stays interpreted, and without this nothing said so. `None` for a tier
+    /// with no such cap.
+    fn capped_bodies(&self) -> Option<(usize, usize)> {
+        None
+    }
+
+    /// **Machine-code bytes this tier has emitted** — D221. Never freed, so
+    /// this is the memory the function cap bounds. `None` for a tier that
+    /// does not measure it.
+    fn code_bytes(&self) -> Option<usize> {
+        None
+    }
+
     /// **How many entries compiled code actually ran** — not how many bodies
     /// were compiled.
     ///

@@ -3669,6 +3669,128 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D222 — `Magnitude` and `Number`: the class tree extended toward Smalltalk's, `Integer` and `Float` re-parented
+
+**Raised 2026-10-27** by the repository owner: "I would like to polish OOP
+class tree, that will bring Number, Float and Integer into scope. In general,
+I would like to follow Smalltalk class hierarchy example." And on the
+preservation rule: "'Bund syntax and logic are preserved 100%' … doesn't
+mean that I can not extend classes and new words."
+
+- Blocks: nothing
+- Depends on: D96 (RFC-0010: additive only — partly superseded here), D72
+  (Bund2 may add what the reference lacks), RFC-0009, RFC-0010
+- **A correction to D96 and RFC-0010 §S2, first.** Both say inserting
+  `Number` above `Integer` and `Float` would be invisible, because neither
+  class has a constructor word. It is not: `object` builds either from a
+  literal class name (RFC-0010 §2), `41 :Integer object` is in the
+  reference's `object_execute.bund` and `wrap_unwrap_demo.bund` and in the
+  probe `object-execute-workbench`, and an object carries its ancestry.
+- Options, as set out: **1.** pure extension — new classes beside `Integer`
+  and `Float`, membership kept apart from `.super`; **2.** extension plus one
+  re-parenting — `Magnitude` ← `Number` inserted above `Integer` and `Float`;
+  **3.** a parallel Smalltalk tree of new classes.
+- Status: **RESOLVED — 2, with `Magnitude` and `Number` first**, by the
+  repository owner, 2026-10-27.
+
+### What it is
+
+Bund2's `Value` ← `Magnitude` ← `Number` ← {`Integer`, `Float`}, where the
+reference has `Integer` and `Float` directly under `Value`
+(`reference/Bund/src/stdlib/functions/oop/int_class.rs:35-39`,
+`reference/Bund/src/stdlib/functions/oop/float_class.rs:35-39`). `Bool`,
+`List`, `Floats`, `Intervals` and the printing root (`Display` ←
+`Printable` ← `Object`) are the reference's. `Magnitude` and `Number` have
+no `.init` and no methods yet: construction consumes what it did, since
+`Value`'s `.init` takes the operand and the new levels take nothing, and
+dispatch finds every slot it found, two levels further up.
+
+**What a program sees differently:** the ancestry an `Integer` or `Float`
+object carries — `41 :Integer object debug.display_stack` names `Magnitude`
+and `Number` in Bund2 and not in the oracle — and `?is` (D96), which
+answers `true` for `:Number` and `:Magnitude` of either.
+
+### Built, the same day
+
+- `register_wrapped` (`crates/bund2-stdlib/src/oop.rs`) registers the two
+  classes and the new parents.
+- RFC-0010's amendment of 2026-10-27 draws Bund2's hierarchy, and
+  `the_registry_is_the_hierarchy_rfc_0010_draws` now reads that diagram —
+  twelve rows — while §1 keeps the reference's.
+- `integers_and_floats_are_numbers_and_magnitudes` pins the ancestry and
+  `?is` for `Integer`, `Float` and `Bool`.
+- **No golden moved:** `conform` 146/159, CEILING 146/159, measured after
+  the change. No golden program dumps an integer or float object. So this
+  deviation has no golden to accept; the test above is its record, and the
+  fuzzer may report it as a state difference, which this entry approves.
+
+### Next, not done
+
+Methods on `Magnitude` (comparison) and `Number` (arithmetic), and
+constructor words for `Integer` and `Float`, are what make the classes
+useful; each is additive under D72. `Boolean` and `Collection` were
+offered and not taken in this cut.
+
+## D221 — Q27: the tier's caps are set by measurement, not by a REPL-or-batch profile
+
+**Raised 2026-10-27** by the owner's request for options on Q27, the JIT
+study's open question 7 (`docs/research/00-jit-feasibility.md`): which profile
+Bund2 optimises for, since code memory is never freed (§3.2a) and that "bites
+hard" on a REPL and "barely at all" on a batch run.
+
+- Blocks: nothing
+- Depends on: D74 (the threshold, 1024, from measured break-even), D140 (the
+  function cap counts functions emitted), RFC-0005 §S7, §S4
+- What is there: `Caps::default()` (`crates/bund2-jit/src/cache.rs`) —
+  threshold 1024, functions 1024 over the tier's life, counter 4096. Only a
+  `jit` build has a tier. The threshold is profile-independent by D74's
+  measurement; the function cap was reached by nothing measured — `conform`
+  at threshold 1 compiles 9 bodies in 7 programs.
+- Options: **A.** close Q27 — the caps are set by measurement — and add two
+  instruments, `--stats` reporting the cap's being reached and a measurement
+  of code bytes a body; **B.** REPL-first, a per-word recompile cap; **C.**
+  batch-first, a much larger cap for `script`; **D.** per-mode caps with an
+  override.
+- Recommended: A.
+- Status: **RESOLVED — A**, by the repository owner, 2026-10-27.
+
+### Built, the same day
+
+- **Bytes counted.** `Compiler::code_bytes` (`crates/bund2-jit/src/lower.rs`)
+  sums Cranelift's `code_info().total_size` for every function a body lays
+  down — thunks, body, entry — read in `emit_into` before `clear_context`.
+- **The cap's being reached counted.** `Tiering::capped_count`
+  (`cache.rs`): a body reaching the threshold with the cap spent, once a body
+  ("at least": a body evicted from the counter and counted up again is
+  counted again).
+- **Reported.** `Tier::code_bytes` and `Tier::capped_bodies` (`bund2-api`,
+  defaulted `None`), `Runtime::code_bytes` and `Runtime::capped_bodies`, and
+  under `--stats` a line of its own:
+  `bund2: tier code: <bytes> bytes in <n> bodies (<k> a body), cap 1024 bodies`,
+  with `; the cap was reached, and <m> bodies that became hot after it stayed
+  interpreted` when it was. `conform`'s `TierTotal::take` (so the fuzzer) and
+  `panic_tier.rs` drop it as they drop the floors line: it is the run's, not
+  the program's. Pinned by `the_function_cap_leaves_the_body_past_it_interpreted`
+  and the tier-isolation test in `crates/bund2-runtime/src/tier.rs`.
+
+### Measured, macOS arm64, release, `--jit-threshold 1`
+
+- **The corpus:** 7 of 147 programs compile a body, 9 bodies, 6,456 bytes —
+  **717 bytes a body**, from 416 (`probes/resolve-do-json`) to 1,068
+  (`probes/stack-loops`).
+- **By length**, a body of `n` repetitions of `1 2 + drop` (two promoted
+  literals, two inlined sites): 1 → 940 bytes, 4 → 2,956, 16 → 11,300,
+  64 → 44,848, 256 → 178,480, 1024 → 717,100. **About 700 bytes a
+  repetition**, linear. A body of generic calls (`1 println`) is declined and
+  emits none.
+
+**What that says about the cap, not acted on.** It counts bodies, and bodies
+differ by three orders of magnitude in size: 1024 bodies of the corpus's
+kind hold under a megabyte, 1024 of the largest measured here about 700 MB,
+never freed. A byte budget would bound what a count does not. Nothing has
+come near either; the instruments above are what would show it, and that is
+when to decide (B or D, or a byte cap).
+
 ## D220 — `test.panic`, a test-only word that panics, behind the `panic-probe` feature
 
 **Raised 2026-10-26** by the owner's "verify input for `io.graph` and refuse
@@ -9850,6 +9972,10 @@ passes it.
 CLAUDE.md's terminology line now reads as proposed above. Its two other
 mentions, "an optional Cranelift JIT and AOT compiler" and "the JIT and AOT
 milestones", stand as they were.
+
+**Note, 2026-10-27.** The owner's "Q42: B": the two mentions now read "an
+optional Cranelift JIT; an AOT compiler was planned and withdrawn, D83" and
+"the JIT milestone must move it by exactly zero". The word stays, as history.
 
 ## D133 — one reader of HTTP on every system; where the reference's libcurls disagree, Bund2 is 8.7.1's
 

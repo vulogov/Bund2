@@ -1015,6 +1015,9 @@ impl TierTotal {
     pub(crate) fn take(&mut self, output: &mut String) {
         const MARK: &str = "bund2: tier compiled ";
         const FLOORS: &str = "bund2: floors: ";
+        // D221's line: the tier's code size and its cap, the run's like the
+        // floors and no program's.
+        const CODE: &str = "bund2: tier code: ";
         // **By line, rejoined as `normalise` joins them** — with `\n` between
         // and none after the last. Rebuilding with a newline after every line
         // made all 145 goldens differ by one trailing byte.
@@ -1024,7 +1027,7 @@ impl TierTotal {
             // floors. It is the binary's and the run's, not the program's —
             // its addresses differ from run to run — and no golden holds one.
             // It always starts a line: the line above it ends in a newline.
-            if line.starts_with(FLOORS) {
+            if line.starts_with(FLOORS) || line.starts_with(CODE) {
                 continue;
             }
             // **Found anywhere in the line, not only at its start.** A

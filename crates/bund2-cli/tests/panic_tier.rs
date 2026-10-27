@@ -50,7 +50,9 @@ fn run_at(script: &std::path::Path, threshold: &str) -> (String, String, Option<
     let is_stats = |l: &&str| l.contains("tier compiled") || l.contains("no tier");
     // `--stats` prints a second line, the two stack floors, whose addresses
     // differ from run to run (D147). It is no part of what is compared.
-    let is_floors = |l: &&str| l.starts_with("bund2: floors:");
+    // Nor the tier's code size (D221), which only the tiered run has.
+    let is_floors =
+        |l: &&str| l.starts_with("bund2: floors:") || l.starts_with("bund2: tier code:");
     let stats = stderr
         .lines()
         .find(is_stats)

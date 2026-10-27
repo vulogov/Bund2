@@ -1083,14 +1083,28 @@ fn register_wrapped(r: &mut Registry) {
     // **`List` is deliberately not here.** It is the same shape plus a `push`
     // slot and a `.list_init` that is not a conversion (`list_class.rs:58-69`),
     // so it is a different job rather than a fourth row.
-    for (name, init) in [
-        ("Integer", ".int_init"),
-        ("Bool", ".bool_init"),
-        ("Float", ".float_init"),
+    //
+    // **D222: `Integer` and `Float` are numbers.** Smalltalk's `Magnitude` ←
+    // `Number` is inserted between them and `Value`, the owner's ruling, so
+    // their parent is `Number` where the reference's is `Value`
+    // (`int_class.rs:37`, `float_class.rs:35`). Neither new class has an
+    // `.init` or a method yet, so construction consumes what it did and
+    // dispatch finds what it did, two levels further up; the ancestry an
+    // object carries is what changes. `Bool` stays under `Value`.
+    for (name, parent) in [("Magnitude", "Value"), ("Number", "Magnitude")] {
+        let c = BundValue::class(Default::default())
+            .set(".class_name", BundValue::str(name))
+            .set(".super", BundValue::list(vec![BundValue::str(parent)]));
+        r.register_class(name, c);
+    }
+    for (name, parent, init) in [
+        ("Integer", "Number", ".int_init"),
+        ("Bool", "Value", ".bool_init"),
+        ("Float", "Number", ".float_init"),
     ] {
         let c = BundValue::class(Default::default())
             .set(".class_name", BundValue::str(name))
-            .set(".super", BundValue::list(vec![BundValue::str("Value")]))
+            .set(".super", BundValue::list(vec![BundValue::str(parent)]))
             .set(".init", BundValue::ptr(init));
         r.register_class(name, c);
     }
@@ -1709,17 +1723,25 @@ mod tests {
     /// slots — every key but `.class_name` and `.super` — are the ones written.
     /// Then the other direction: the registry holds no class the diagram
     /// leaves out.
+    ///
+    /// **The diagram read is Bund2's, since D222** — its amendment of
+    /// 2026-10-27, where `Magnitude` and `Number` stand above `Integer` and
+    /// `Float`. §1's diagram is the reference's hierarchy and stays as it was.
     #[test]
     fn the_registry_is_the_hierarchy_rfc_0010_draws() {
         const RFC: &str = include_str!("../../../docs/rfc/RFC-0010-class-hierarchy.md");
         let diagram: Vec<&str> = RFC
             .lines()
-            .skip_while(|l| !l.starts_with("### 1. The hierarchy, as registered"))
+            .skip_while(|l| !l.starts_with("### Bund2's hierarchy, as registered"))
             .skip_while(|l| !l.starts_with("```"))
             .skip(1)
             .take_while(|l| !l.starts_with("```"))
             .collect();
-        assert_eq!(diagram.len(), 10, "the diagram has ten rows: {diagram:#?}");
+        assert_eq!(
+            diagram.len(),
+            12,
+            "the diagram has twelve rows: {diagram:#?}"
+        );
 
         let mut i = Interp::new();
         crate::register_all(&mut i.registry);
@@ -1737,7 +1759,12 @@ mod tests {
                 .filter(|p| !p.is_empty())
                 .map(str::to_string)
                 .collect();
-            let mut slots: Vec<String> = slots.split(',').map(|s| s.trim().to_string()).collect();
+            // A class with no slot of its own has an empty column.
+            let mut slots: Vec<String> = slots
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
             slots.sort();
 
             let class = i
@@ -1774,6 +1801,40 @@ mod tests {
             drawn,
             "a class the diagram leaves out"
         );
+    }
+
+    /// **D222: an `Integer` or a `Float` is a `Number` and a `Magnitude`.**
+    /// Its materialised ancestry names both — what an object dump shows, and
+    /// where Bund2 now differs from the oracle on purpose; no golden holds an
+    /// integer object's ancestry, so this test is its record — and `?is`
+    /// answers through it. A `Bool` is neither.
+    #[test]
+    fn integers_and_floats_are_numbers_and_magnitudes() {
+        for (src, number) in [
+            ("41 :Integer object", true),
+            ("4.5 :Float object", true),
+            ("true :Bool object", false),
+        ] {
+            let mut i = run_src(src).expect(src);
+            let dump = i.peek().expect("the object").render(true);
+            for class in ["Magnitude", "Number"] {
+                assert_eq!(
+                    dump.contains(&format!("String(\"{class}\")")),
+                    number,
+                    "{src}: {class} in its ancestry"
+                );
+            }
+            let _ = i.pull();
+            for class in ["Number", "Magnitude"] {
+                let asked = format!("{src} :{class} ?is");
+                let out = run_src(&asked).expect(&asked);
+                let answer = out.peek().expect("an answer").render(true);
+                assert!(
+                    answer.contains(&format!("Bool({number})")),
+                    "{asked}: {answer}"
+                );
+            }
+        }
     }
 
     #[test]

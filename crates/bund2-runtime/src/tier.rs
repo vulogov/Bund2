@@ -183,6 +183,17 @@ impl Tier for JitTier {
         Some(self.with_compiler(Compiler::crossable_total))
     }
 
+    fn code_bytes(&self) -> Option<usize> {
+        Some(self.with_compiler(Compiler::code_bytes))
+    }
+
+    fn capped_bodies(&self) -> Option<(usize, usize)> {
+        self.tiering
+            .try_borrow()
+            .ok()
+            .map(|t| (t.capped_count(), t.caps().functions))
+    }
+
     fn compiled_entries(&self) -> Option<usize> {
         Some(self.entered.get())
     }
@@ -3473,6 +3484,13 @@ mod tests {
 
         assert!(first.compiled_words() >= 1, "the first tier compiled it");
         assert_eq!(second.compiled_words(), 0, "the second compiled nothing");
+        // D221: the bytes it emitted are counted, per tier, and only there.
+        assert!(
+            first.code_bytes().is_some_and(|b| b > 0),
+            "the first tier's code has a size"
+        );
+        assert_eq!(second.code_bytes(), Some(0), "the second emitted none");
+        assert_eq!(first.capped_bodies(), Some((0, Caps::default().functions)));
         assert!(
             second
                 .tiering()

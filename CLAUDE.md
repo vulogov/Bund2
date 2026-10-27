@@ -2,8 +2,8 @@
 
 Re-implementation of the Bund concatenative language: multi-stack, dynamically
 typed, metaprogramming, with a tiered execution model (BundIR interpreter, plus
-an optional Cranelift JIT and AOT compiler). Bund syntax and logic are
-preserved 100%.
+an optional Cranelift JIT; an AOT compiler was planned and withdrawn, D83).
+Bund syntax and logic are preserved 100%.
 
 Bund2 is not a refactor of Bund. It is a reimplementation against an oracle:
 `reference/` holds the existing implementation, pinned, and `tests/golden/`
@@ -138,8 +138,8 @@ Two numbers. Neither substitutes for the other, and a report that quotes one
 alone is misleading.
 
 `cargo xtask conform` prints N/M over the goldens. That is the regression
-number, and the JIT and AOT milestones must move it by exactly zero: they
-change speed, not meaning, so any movement is a bug. Never add words to that
+number, and the JIT milestone must move it by exactly zero: it
+changes speed, not meaning, so any movement is a bug. Never add words to that
 denominator — implementing a word would move the number and destroy the
 invariant that makes it worth having.
 

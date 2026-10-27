@@ -377,6 +377,18 @@ impl Runtime {
         self.interp.tier().and_then(|t| t.crossed_calls())
     }
 
+    /// **`(bodies refused at the function cap, the cap)`** — D221. See
+    /// [`bund2_api::Tier::capped_bodies`].
+    pub fn capped_bodies(&self) -> Option<(usize, usize)> {
+        self.interp.tier().and_then(|t| t.capped_bodies())
+    }
+
+    /// **Machine-code bytes the tier has emitted** — D221. See
+    /// [`bund2_api::Tier::code_bytes`].
+    pub fn code_bytes(&self) -> Option<usize> {
+        self.interp.tier().and_then(|t| t.code_bytes())
+    }
+
     /// **How many entries compiled code actually ran** — see
     /// `bund2_api::Tier::compiled_entries`. The only figure here that reports
     /// what *ran* rather than what the compiler did.

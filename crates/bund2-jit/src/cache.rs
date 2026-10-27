@@ -203,6 +203,12 @@ pub struct Tiering {
     /// **Functions emitted for this tier, ever** — D140. Counted where code is
     /// filed and never lowered, because the module never gives the code back.
     emitted: usize,
+    /// **Bodies that reached the threshold with the function cap already
+    /// spent** — D221 (Q27): the figure `--stats` reports so that a session
+    /// that hits the cap can see it did. Counted once a body, on the
+    /// observation that reaches the threshold; a body evicted from the counter
+    /// and counted up again is counted again, so it is "at least".
+    capped: usize,
     /// Bodies demoted, for as long as this set keeps them: it is bounded by
     /// [`Caps::counter`] and evicts at the bound (D140), and `Interp` goes on
     /// remembering what the tier told it (D146). Holds a `Weak` for the same reason the other
@@ -224,6 +230,7 @@ impl Tiering {
             counter: AddrMap::default(),
             cache: AddrMap::default(),
             emitted: 0,
+            capped: 0,
             demoted: AddrMap::default(),
         }
     }
@@ -314,6 +321,9 @@ impl Tiering {
         if seen < self.caps.threshold {
             Decision::Interpret
         } else if self.emitted >= self.caps.functions {
+            if seen == self.caps.threshold {
+                self.capped += 1;
+            }
             // **The function cap refuses rather than evicting.** Code memory is
             // never reclaimed (§S4), so evicting an entry would orphan its
             // function and buy nothing; past the cap a body stays interpreted.
@@ -419,6 +429,12 @@ impl Tiering {
     /// [`Caps::functions`] is tested against. It never falls.
     pub fn emitted_count(&self) -> usize {
         self.emitted
+    }
+
+    /// **How many bodies became hot after the function cap was spent**, and
+    /// so stayed interpreted — D221. Zero until the cap is reached.
+    pub fn capped_count(&self) -> usize {
+        self.capped
     }
 
     /// Whether `body` has been demoted permanently.
@@ -650,6 +666,13 @@ mod tests {
             let _ = t.observe(fifth);
         }
         assert_eq!(t.observe(fifth), Decision::Interpret, "past the cap");
+        // D221: counted once, on reaching the threshold, however often it is
+        // observed after.
+        assert_eq!(t.capped_count(), 1, "the fifth is counted as capped");
+        let _ = t.observe(fifth);
+        assert_eq!(t.capped_count(), 1, "and only once");
+        let sixth = &held[0];
+        assert!(t.compiled(sixth).is_some(), "a compiled body is not capped");
     }
 
     /// **D140: the function cap counts functions emitted, not bodies held.**

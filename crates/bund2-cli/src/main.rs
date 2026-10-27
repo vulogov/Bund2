@@ -1785,6 +1785,31 @@ fn print_stats(rt: &bund2_runtime::Runtime, declined: Option<&str>) {
             None => bund2_api::errln!("bund2: no tier (built without `jit`)"),
         },
     }
+    // **What the tier's code costs, and whether its cap was reached** — D221,
+    // Q27's answer. Compiled code is never freed, so the cap on compiled
+    // bodies is the only bound on it; this says how much it holds, bytes a
+    // body, and — only when it happened — how many hot bodies the cap left
+    // interpreted. A line of its own, so the line above, which `conform` and
+    // the fuzzer read, keeps its shape; both drop this one as they drop the
+    // floors line.
+    if let (Some(bytes), Some((capped, cap)), Some(bodies)) =
+        (rt.code_bytes(), rt.capped_bodies(), rt.compiled_bodies())
+    {
+        let each = match bytes.checked_div(bodies) {
+            Some(n) => format!(" ({n} a body)"),
+            None => String::new(),
+        };
+        let past = if capped > 0 {
+            format!(
+                "; the cap was reached, and {capped} bodies that became hot after it stayed interpreted"
+            )
+        } else {
+            String::new()
+        };
+        bund2_api::errln!(
+            "bund2: tier code: {bytes} bytes in {bodies} bodies{each}, cap {cap} bodies{past}"
+        );
+    }
     // **§S8's floors, and what the upper one has done** — RFC-0005
     // criterion 11 as D147 leaves it. A line of its own, because the
     // addresses differ from run to run and the line above is compared
