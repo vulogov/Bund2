@@ -538,8 +538,21 @@ mod tests {
             }
         }
         assert!(answered >= 20, "{answered} of 40 answered");
-        let out = run("[ 5.0 ] forecast.markov").expect("runs");
-        assert_eq!(float(out.last()), Some(5.0));
+        // One value: every answer is that value, and the chain may still
+        // generate nothing — measured 2026-10-27, Bund2 refused 16 runs in
+        // 200 and the oracle 4 in 100. Asserting it always answers made this
+        // test fail one CI run in a dozen or so.
+        let mut answered = 0;
+        for _ in 0..40 {
+            match run("[ 5.0 ] forecast.markov") {
+                Ok(out) => {
+                    assert_eq!(float(out.last()), Some(5.0));
+                    answered += 1;
+                }
+                Err(e) => assert!(e.ends_with("does not returned a prognisis"), "{e}"),
+            }
+        }
+        assert!(answered >= 20, "{answered} of 40 answered");
         let e = run("list forecast.markov").expect_err("empty");
         assert!(
             e.ends_with("FORECAST.MARKOV forecasting does not returned a prognisis"),
