@@ -18,7 +18,7 @@ probes/eq-asymmetry.golden	F33	12549031992110010338
 probes/execute-arm-class.golden	F16/D23/D25	5025803366308495063
 probes/execute-arm-not-executable.golden	F66	13771611073575209784
 probes/method-ptr-unregistered.golden	F66/D36	12160368378447312518
-probes/sysinfo-version.golden	D50	17362850664263348648
+probes/sysinfo-version.golden	D50	3698498398364292583
 probes/unique-words.golden	D107	5625742492813438506
 probes/valuemap-hash-eq.golden	F29	1124794954886992390
 probes/workbench-forms-added.golden	D111	18178945816375911089

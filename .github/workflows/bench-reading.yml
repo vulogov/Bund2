@@ -21,7 +21,7 @@ name: bench-reading
 # slow criterion keeps no other's log waiting.
 on:
   push:
-    branches: [development/0.52.0]
+    branches: [development/0.53.0]
     paths:
       - .github/workflows/bench-reading.yml
 
