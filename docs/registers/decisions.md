@@ -3669,6 +3669,59 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D223 — `Magnitude` and `Number` methods: Bund's operators, run on the wrapped value
+
+**Raised 2026-10-27** by the repository owner: "add methods to `Magnitude`
+and `Number`, starting with comparison and arithmetic".
+
+- Blocks: nothing
+- Depends on: D222 (the two classes), D72 (Bund2 may add what the reference
+  lacks), D179 (a method declares what it does to its receiver), RFC-0009,
+  RFC-0010
+- Options, as set out. **Names:** Bund's operators (`<`, `+`, …) or
+  Smalltalk words (`lessThan`, `add`, …). **Arithmetic's answer:** a number
+  object, or the bare value the stack word leaves.
+- Status: **RESOLVED — Bund's operators; a number object**, by the
+  repository owner, 2026-10-27.
+
+### What it is
+
+`Magnitude` has the slots `<`, `<=`, `>`, `>=`, `==` and `!=`; `Number` has
+`+`, `-`, `*` and `/`. Each method pulls the receiver and the operand
+beneath it, takes the receiver's `.data` (and the operand's, when the
+operand is an object carrying one), and applies the stack word of the same
+name, by name, as `True` applies `object`. So an object stands where its
+value would: `5 :- 2 :Integer object !` is `5 2 -`, which is 2 − 5, because
+every operator takes the top as its left operand — measured in both engines
+on 2026-10-27 (`7 2 -` is −5, `3 2 <` is true). INTEGER and FLOAT mix as
+the word mixes them, and a refusal is the word's own text (`"a" :< 2
+:Integer object !` reports `COMPARE: unsupported operand #2`).
+
+A comparison answers the word's BOOL, bare. Arithmetic answers an
+`Integer` object for an INTEGER and a `Float` object for a FLOAT, built
+through `object`, so `Integer` plus 2.5 is a `Float` — Smalltalk's `3 + 0.5`.
+An answer of any other type is pushed bare: `wrap` can put a string in a
+`Number`'s `.data`, and `+` on two strings concatenates. Every method is
+`MethodEffect::Consume { below: 1, produces: 1 }` (D179).
+
+`Bool` stays under `Value` (D222), so it has no operators; neither does a
+bare `Value`. Calling one reports `VM no method < has been registered`, the
+existing text for a slot no ancestor carries.
+
+### Built, the same day
+
+- `operator_method` and the `operators!` tables in
+  `crates/bund2-stdlib/src/oop.rs`; `register_wrapped` registers the ten
+  methods (`.magnitude_lt` … `.number_div`) and sets their slots.
+- `number_operators_answer_what_the_stack_words_answer` runs every operator
+  over integer, float and mixed pairs against the bare word, checks the
+  answer's class, and pins the refusals.
+- RFC-0010's second amendment of 2026-10-27 draws the hierarchy with the
+  slots; `the_registry_is_the_hierarchy_rfc_0010_draws` reads the last
+  diagram.
+- **No golden moved**: the oracle has neither class, so no golden program
+  can reach a method of one.
+
 ## D222 — `Magnitude` and `Number`: the class tree extended toward Smalltalk's, `Integer` and `Float` re-parented
 
 **Raised 2026-10-27** by the repository owner: "I would like to polish OOP
@@ -3730,6 +3783,10 @@ Methods on `Magnitude` (comparison) and `Number` (arithmetic), and
 constructor words for `Integer` and `Float`, are what make the classes
 useful; each is additive under D72. `Boolean` and `Collection` were
 offered and not taken in this cut.
+
+*Note, 2026-10-27:* the comparison and arithmetic methods are **D223**.
+`the_registry_is_the_hierarchy_rfc_0010_draws` now reads the last diagram
+RFC-0010 draws, which is D223's.
 
 ## D221 — Q27: the tier's caps are set by measurement, not by a REPL-or-batch profile
 

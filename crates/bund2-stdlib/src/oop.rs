@@ -624,6 +624,87 @@ fn method_float_init(vm: &mut dyn Vm) -> Result<(), Error> {
     init_converting(vm, bund2_value::FLOAT, "Float", "FLOAT")
 }
 
+/// An operator method on `Magnitude` or `Number` — **D223**.
+///
+/// The receiver's wrapped value takes the receiver's place and the stack word
+/// of the same name runs on it, applied by name as `True` applies `object`.
+/// So `5 :- 2 :Integer object !` is `5 2 -`, top-first as every operator is,
+/// with the word's own mixing of INTEGER and FLOAT and its own refusals. An
+/// operand that is itself an object with `.data` is unwrapped too; one without
+/// is left for the word to refuse.
+///
+/// **An arithmetic answer is a number object** — `Integer` for an INTEGER,
+/// `Float` for a FLOAT, so `Integer` plus 2.5 is a `Float`, as Smalltalk's
+/// `3 + 0.5` is. Any other answer is pushed bare: `wrap` can put a string in a
+/// `Number`'s `.data`, and `+` on strings is no number. A comparison's answer
+/// is the word's BOOL, bare.
+fn operator_method(vm: &mut dyn Vm, class: &str, op: &str, number: bool) -> Result<(), Error> {
+    if vm.depth() < 2 {
+        return Err(Error(format!(
+            "Stack is too shallow for method '{class}::{op}'"
+        )));
+    }
+    let obj = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{class}: NO DATA #1")))?;
+    let operand = vm
+        .pull()
+        .ok_or_else(|| Error(format!("{class}: NO DATA #2")))?;
+    let data = locate(&obj, ".data")
+        .ok_or_else(|| Error(format!("{class}: NO WRAPPED DATA WAS FOUND")))?;
+    let operand = match operand.dt() {
+        OBJECT => locate(&operand, ".data").unwrap_or(operand),
+        _ => operand,
+    };
+    vm.push(operand);
+    vm.push(data);
+    vm.apply(BundValue::call(op))?;
+    if !number {
+        return Ok(());
+    }
+    let Some(answer) = vm.pull() else {
+        return Err(Error(format!("{class}::{op} left no answer")));
+    };
+    let name = match answer.dt() {
+        bund2_value::INTEGER => "Integer",
+        bund2_value::FLOAT => "Float",
+        _ => {
+            vm.push(answer);
+            return Ok(());
+        }
+    };
+    vm.push(answer);
+    vm.push(BundValue::str(name));
+    object_word(vm)
+}
+
+/// The slot, the method's name and its native, for each operator — D223.
+macro_rules! operators {
+    ($table:ident, $class:literal, $number:literal: $($op:literal => $f:ident;)*) => {
+        $(fn $f(vm: &mut dyn Vm) -> Result<(), Error> {
+            operator_method(vm, $class, $op, $number)
+        })*
+        const $table: &[(&str, &str, bund2_api::NativeFn)] =
+            &[$(($op, concat!(".", stringify!($f)), $f)),*];
+    };
+}
+
+operators!(MAGNITUDE_OPERATORS, "Magnitude", false:
+    "<" => magnitude_lt;
+    "<=" => magnitude_le;
+    ">" => magnitude_gt;
+    ">=" => magnitude_ge;
+    "==" => magnitude_eq;
+    "!=" => magnitude_ne;
+);
+
+operators!(NUMBER_OPERATORS, "Number", true:
+    "+" => number_add;
+    "-" => number_sub;
+    "*" => number_mul;
+    "/" => number_div;
+);
+
 /// `List`'s `.init` — convert the wrapped data to LIST
 /// (`reference/Bund/src/stdlib/functions/oop/list_class.rs`,
 /// `register_method_list_init`).
@@ -1088,13 +1169,30 @@ fn register_wrapped(r: &mut Registry) {
     // `Number` is inserted between them and `Value`, the owner's ruling, so
     // their parent is `Number` where the reference's is `Value`
     // (`int_class.rs:37`, `float_class.rs:35`). Neither new class has an
-    // `.init` or a method yet, so construction consumes what it did and
-    // dispatch finds what it did, two levels further up; the ancestry an
-    // object carries is what changes. `Bool` stays under `Value`.
-    for (name, parent) in [("Magnitude", "Value"), ("Number", "Magnitude")] {
-        let c = BundValue::class(Default::default())
+    // `.init`, so construction consumes what it did; the ancestry an object
+    // carries is what changes. `Bool` stays under `Value`.
+    //
+    // **D223: their methods are Bund's operators**, each slot named for the
+    // word it runs. Every one consumes the receiver and the operand beneath
+    // it and answers one value in their place.
+    for (name, parent, ops) in [
+        ("Magnitude", "Value", MAGNITUDE_OPERATORS),
+        ("Number", "Magnitude", NUMBER_OPERATORS),
+    ] {
+        let mut c = BundValue::class(Default::default())
             .set(".class_name", BundValue::str(name))
             .set(".super", BundValue::list(vec![BundValue::str(parent)]));
+        for &(slot, method, f) in ops {
+            r.register_method(
+                method,
+                f,
+                MethodEffect::Consume {
+                    below: 1,
+                    produces: 1,
+                },
+            );
+            c = c.set(slot, BundValue::ptr(method));
+        }
         r.register_class(name, c);
     }
     for (name, parent, init) in [
@@ -1730,9 +1828,12 @@ mod tests {
     #[test]
     fn the_registry_is_the_hierarchy_rfc_0010_draws() {
         const RFC: &str = include_str!("../../../docs/rfc/RFC-0010-class-hierarchy.md");
-        let diagram: Vec<&str> = RFC
+        // Each amendment draws the hierarchy it leaves; the last is current.
+        let (_, current) = RFC
+            .rsplit_once("### Bund2's hierarchy, as registered")
+            .expect("RFC-0010 draws Bund2's hierarchy");
+        let diagram: Vec<&str> = current
             .lines()
-            .skip_while(|l| !l.starts_with("### Bund2's hierarchy, as registered"))
             .skip_while(|l| !l.starts_with("```"))
             .skip(1)
             .take_while(|l| !l.starts_with("```"))
@@ -1834,6 +1935,96 @@ mod tests {
                     "{asked}: {answer}"
                 );
             }
+        }
+    }
+
+    /// **D223.** An operator method is its stack word with the receiver's
+    /// wrapped value in the receiver's place: every operator, over integer,
+    /// float and mixed pairs, answers what the bare word answers — a
+    /// comparison bare, arithmetic as an `Integer` or `Float` object by the
+    /// answer's type. No golden can hold this; the oracle has neither class.
+    #[test]
+    fn number_operators_answer_what_the_stack_words_answer() {
+        let pairs = [
+            ("7", "2"),
+            ("2", "7"),
+            ("3", "3"),
+            ("7", "2.5"),
+            ("1.5", "4"),
+        ];
+        for (op, number) in [
+            ("<", false),
+            ("<=", false),
+            (">", false),
+            (">=", false),
+            ("==", false),
+            ("!=", false),
+            ("+", true),
+            ("-", true),
+            ("*", true),
+            ("/", true),
+        ] {
+            for (operand, inner) in pairs {
+                let class = if inner.contains('.') {
+                    "Float"
+                } else {
+                    "Integer"
+                };
+                let bare = format!("{operand} {inner} {op}");
+                let want = run_src(&bare).expect(&bare);
+                let want = want.peek().expect("an answer");
+
+                let sent = format!("{operand} :{op} {inner} :{class} object !");
+                let mut got = run_src(&sent).expect(&sent);
+                assert_eq!(got.depth(), 1, "{sent}: one answer in place of two");
+                if number {
+                    let answer = if want.dt() == bund2_value::FLOAT {
+                        "Float"
+                    } else {
+                        "Integer"
+                    };
+                    let asked = format!("{sent} dup \"{answer}\" ?is");
+                    let is = run_src(&asked).expect(&asked);
+                    let is = is.peek().expect("an answer").render(true);
+                    assert!(is.contains("Bool(true)"), "{asked}: {is}");
+                    unwrap_word(&mut got).expect("a number object");
+                }
+                let got = got.peek().expect("an answer");
+                assert_eq!(got.display(), want.display(), "{sent} against {bare}");
+                assert_eq!(got.dt(), want.dt(), "{sent} against {bare}");
+            }
+        }
+
+        // The operand may be a number object as well.
+        let i = run_src("2 :Integer object :- 5 :Integer object ! unwrap").expect("unwrapped");
+        assert_eq!(i.peek().expect("an answer").display(), "3");
+
+        for (src, want) in [
+            (
+                ":+ 2 :Integer object !",
+                "Stack is too shallow for method 'Number::+'",
+            ),
+            (
+                ":< 2.0 :Float object !",
+                "Stack is too shallow for method 'Magnitude::<'",
+            ),
+            // `Bool` is no `Magnitude`, and `Value` has no operators.
+            (
+                "true :< true :Bool object !",
+                "VM no method < has been registered",
+            ),
+            (
+                "1 :+ 1 :Value object !",
+                "VM no method + has been registered",
+            ),
+            // The word's own refusal, unchanged.
+            (
+                "\"a\" :< 2 :Integer object !",
+                "COMPARE: unsupported operand #2",
+            ),
+        ] {
+            let e = err_of(src);
+            assert!(e.contains(want), "{src}:\n  got {e}\n want {want}");
         }
     }
 

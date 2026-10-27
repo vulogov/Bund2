@@ -18,7 +18,7 @@
 - Decisions consumed: D23 (`!` builds from the class value), D25 (a class must
   carry its own `.class_name`), D72 (Bund2 may carry what the reference does
   not)
-- Decisions produced: **D96**, answering all three questions below; **D222** (2026-10-27) re-parents `Integer` and `Float` under `Magnitude` ← `Number` — see the amendment at the end
+- Decisions produced: **D96**, answering all three questions below; **D222** (2026-10-27) re-parents `Integer` and `Float` under `Magnitude` ← `Number`; **D223** (2026-10-27) gives those two operator methods — see the amendments at the end
 - Grounded against the pinned submodules and the oracle on 2026-10-05
 
 ## Summary
@@ -440,3 +440,39 @@ Display                     .super []            format, display
 `?is` answers through `.super`, so `41 :Integer object :Number ?is` is true,
 and so is `:Magnitude ?is`.
 
+
+## Amendment, 2026-10-27 — operators on `Magnitude` and `Number` (D223)
+
+On the owner's ruling, **D223**: `Magnitude` and `Number` get methods, and
+each is a Bund operator under its own name — comparison on `Magnitude`,
+arithmetic on `Number`. A method runs the stack word of the same name with
+the receiver's wrapped value in the receiver's place, so
+`5 :- 2 :Integer object !` is `5 2 -`: top-first as every operator is, with
+the word's own mixing of INTEGER and FLOAT and its own refusals. A comparison
+answers the word's BOOL; arithmetic answers an `Integer` or `Float` object by
+the answer's type. Each consumes the receiver and the operand beneath it.
+
+`Bool` is not a `Magnitude`, so `true :< true :Bool object !` is refused as a
+method no class registers, and so is any operator on a bare `Value`. No golden
+moved: the oracle has neither class, so nothing it ran can reach one.
+`number_operators_answer_what_the_stack_words_answer`
+(`crates/bund2-stdlib/src/oop.rs`) is the record. The diagram above is the
+hierarchy as D222 left it; this is the current one, and the test reads the
+last diagram under this heading:
+
+### Bund2's hierarchy, as registered
+
+```
+Display                     .super []            format, display
+└── Printable               .super [Display]     str, print, println
+    └── Object              .super [Printable]   .id, .timestamp
+        └── Value           .super [Object]      .init
+            ├── Magnitude   .super [Value]       <, <=, >, >=, ==, !=
+            │   └── Number  .super [Magnitude]   +, -, *, /
+            │       ├── Integer   .super [Number]   .init
+            │       └── Float     .super [Number]   .init
+            ├── Bool        .super [Value]       .init
+            └── List        .super [Value]       .init, push
+                ├── Floats      .super [List]    .init, push
+                └── Intervals   .super [List]    .init, push, overlap
+```
