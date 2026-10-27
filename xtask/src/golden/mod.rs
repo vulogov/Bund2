@@ -348,7 +348,11 @@ pub(crate) struct Run {
     pub(crate) status: i32,
 }
 
-const RUN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// A hang detector, not a speed limit. `string_wrap_demo.bund` types about
+/// 1,000 characters through `console.typewriter`, 50 ms each (D217), so it
+/// sleeps about 52 s by design and measured 60 s in a debug build on
+/// 2026-10-27; at 60 s it timed out locally. Three times that sleep.
+const RUN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
 
 /// What a run is told about its host, where being told is enough.
 ///
