@@ -1,14 +1,17 @@
 # RFC-0013: Logic programming — knowledge bases, unification and resolution
 
-- Status: **Draft — revision 5, consolidated (2026-10-28).**
-  - This text carries every correction from the pre-RFC review and three
+- Status: **Draft — revision 6 (2026-10-28).**
+  - Revision 5 carried every correction from the pre-RFC review and three
     adversarial reviews (`reviews/RFC-0013-review-2026-10-28.md`, `-2.md`
-    and `-3.md`, each "Not ready for Accepted"). Every finding is answered
-    in the body.
+    and `-3.md`, each "Not ready for Accepted").
+  - Revision 6 answers the fourth review, the first on file
+    (`reviews/RFC-0013-review-2026-10-28-4.md`: 1 blocking, 12 should-fix,
+    8 notes).
   - Appendix A maps each finding to the place that answers it.
   - What remains before acceptance: the owner's rulings, **D226
     (L1–L15)**, which are OPEN, and a review of this revision.
-  - **F231**, a Bund2 defect found along the way, is filed apart.
+  - **F231**, a Bund2 defect found along the way, was filed apart and is
+    fixed (`6e900f8`).
   - *Landed 2026-10-28 on the owner's "land it as a draft with D226".*
     The draft was written in a session whose files never reached this
     repository, so it arrived as text. Three changes were made on landing,
@@ -35,6 +38,7 @@
   - RFC-0012: a family of Bund2's own over a MAP; the graph family the
     examples use.
 - Bears on:
+  - RFC-0010: class names, which are Title-cased (S14).
   - RFC-0006: bundles.
   - RFC-0007: the bus.
   - RFC-0008: the debugger.
@@ -62,8 +66,10 @@
     "bundle", "profile", "breakpoint", "Title", "casing", "summary",
     "stdin", "test build", "overflow", "wire depth", "noeval", "cycle",
     "save.stacks".
-  - ERRATA had no logic entry before this RFC's.
-- Reference SHA: `reference/Bund` 21b40b0. Bund2 read at `eb43ca3`.
+  - ERRATA has no logic entry. The research document one would correct
+    was never committed (below), so none is owed.
+- Reference SHA: `reference/Bund` 21b40b0. Bund2 read at `0c145de` on
+  landing, and at `2ebe0c4` for revision 6.
 - Supersedes: nothing in this repository. The draft named the research
   document `06-logic-programming.md` §4.2–§4.5, §7 and §8 (L3, L3a, L5),
   per an ERRATA entry; neither was ever committed, so there is nothing to
@@ -233,11 +239,17 @@ RFC or for one of its reviews.
     `stacks.rs`).
   - It then pushes a frame carrying `ExitAction::ToStack(prev)`. That frame
     restores the stack on success, and on an error in the body.
-- **F231.** D171's guard can fail `push_frame_once` before that frame
-  exists (its `memguard::take` poll), which leaves the named stack current.
-  `context` shares the path (`run_context` in `conditional.rs`).
-  *Checked 2026-10-28, on landing:* `scoped_call` calls `to_stack` and then
-  `push_frame`, which calls `push_frame_once`, whose first act is the poll.
+- **F231, fixed.** D171's guard could fail `push_frame_once` before that
+  frame existed (its `memguard::take` poll), which left the named stack
+  current. `context` shares the path (`run_context` in `conditional.rs`).
+  Since `6e900f8`, `scoped_call` unwinds to its floor when `push_frame`
+  fails and switches back by hand if the caller's stack is still not
+  current; `a_trip_refusing_a_scoped_call_leaves_the_stack_where_it_was`
+  (`crates/bund2-runtime/tests/oom_guard.rs`) holds it.
+- **Reading a stack that is not current.** `Vm::pull_from` pulls from a
+  stack by name, and answers nothing for a stack that does not exist
+  (`pull_from` in `crates/bund2-interp/src/lib.rs`). `drop_stack` goes to
+  `drop_named`, which changes nothing for a name that is not there.
 - **Dropping a stack.** A stack that is not current is removed with no
   epoch bump and no change to the ring's order (`drop_named` in
   `stacks.rs`).
@@ -353,6 +365,20 @@ RFC or for one of its reviews.
 - `[ nil ]` is a one-item list holding the empty list, because `nil` is not
   an atom **[L4]**.
 - `[ nil X ]` is a two-item list.
+- `[ parent ∅ X ]` is `parent('∅', X)`. Inside a list literal `∅` and `|`
+  are CALLs, so they are atoms (or, for `|`, a split). NODATA is a fresh
+  variable only when a value built at run time holds it, as at a
+  `kb.word` call site (S10).
+- `[ ready [ p X ] ]` is the compound `ready(p(X))`, not the conjunction
+  of `ready` and `[ p X ]`: S1 decides by the first item. A conjunction
+  that starts with a zero-arity goal is written `[ [ ready ] [ p X ] ]`.
+  The same holds wherever S3 writes `[ G… ]`. Unless `ready/1` is defined,
+  the mistake is E12 **[L8]**, so it does not pass silently.
+- `[ in X [ a b c ] ]` ranges over the compound `a(b, c)`, which is not a
+  list (E23). The atoms are written `[ :a :b :c ]`.
+- `Integer`, `Boolean`, `Value` and every other class name (RFC-0010,
+  D225) begin uppercase, so in a term they are variables. A KB about
+  classes writes them as STRINGs, `:Integer`.
 
 **Reading a term back as a value:**
 
@@ -361,11 +387,15 @@ RFC or for one of its reviews.
 | atom | STRING (`true` and `false` read back as BOOL) |
 | integer, float | INT, FLOAT |
 | compound | LIST, with the functor as a CALL |
-| list | LIST. A partial list's tail reads as a `\|` CALL followed by NODATA. |
+| list | LIST. A partial list's tail reads as a `\|` CALL followed by NODATA. An improper list's tail, bound to a non-list, reads as a `\|` CALL followed by that tail's value. |
 | empty list | an empty LIST |
 | opaque | the same value |
 | unbound variable | NODATA |
 
+- **`true` and `false` read back as BOOL, whatever they were written as.**
+  Atoms compare by text **[L2]**, so the STRING `"true"`, the CALL `true`
+  and the BOOL `true` are one atom. A fact stored with the STRING answers
+  a BOOL.
 - **Nothing read back runs in a body.** Atoms read back as STRING (F63). A
   compound's LIST is pushed whole. CONTEXT is refused on the way in.
 - **NODATA reads back as a fresh variable**, so an answer can be handed back
@@ -468,7 +498,7 @@ now.
 **What a goal may not be:**
 
 - an unbound goal: E10;
-- a number or an opaque constant: E11;
+- a number, an opaque constant, or the empty list (`nil`): E11;
 - a predicate that is neither defined nor reserved: E12 **[L8]**.
 
 **A goal's variables** are those of the clause instance it belongs to. A
@@ -499,7 +529,13 @@ of *n* inferences therefore holds O(*n*) cells until it backtracks or ends.
 
 #### Choicepoint kinds
 
-| Kind | Holds | On backtrack |
+**Every choicepoint** records the goal list to resume with (the
+continuation), the trail's mark and the arena's mark. Backtracking to it
+unwinds to the marks and resumes from that goal list. The table names only
+what each kind adds; where it says "the continuation", that kind resumes
+with a goal list other than the one current when it was pushed.
+
+| Kind | Holds, beyond the above | On backtrack |
 |---|---|---|
 | `Clauses` | the call, its candidates, a cursor | try the next candidate. Taking the last pops this choicepoint first. |
 | `Branches` | the remaining `or` branches | resume the next branch |
@@ -577,7 +613,7 @@ is left, the query is exhausted.
 | `[ is X λ ]` | one value | X unifies with it, read as a term. Nothing there is E21. |
 | `[ test λ ]` | `true` or `false` | succeed or fail. Another kind is E22; nothing is E21. |
 | `[ in X λ ]` | a LIST | X takes each item on backtracking. Another kind is E23. |
-| `[ in X L ]` | — | L must be a proper list. If it is unbound or partial, that is E10. |
+| `[ in X L ]` | — | L must be a proper list. If it is unbound or partial, that is E10; any other non-list, a compound or an improper list among them, is E23. |
 
 **Running λ:**
 
@@ -601,14 +637,26 @@ is left, the query is exhausted.
       new name for that depth and uses it.
    2. **Run the body.** `scoped_call` creates the stack and runs the body
       on it.
-   3. **Read** the top of the scratch stack.
-   4. **Restore.** If the scratch stack is still current (F231's path),
-      switch back to the stack the bridge came from.
+   3. **Read** the top of the scratch stack, with `Vm::pull_from`.
+   4. **Restore.** If the scratch stack is still current, switch back to
+      the stack the bridge came from. Since F231's fix, `scoped_call`
+      never returns that way; the check guards against a `Vm` that breaks
+      the contract, and criterion 7 holds it with one.
    5. **Drop** the scratch stack. It is not current, so the ring is
       untouched (`drop_named` in `crates/bund2-interp/src/stacks.rs`).
+      If λ already dropped it, the drop changes nothing and bumps
+      nothing.
 4. **Read** the result as the table above says.
 5. **Errors.** An error in λ is E24, naming the goal, and `?try` catches
-   it. Bund's errors are text (`pub struct Error(pub String)` in
+   it.
+   - **A guard trip** is taken by whichever poll meets it first. The
+     engine's own poll (S4) raises E40, the guard's text alone. The
+     interpreter's poll inside λ fails λ, so the trip surfaces as E24
+     wrapping the guard's text; inside `ask` it is E57. All three carry
+     the guard's text, which is what criterion 1b tests.
+   - **Nested bridges nest prefixes.** Each level adds one E24 prefix.
+     `summary` bounds the values in the text, but not the prefix chain,
+     which grows with the nesting depth that `stack_ok` bounds. Bund's errors are text (`pub struct Error(pub String)` in
    `crates/bund2-api/src/lib.rs`), so
    `catch/3` is not offered.
 
@@ -627,6 +675,11 @@ after it, and the scratch stack exists only during it.
 
 **Other consequences.**
 
+- **What λ can see.** While it runs, the scratch stack is in the ring,
+  so `stack_names`, `debug.display_stack` and `save.stacks` show it under
+  its id-shaped name (`fresh_name`, 21 characters). A program that saves
+  it and later restores it under that name is S5 step 3.1's collision,
+  which is why the step exists.
 - **Tags.** A heap value λ leaves keeps the scratch stack's name as its tag
   in an answer (D41). Identity is unaffected.
 - **Rust depth.** A bridge costs one native frame. A λ that runs another
@@ -655,6 +708,13 @@ The engine lives in `crates/bund2-stdlib/src/kb/`. The existing
 
 **The audits.** `REENTERING`, `SWITCHES`, D47's id gate, the palette and
 `bund2 check` read only `bund2-stdlib`, so the family lives there.
+
+- `src/kb/` is the crate's first subdirectory. The `REENTERING`,
+  `SWITCHES` and `REPORTS_MID_BODY` scans, and
+  `nothing_shipped_follows_a_test_module`, walk subdirectories already.
+- `no_native_reports_at_error_severity` (D36) reads `src/` alone, with
+  one `read_dir`. M1 makes it walk subdirectories as the others do, before
+  any file lands in `kb/` (criterion 12a).
 
 - `kb/bridge.rs: run` and `kb/bridge.rs: ask` hold every call of
   `scoped_call`, `to_stack` and `drop_stack`. Both are named in `SWITCHES`
@@ -734,9 +794,10 @@ D195). An opaque count is the least the word consumes. Codes are from S12.
 | `kb.inferences` | kb int → kb | `eff(2,1)` | E00, E01, E08 |
 | `kb.table`, `kb.askable` | kb functor *n* → kb | `eff(3,1)` | E00, E01, E03, E09, E59 (Phase 2 **[L14]**) |
 
-- **`kb.consult*`** folds the stack from the bottom up, so clause order is
-  source order. It stops at NODATA, which it consumes, or at an empty stack
-  (D12, D182).
+- **`kb.consult*`** scans down from the top of the stack to the first
+  NODATA, which it consumes, or to the bottom of the stack (D12,
+  D182). It then adds the items above that point oldest first, so clause
+  order is source order.
 - **`kb.assert`** appends to its predicate. **`kb.asserta`** prepends.
 - **`kb.retract`** removes the first clause whose renamed head and body
   unify with the operand. If none does, the KB is unchanged.
@@ -828,7 +889,7 @@ is.
 | `kb` | KB | the knowledge base | E01 |
 | `goal` | term | the goal | E13 |
 | `lambda` | LAMBDA | run per answer, with the answer pushed | empty |
-| `limit` | INT ≥ 0 | stop after this many answers | none |
+| `limit` | INT ≥ 0 | stop after this many answers. `0` asks for none, so the runner returns at once. Unlike `inferences`, where ≤ 0 means no cap, a missing slot is the only way to ask for no limit. | none |
 | `skip_first` | INT ≥ 0 | skip answers first | 0 |
 | `ask` | LAMBDA | Phase 2 (S16) | asking is E50 |
 | `known` | STRING | Phase 2 (S16): a variable to persist replies in | replies kept for the run only |
@@ -845,6 +906,11 @@ is.
 **Answers one at a time [L6].** The runner solves to the next answer, runs
 `lambda` with `eval_lambda`, then solves on. Its state stays in its Rust
 frame (D84).
+
+**`lambda` runs on the current stack, and nothing restores it.** Unlike a
+bridge's λ, `lambda` is the program's own code, as `sqlite`'s is: a
+`lambda` that switches stacks leaves the next answer to be pushed on the
+stack it switched to.
 
 **`bund2 check`.** `query` joins the `"csv" | "sqlite"` arm
 (`check.rs`), with `Abs::Tagged(MAP)` per answer. `ask` runs on the
@@ -879,7 +945,7 @@ scratch stack, so it does not change the walk.
 | E20 | `instantiation error: <Var> is unbound in the lambda of <goal>` |
 | E21 | `<bridge>: the lambda left nothing in <goal>` |
 | E22 | `test: expected BOOL, found <type> in <goal>` |
-| E23 | `in: expected LIST, found <type> in <goal>` |
+| E23 | `in: expected a list, found <value> in <goal>` |
 | E24 | `bridge lambda in <goal> returns: <error>` |
 | E25 | `lambda returns: <error>` |
 | E26 | `a CONTEXT cannot be a term: <value>` |
@@ -931,8 +997,12 @@ E55's `<reason>` is one of:
   - `query`, as it reaches `?try` (`tests/golden/PROMOTABLE.txt:57`).
 - **It does not reach the fixed words that read a KB.** The palette's
   `dict` has no `type` (RFC-0012 §S6).
-- **Epoch bumps.** Each bridge bumps the stack epoch twice
-  (`add_as_current` and `to_stack` in `crates/bund2-interp/src/stacks.rs`). The bridging words are never crossed, so
+- **Epoch bumps.** Each bridge bumps the stack epoch twice: once in
+  `add_as_current`, which `to_stack` reaches for a new name and returns
+  through without bumping again, and once when the exit action's
+  `to_stack(prev)` brings the caller's stack back to the front. The drop
+  bumps nothing, and the ring is in its old order
+  (`crates/bund2-interp/src/stacks.rs`). The bridging words are never crossed, so
   this costs only a guard check in a compiled caller.
 - **Bridge bodies are never offered to the tier.** A body run inside a
   bridge is new every run, so it stays cold.
@@ -956,6 +1026,10 @@ E55's `<reason>` is one of:
   - It does not report per-predicate time (Q48).
 - **The world file.** `save.model` stores a KB. `load.model` pushes every
   model in the file (F110), with fresh identities (D88).
+- **Classes (RFC-0010, D225).** Class names are Title-cased words, so in
+  a term they are variables (S1's traps); a KB names a class by STRING.
+  An OBJECT in a term is an opaque constant, compared by identity
+  **[L13]**.
 - **Certainty factors [L11]** are not offered. `q` stays reserved (D32).
 
 ---
@@ -1239,7 +1313,13 @@ against the stdlib's operand orders:
 - `get` takes `<container> <key>`, consuming both;
 - `format` takes the values, then the template;
 - `graph!` takes the edges, then the nodes;
-- `graph.reachable` takes `<start> <graph>`.
+- `graph.reachable` takes `<start> <graph>`, and its answer includes the
+  start.
+
+The fourth review re-read each of these against Bund2, along with `input`
+(it pulls a prompt and trims the line) and the existence of `var?` and
+`list`. All hold. What Q44 leaves open is the run itself: the `kb.` words
+do not exist yet.
 
 ### 1. Facts, a rule, three ways to ask
 
@@ -1376,7 +1456,7 @@ or `askable` is E14.
 
 | Milestone | Builds | Criteria |
 |---|---|---|
-| M1 | `term.rs`, `unify.rs` | 2a, 3 |
+| M1 | `term.rs`, `unify.rs`; D36's scan walks subdirectories (S6) | 2a, 3, 12a's scan |
 | M2 | `store.rs`; the building words, their `.` forms, `BUILT` | 1a |
 | M3 | `solve.rs`; `kb.query`, `kb.once`, `kb.holds`; caps; the guard poll | 1b, 2b, 5, 6a, 11, 15 |
 | M4 | `bridge.rs` | 1c, 6b, 7, 8a, 8c, 9, 14 |
@@ -1427,8 +1507,19 @@ Accepting this RFC accepts the following.
   accepts. The notation's meanings exist only inside the values `kb.` words
   read.
 - **No value type, `dt` or wire variant is added.**
-- **F231 is guarded against, not fixed.** It is Bund2's own defect. The
-  bridge guards against it itself (S5).
+- **F231 is fixed** (`6e900f8`), apart from this RFC. `context` now comes
+  back to the caller's stack when the guard refuses its frame. It is
+  Bund2's own path; no golden reaches it.
+- **Test-pinned lists change size.** `REENTERING`, `SWITCHES` and
+  `REPORTS_MID_BODY` gain entries and `BUILT` grows (criterion 12), and
+  one scan starts walking subdirectories (S6).
+- **New names can collide with a program's own words.** A program that
+  `register`s `query` or a `kb.` name now redefines a native, and `watch
+  redefine` fires. No corpus program
+  does: `query` appears only in a comment and a string of
+  `tests/probes/sqlite-conditional.bund`, and no reference word carries
+  either name.
+- **λ can see its scratch stack** (S5, "What λ can see").
 
 ---
 
@@ -1466,21 +1557,29 @@ otherwise, or a measurement in `docs/measurements/`.
 1. **Answers and refusals.** Each S9 word, each `.` form and `query` has a
    test for its answer, and each Phase 1 code has a test by its text:
    - **1a** — the building words (M2).
-   - **1b** — the asking words: E10–E14, E26, E30, E40, and E00 unprefixed
-     (M3).
+   - **1b** — the asking words: E10–E14, E26, E30, and E00 unprefixed
+     (M3). E40 is tested in `crates/bund2-runtime/tests/oom_guard.rs`,
+     because the guard's flag is process-wide and that binary runs one
+     test at a time: a trip met by the engine's poll is E40, and one met
+     inside a bridge's λ is E24, each carrying the guard's text (S5).
    - **1c** — E20–E24, and `test` on `true`, `false`, a non-BOOL and
      nothing (M4).
    - **1d** — E09, E25, and `query`'s slots (M5).
 2. **Unification.**
-   - **2a** — `unify` is symmetric with an idempotent substitution
-     (property test), and `[ = X [ f X ] ]` fails (M1).
+   - **2a** — over an enumerated table of term pairs, `unify` is
+     symmetric and its substitution idempotent, and `[ = X [ f X ] ]`
+     fails (M1). The table covers each S1 term kind against each other,
+     shared and repeated variables, nested compounds and partial lists. It
+     is a table rather than a property test, so no dependency is added.
    - **2b** — `ready` and `[ ready ]` unify, as goals and as heads (M3).
 3. **No recursion on depth.** Terms 100,000 deep, built in Rust (F116),
    convert, unify and pass the occurs check in a debug build.
 4. **No Rust depth across answers.** `[ nat _ ]` over `[ nat z ]` and
    `[ [ nat [ s N ] ] ← [ nat N ] ]`, with `limit` 1,000,000, answers
    1,000,000 empty MAPs. The Rust stack depth, sampled from `lambda` at the
-   10th and the 1,000,000th answer, is equal.
+   10th and the 1,000,000th answer, is equal. The sample is taken by a
+   native the test registers, which pushes the address of one of its own
+   locals as an INT; equal addresses mean equal depth.
 5. **The inference cap.** `[ loop ]` over `[ [ loop ] ← [ loop ] ]`, with
    `inferences` 20,000,000, emits W1 once, then E30, which `?try` catches.
    The arena growth is recorded.
@@ -1493,8 +1592,9 @@ otherwise, or a measurement in `docs/measurements/`.
    - Three bridges are run: one that succeeds, one that fails, and one whose
      λ runs an inner query whose bridge fails. After each, the current
      stack's name is unchanged and `stack_names()` holds no scratch stack.
-   - F231's path: `kb/bridge.rs: run` is run against a `Vm` wrapper whose
-     `scoped_call` returns `Err` with the scratch stack current.
+   - The restore (S5 step 3.4): `kb/bridge.rs: run` is run against a `Vm`
+     wrapper whose `scoped_call` returns `Err` with the scratch stack
+     current, as F231 did before its fix.
    - A stack made by `load.stacks` under a pooled name is left intact, and
      the bridge reads its own result.
 8. **The name table.** It is measured by interning a fresh probe name
@@ -1521,8 +1621,12 @@ otherwise, or a measurement in `docs/measurements/`.
       original **[L13]**.
 12. **Audit lists.**
     - **12a** — `SWITCHES` gains `kb/bridge.rs: run`. `REENTERING` gains
-      `kb/bridge.rs: run` and `kb/query.rs: run_query`. `BUILT` gains Phase
-      1's forms. `PROMOTABLE.txt`'s diff names only S13's words.
+      `kb/bridge.rs: run` and `kb/query.rs: run_query`.
+      `REPORTS_MID_BODY` gains `kb.word`. `BUILT` gains Phase 1's forms.
+      `PROMOTABLE.txt`'s diff names only S13's words.
+      `no_native_reports_at_error_severity` walks subdirectories, and a
+      file placed in `src/kb/` with an `Error`-severity report fails it
+      (M1).
     - **12b** — `kb/bridge.rs: ask` is added to both lists, and Phase 2's
       forms to `BUILT`.
     - **12c** — Phase 3 changes none of these lists.
@@ -1541,7 +1645,8 @@ otherwise, or a measurement in `docs/measurements/`.
     - 10,000 one-by-one asserts against `kb!`;
     - `[ nat _ ]` to 1,000,000;
     - criterion 5's arena;
-    - the occurs check's share of naive reverse.
+    - the occurs check's share of naive reverse;
+    - the per-inference guard poll's share of naive reverse.
 
 ### Phase 2 **[L14]**
 
@@ -1562,13 +1667,29 @@ otherwise, or a measurement in `docs/measurements/`.
 20. **Tabling.**
     - A left-recursive `path` over a 1,000-node cycle terminates, and
       equals `graph.reachable` (names in Title case).
-    - The second review's four-edge KB answers `d` for `[ path b Y ]`
-      after `[ path a X ]`.
-    - The third review's seven-edge KB answers `h` for Y in
-      `[ [ path a X ] [ path e Y ] ]`.
+    - The KBs below are written out here because the reviews that first
+      gave them are not in the repository; they test the failures those
+      reviews named. Each tables `path/2`, with
+      `[ [ path X Y ] ← [ edge X Y ] ]` and
+      `[ [ path X Y ] ← [ edge X Z ] [ path Z Y ] ]`.
+    - **A member completed before its SCC.** Over
+      `[ edge a b ] [ edge b a ] [ edge a c ] [ edge c d ]`, the query
+      `[ [ path a X ] [ path b Y ] ]` answers Y = `d` among its answers.
+      `path(b, _)` is first called under `path(a, _)` and consumes it while
+      it holds only `b` and `c`; completed on its own, its table would lack
+      `d`.
+    - **A variant that joins the SCC late.** Over
+      `[ edge a b ] [ edge b c ] [ edge c a ] [ edge c e ] [ edge e b ]
+      [ edge a g ] [ edge g h ]`, the query `[ [ path a X ] [ path e Y ] ]`
+      answers Y = `h` among its answers. `path(e, _)` consumes `path(b, _)`,
+      which is in `path(a, _)`'s SCC but is not its root, so the merge must
+      reach down to that root (S18 step 2). `h` enters `path(a, _)`'s table
+      only after `path(e, _)` has failed back, through `path(g, _)`.
     - `[ [ once [ path a Y ] ] [ path a Z ] ]` answers every Z.
-    - The third review's `p`/`q` program, an `if` over an evaluating table,
-      and a `findall` over one are each E54.
+    - **E54.** With `p/0` and `q/0` tabled, `[ [ p ] ← [ not [ q ] ] ]` and
+      `[ [ q ] ← [ p ] ]` make `[ p ]` E54: `q` merges into `p`'s SCC across
+      the `Not`. An `if` whose condition calls an evaluating table, and a
+      `findall` over one, are each E54 too.
 21. **Saturation.**
     - The saturated `path` facts for a source equal the tabled answers for
       that source.
@@ -1596,8 +1717,11 @@ otherwise, or a measurement in `docs/measurements/`.
 ### Examples
 
 25. **The examples run unattended.** `bund_examples/logic_demo/` runs every
-    worked example without a terminal (example 5 with its five seeds) and
-    prints what this RFC describes.
+    worked example without a terminal (example 5 with its five seeds).
+    Its output is checked in as `bund_examples/logic_demo/expected.txt`,
+    written from each example's comments, and a test in
+    `crates/bund2-cli/tests` runs the demo and compares it with that file.
+    It is not a golden: the oracle has none of these words.
 
 ---
 
@@ -1652,6 +1776,8 @@ tables below are the draft's own account and could not be checked.
 | 3 | specifies Phases 2 and 3 in full |
 | 4 | answers the second review (3 blocking, 18 should-fix, 16 notes) |
 | 5 | answers the third review (2 blocking, 10 should-fix, 14 notes); consolidates |
+| 5, landed | D226 renumbered; citations converted to symbols; missing files noted |
+| 6 | answers the fourth review (1 blocking, 12 should-fix, 8 notes); F231 fixed apart |
 
 **Where each finding is answered.**
 
@@ -1738,3 +1864,31 @@ S5/S6, S11 and criterion 11.
 | N12 | `VmBridge` (S6) |
 | N13 | criterion 8's probe |
 | N14 | example 6 quoted |
+
+**The fourth review (`-4.md`), the first on file:**
+
+| Finding | Answered by |
+|---|---|
+| B1 | criterion 20's KBs written out, with what each tests |
+| S1 | F231 marked fixed (status, Current behaviour, S5 step 3.4, Preservation, criterion 7) |
+| S2 | D36's scan walks subdirectories (S6; M1; criterion 12a) |
+| S3 | the conjunction trap, with its spelling and E12 (S1) |
+| S4 | criterion 4's probe native |
+| S5 | E40's test in `oom_guard.rs` (criterion 1b) |
+| S6 | criterion 2a's enumerated table; no dependency |
+| S7 | criterion 25's `expected.txt` and its test |
+| S8 | `REPORTS_MID_BODY` in criterion 12a |
+| S9 | every choicepoint's continuation and marks (S4) |
+| S10 | which poll meets a trip, and its code (S5) |
+| S11 | improper read-back (S1); a non-list `in` is E23 (S5, S12); `nil` as a goal is E11 (S3) |
+| S12 | the header's SHAs and the ERRATA line |
+| N1 | the `∅` trap (S1) |
+| N2 | RFC-0010 under "Bears on"; the class trap (S1); classes (S14) |
+| N3 | `true` and `false` read back (S1) |
+| N4 | the epoch bumps (S13) |
+| N5 | a drop of a dropped stack (S5 step 3.5) |
+| N6 | `kb.consult*` (S9) |
+| N7 | `limit` 0 (S11) |
+| N8 | the worked examples' preamble |
+| Preservation | F231's fix; test-pinned lists; name collisions; λ seeing its stack |
+| Assumptions | `lambda`'s stack (S11); nested prefixes (S5); `fresh_name` (S5); the poll's cost (criterion 16) |
