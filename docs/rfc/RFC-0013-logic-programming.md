@@ -1,15 +1,17 @@
 # RFC-0013: Logic programming — knowledge bases, unification and resolution
 
-- Status: **Draft — revision 6 (2026-10-28).**
+- Status: **Draft — revision 7 (2026-10-28).**
   - Revision 5 carried every correction from the pre-RFC review and three
     adversarial reviews (`reviews/RFC-0013-review-2026-10-28.md`, `-2.md`
     and `-3.md`, each "Not ready for Accepted").
   - Revision 6 answers the fourth review, the first on file
     (`reviews/RFC-0013-review-2026-10-28-4.md`: 1 blocking, 12 should-fix,
-    8 notes).
+    8 notes). Revision 7 answers the fifth (`-5.md`: no blocking finding,
+    4 should-fix, 3 notes).
   - Appendix A maps each finding to the place that answers it.
   - What remains before acceptance: the owner's rulings, **D226
-    (L1–L15)**, which are OPEN, and a review of this revision.
+    (L1–L15)**, which are OPEN. The fifth review found nothing else
+    blocking.
   - **F231**, a Bund2 defect found along the way, was filed apart and is
     fixed (`6e900f8`).
   - *Landed 2026-10-28 on the owner's "land it as a draft with D226".*
@@ -529,11 +531,10 @@ of *n* inferences therefore holds O(*n*) cells until it backtracks or ends.
 
 #### Choicepoint kinds
 
-**Every choicepoint** records the goal list to resume with (the
-continuation), the trail's mark and the arena's mark. Backtracking to it
-unwinds to the marks and resumes from that goal list. The table names only
-what each kind adds; where it says "the continuation", that kind resumes
-with a goal list other than the one current when it was pushed.
+**Every choicepoint** records the trail's mark and the arena's mark, and
+backtracking to it unwinds to both. The table names what each kind holds
+besides, and the goal list it resumes with is in its "On backtrack"
+column.
 
 | Kind | Holds, beyond the above | On backtrack |
 |---|---|---|
@@ -676,8 +677,10 @@ after it, and the scratch stack exists only during it.
 **Other consequences.**
 
 - **What λ can see.** While it runs, the scratch stack is in the ring,
-  so `stack_names`, `debug.display_stack` and `save.stacks` show it under
-  its id-shaped name (`fresh_name`, 21 characters). A program that saves
+  so `stack_names` and `save.stacks` name it, under its id-shaped name
+  (`fresh_name`, 21 characters). It is also the current stack, so
+  `debug.display_stack` shows its values, though not its name
+  (`display_stack` in `console.rs` renders `vm.snapshot()`). A program that saves
   it and later restores it under that name is S5 step 3.1's collision,
   which is why the step exists.
 - **Tags.** A heap value λ leaves keeps the scratch stack's name as its tag
@@ -1577,9 +1580,12 @@ otherwise, or a measurement in `docs/measurements/`.
 4. **No Rust depth across answers.** `[ nat _ ]` over `[ nat z ]` and
    `[ [ nat [ s N ] ] ← [ nat N ] ]`, with `limit` 1,000,000, answers
    1,000,000 empty MAPs. The Rust stack depth, sampled from `lambda` at the
-   10th and the 1,000,000th answer, is equal. The sample is taken by a
-   native the test registers, which pushes the address of one of its own
-   locals as an INT; equal addresses mean equal depth.
+   100,000th and the 1,000,000th answer, is equal. The sample is taken by
+   a native the test registers, which pushes the address of one of its
+   own locals as an INT; equal addresses mean equal depth. Both samples
+   fall after `lambda` is hot, so under `--features jit` both come from
+   the same compiled caller: an earlier sample would come through the
+   interpreter's frames and differ for that reason alone.
 5. **The inference cap.** `[ loop ]` over `[ [ loop ] ← [ loop ] ]`, with
    `inferences` 20,000,000, emits W1 once, then E30, which `?try` catches.
    The arena growth is recorded.
@@ -1594,7 +1600,9 @@ otherwise, or a measurement in `docs/measurements/`.
      stack's name is unchanged and `stack_names()` holds no scratch stack.
    - The restore (S5 step 3.4): `kb/bridge.rs: run` is run against a `Vm`
      wrapper whose `scoped_call` returns `Err` with the scratch stack
-     current, as F231 did before its fix.
+     current, as F231 did before its fix. The wrapper delegates every
+     other method to an `Interp`, and lives in `bund2-stdlib`'s tests,
+     which have `bund2-interp` as a dev-dependency.
    - A stack made by `load.stacks` under a pooled name is left intact, and
      the bridge reads its own result.
 8. **The name table.** It is measured by interning a fresh probe name
@@ -1624,8 +1632,9 @@ otherwise, or a measurement in `docs/measurements/`.
       `kb/bridge.rs: run` and `kb/query.rs: run_query`.
       `REPORTS_MID_BODY` gains `kb.word`. `BUILT` gains Phase 1's forms.
       `PROMOTABLE.txt`'s diff names only S13's words.
-      `no_native_reports_at_error_severity` walks subdirectories, and a
-      file placed in `src/kb/` with an `Error`-severity report fails it
+      `no_native_reports_at_error_severity` walks subdirectories, and
+      asserts that it read at least one file under `kb/`, as
+      `nothing_shipped_follows_a_test_module` counts the files it reads
       (M1).
     - **12b** — `kb/bridge.rs: ask` is added to both lists, and Phase 2's
       forms to `BUILT`.
@@ -1688,8 +1697,17 @@ otherwise, or a measurement in `docs/measurements/`.
     - `[ [ once [ path a Y ] ] [ path a Z ] ]` answers every Z.
     - **E54.** With `p/0` and `q/0` tabled, `[ [ p ] ← [ not [ q ] ] ]` and
       `[ [ q ] ← [ p ] ]` make `[ p ]` E54: `q` merges into `p`'s SCC across
-      the `Not`. An `if` whose condition calls an evaluating table, and a
-      `findall` over one, are each E54 too.
+      the `Not`. Keeping `[ [ q ] ← [ p ] ]` and replacing `p`'s clause,
+      `[ [ p ] ← [ if [ [ q ] ] [ true ] [ fail ] ] ]` is E54 across a
+      running `Else`, and `[ [ p ] ← [ findall X [ [ q ] ] L ] ]` across a
+      `Collect`.
+    - **The join rule itself.** A unit test in `kb/table.rs` drives the
+      completion stack through the second KB's call sequence (leaders
+      `path(a, _)`, `path(b, _)`, `path(c, _)`, `path(e, _)`; consumers
+      `path(a, _)` from `path(c, _)` and `path(b, _)` from `path(e, _)`)
+      and asserts that every entry ends under the root `path(a, _)`. The
+      KB tests show the answers are right; this one shows the merge
+      reached from V's SCC root and not from V's own entry.
 21. **Saturation.**
     - The saturated `path` facts for a source equal the tabled answers for
       that source.
@@ -1778,6 +1796,7 @@ tables below are the draft's own account and could not be checked.
 | 5 | answers the third review (2 blocking, 10 should-fix, 14 notes); consolidates |
 | 5, landed | D226 renumbered; citations converted to symbols; missing files noted |
 | 6 | answers the fourth review (1 blocking, 12 should-fix, 8 notes); F231 fixed apart |
+| 7 | answers the fifth review (no blocking, 4 should-fix, 3 notes) |
 
 **Where each finding is answered.**
 
@@ -1892,3 +1911,16 @@ S5/S6, S11 and criterion 11.
 | N8 | the worked examples' preamble |
 | Preservation | F231's fix; test-pinned lists; name collisions; λ seeing its stack |
 | Assumptions | `lambda`'s stack (S11); nested prefixes (S5); `fresh_name` (S5); the poll's cost (criterion 16) |
+
+**The fifth review (`-5.md`):**
+
+| Finding | Answered by |
+|---|---|
+| S1 | criterion 4 samples at the 100,000th and 1,000,000th answers, both after `lambda` is hot |
+| S2 | the choicepoint preamble names only the marks; resumption is in "On backtrack" (S4) |
+| S3 | criterion 12a asserts the scan read a file under `kb/` |
+| S4 | criterion 20's `if` and `findall` programs |
+| N1 | `debug.display_stack` shows values, not the name (S5) |
+| N2 | criterion 20's unit test on the join rule |
+| N3 | Q44's register row narrowed |
+| Assumption | criterion 7's wrapper delegates to an `Interp`, in `bund2-stdlib`'s tests |
