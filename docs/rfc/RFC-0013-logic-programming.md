@@ -1,6 +1,6 @@
 # RFC-0013: Logic programming — knowledge bases, unification and resolution
 
-- Status: **Draft — revision 11 (2026-10-28).**
+- Status: **Draft — revision 12 (2026-10-28).**
   - Revision 5 carried every correction from the pre-RFC review and three
     adversarial reviews (`reviews/RFC-0013-review-2026-10-28.md`, `-2.md`
     and `-3.md`, each "Not ready for Accepted").
@@ -11,8 +11,9 @@
     blocking finding, 2 should-fix, 2 notes), and revision 9 the seventh
     (`-7.md`: no blocking finding, 2 should-fix, 1 note). Revision 10
     answers the eighth (`-8.md`: no blocking finding, 1 should-fix,
-    1 note), and revision 11 the ninth (`-9.md`: no blocking finding,
-    1 should-fix, 1 note).
+    1 note), revision 11 the ninth (`-9.md`: no blocking finding,
+    1 should-fix, 1 note), and revision 12 the tenth (`-10.md`: no
+    blocking finding, 1 should-fix, 1 note).
   - Appendix A maps each finding to the place that answers it.
   - **D226 (L1–L15) is RESOLVED** (2026-10-28, "all as recommended"):
     every ruling as this text is written, L11 deferred. The fifth review
@@ -80,7 +81,8 @@
 - Reference SHA: `reference/Bund` 21b40b0. Bund2 read at `0c145de` on
   landing, at `2ebe0c4` for revision 6, at `311e16c` for revision 7, at
   `33bf856` for revision 8, at `b0b2ffb` for revision 9, at `b39f0c9`
-  for revision 10 and at `17a2b7c` for revision 11.
+  for revision 10, at `17a2b7c` for revision 11 and at `dd98c85` for
+  revision 12.
 - Supersedes: nothing in this repository. The draft named the research
   document `06-logic-programming.md` §4.2–§4.5, §7 and §8 (L3, L3a, L5),
   per an ERRATA entry; neither was ever committed, so there is nothing to
@@ -323,15 +325,18 @@ RFC or for one of its reviews.
   (F158).
 - **The memory guard.**
   - The interpreter polls it "where a body starts running" (the module
-    header), the first act of `push_frame_once`. D171 calls that "the one
-    place", which it no longer is.
+    header), the first act of `push_frame_once`. That is still the one
+    place a body starts running (D171, D42).
   - **Natives poll it too.** `seq` asks between chunks of 4096 values
     (`build` in `crates/bund2-stdlib/src/seq.rs`, F210's fix), and
     `io.graph` every 4096 rows of its chart (`ascii_plot` in
     `crates/bund2-stdlib/src/host.rs`, with F104's refusal). Both fail
     with `Trip::error` as it is, with no prefix. The engine's poll (S4)
-    is the third, and follows them; this RFC reads D171 as amended in
-    practice by F210 and F104.
+    is the third native to poll it, and follows them.
+  - **What F210 and F104 overtook** is D171's "What it does not cover":
+    that a native which allocates in one call is not interrupted, with
+    `seq` as "the known case". Both now ask the guard as they build, and
+    this RFC reads that bullet as amended in practice by them.
   - A trip is consumed by one `take` (the module header and `take` in
     `crates/bund2-api/src/memguard.rs`).
   - Its tests run in their own binary (the header of
@@ -1877,6 +1882,7 @@ tables below are the draft's own account and could not be checked.
 | 9 | answers the seventh review (no blocking, 2 should-fix, 1 note) |
 | 10 | answers the eighth review (no blocking, 1 should-fix, 1 note) |
 | 11 | answers the ninth review (no blocking, 1 should-fix, 1 note); E40 unprefixed |
+| 12 | answers the tenth review (no blocking, 1 should-fix, 1 note) |
 
 **Where each finding is answered.**
 
@@ -2036,3 +2042,10 @@ S5/S6, S11 and criterion 11.
 |---|---|
 | S1 | F104 and F210 consumed; "Rules of the house" names the guard's three pollers; E40 follows `seq` and `io.graph`, unprefixed (S5, S12), reversing revision 9; criterion 1b's substring follows |
 | N1 | criterion 1b says "after 1,000,000 inferences", not a time |
+
+**The tenth review (`-10.md`):**
+
+| Finding | Answered by |
+|---|---|
+| S1 | "Rules of the house" quotes D171 rightly: `push_frame` is still the one place a body starts running; F210 and F104 overtook D171's "What it does not cover" |
+| N1 | "the third native to poll it" |
