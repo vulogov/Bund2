@@ -1,14 +1,15 @@
 # RFC-0013: Logic programming — knowledge bases, unification and resolution
 
-- Status: **Draft — revision 8 (2026-10-28).**
+- Status: **Draft — revision 9 (2026-10-28).**
   - Revision 5 carried every correction from the pre-RFC review and three
     adversarial reviews (`reviews/RFC-0013-review-2026-10-28.md`, `-2.md`
     and `-3.md`, each "Not ready for Accepted").
   - Revision 6 answers the fourth review, the first on file
     (`reviews/RFC-0013-review-2026-10-28-4.md`: 1 blocking, 12 should-fix,
     8 notes). Revision 7 answers the fifth (`-5.md`: no blocking finding,
-    4 should-fix, 3 notes), and revision 8 the sixth (`-6.md`: no
-    blocking finding, 2 should-fix, 2 notes).
+    4 should-fix, 3 notes), revision 8 the sixth (`-6.md`: no
+    blocking finding, 2 should-fix, 2 notes), and revision 9 the seventh
+    (`-7.md`: no blocking finding, 2 should-fix, 1 note).
   - Appendix A maps each finding to the place that answers it.
   - **D226 (L1–L15) is RESOLVED** (2026-10-28, "all as recommended"):
     every ruling as this text is written, L11 deferred. The fifth review
@@ -73,8 +74,8 @@
   - ERRATA has no logic entry. The research document one would correct
     was never committed (below), so none is owed.
 - Reference SHA: `reference/Bund` 21b40b0. Bund2 read at `0c145de` on
-  landing, at `2ebe0c4` for revision 6, at `311e16c` for revision 7 and at
-  `33bf856` for revision 8.
+  landing, at `2ebe0c4` for revision 6, at `311e16c` for revision 7, at
+  `33bf856` for revision 8 and at `b0b2ffb` for revision 9.
 - Supersedes: nothing in this repository. The draft named the research
   document `06-logic-programming.md` §4.2–§4.5, §7 and §8 (L3, L3a, L5),
   per an ERRATA entry; neither was ever committed, so there is nothing to
@@ -654,7 +655,9 @@ is left, the query is exhausted.
 5. **Errors.** An error in λ is E24, naming the goal, and `?try` catches
    it.
    - **A guard trip** is taken by whichever poll meets it first. The
-     engine's own poll (S4) raises E40, the guard's text alone. The
+     engine's own poll (S4) raises E40: `<W>: ` and the guard's text, as
+     S12 prefixes every code but E00, so the text names the word that was
+     solving when the guard tripped. The
      interpreter's poll inside λ fails λ, so the trip surfaces as E24
      wrapping the guard's text; inside `ask` it is E57. All three carry
      the guard's text, which is what criterion 1b tests.
@@ -1566,15 +1569,23 @@ otherwise, or a measurement in `docs/measurements/`.
    - **1b** — the asking words: E10–E14, E26, E30, and E00 unprefixed
      (M3). The guard's codes are tested in
      `crates/bund2-runtime/tests/oom_guard.rs`, because the guard's flag
-     is process-wide and that binary runs one test at a time. A trip set
-     before the program starts is taken at its first body, before any
-     `kb.` word runs (`push_frame_once` polls first), so each path is
-     forced:
-     - **E40, the engine's poll (M3).** `[ loop ]` over
-       `[ [ loop ] ← [ loop ] ]`, which runs no bridge, is tripped from
-       another thread while it runs, as
-       `a_running_program_is_stopped_at_its_next_call` trips its loop. Only
-       the engine polls inside that query, so the code is always E40.
+     is process-wide and that binary runs one test at a time.
+     - **Where the polls are.** The interpreter's only poll is the first
+       act of `push_frame_once`. The top level runs its values through
+       `apply_step` in `Interp::eval_observed`, with no frame, and a
+       native is entered through `dispatch`, `call_native` and `invoke`,
+       also with no frame. So a top-level `kb.` word is reached without
+       a poll, and the first poll a query meets is the engine's own
+       (S4). (`a_trip_fails_the_next_call_like_any_error_and_is_catchable`
+       fails at once because its `f` is a `register`ed word, which has a
+       frame.)
+     - **E40, the engine's poll (M3).** The test trips the guard, then
+       evaluates `[ loop ]` over `[ [ loop ] ← [ loop ] ]` at the top
+       level. The engine's first poll takes the trip, so the code is
+       always E40, with no thread and no timing. The same holds for a
+       query whose first goal is a bridge: the engine polls at the
+       bridge's inference, before λ starts, so a trip set beforehand is
+       E40, not E24.
      - **E24, the interpreter's poll inside λ (M4).** A bridge λ calls a
        native the test registers, which calls `bund2_api::memguard::trip`,
        and then calls a word the test has `register`ed. The next poll is
@@ -1611,9 +1622,11 @@ otherwise, or a measurement in `docs/measurements/`.
      criterion holds at both tiers.
    - **Why these two answers.** By the 100,000th answer, `lambda` has
      been entered far beyond D74's default threshold of 1024, so under the
-     `jit` build both samples come through the compiled caller. A sample
-     taken before it compiled would come through the interpreter's frames,
-     and would differ for that reason alone.
+     `jit` build the tier has either compiled it or declined it
+     (D146). Either way, both samples come through the same caller, and
+     the criterion asks only that they are equal. A sample taken before
+     that point could come through a different caller, and differ for
+     that reason alone.
 5. **The inference cap.** `[ loop ]` over `[ [ loop ] ← [ loop ] ]`, with
    `inferences` 20,000,000, emits W1 once, then E30, which `?try` catches.
    The arena growth is recorded.
@@ -1832,6 +1845,7 @@ tables below are the draft's own account and could not be checked.
 | 6 | answers the fourth review (1 blocking, 12 should-fix, 8 notes); F231 fixed apart |
 | 7 | answers the fifth review (no blocking, 4 should-fix, 3 notes) |
 | 8 | answers the sixth review (no blocking, 2 should-fix, 2 notes) |
+| 9 | answers the seventh review (no blocking, 2 should-fix, 1 note) |
 
 **Where each finding is answered.**
 
@@ -1969,3 +1983,11 @@ S5/S6, S11 and criterion 11.
 | N1 | the join-rule test names its four entries |
 | N2 | the header's "Bund2 read at" reaches revision 8 |
 | Assumption | both test natives are `opaque(0)` (criteria 1b and 4) |
+
+**The seventh review (`-7.md`):**
+
+| Finding | Answered by |
+|---|---|
+| S1 | criterion 1b states where the polls are: the top level and natives have no frame, so a trip set beforehand meets the engine's poll; E40's test trips first, with no thread |
+| S2 | S5 gives E40 S12's prefix |
+| N1 | criterion 4 asks for equal samples whichever caller runs `lambda` |
