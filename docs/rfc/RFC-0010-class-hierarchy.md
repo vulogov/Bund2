@@ -18,7 +18,7 @@
 - Decisions consumed: D23 (`!` builds from the class value), D25 (a class must
   carry its own `.class_name`), D72 (Bund2 may carry what the reference does
   not)
-- Decisions produced: **D96**, answering all three questions below; **D222** (2026-10-27) re-parents `Integer` and `Float` under `Magnitude` ← `Number`; **D223** (2026-10-27) gives those two operator methods; **D224** (2026-10-27) adds `max`, `min`, `between`, `abs` and `negated` — see the amendments at the end
+- Decisions produced: **D96**, answering all three questions below; **D222** (2026-10-27) re-parents `Integer` and `Float` under `Magnitude` ← `Number`; **D223** (2026-10-27) gives those two operator methods; **D224** (2026-10-27) adds `max`, `min`, `between`, `abs` and `negated`; **D225** (2026-10-28) adds `Boolean` above `Bool`, `Collection` above `List`, and the words `Integer` and `Float` — see the amendments at the end
 - Grounded against the pinned submodules and the oracle on 2026-10-05
 
 ## Summary
@@ -513,4 +513,50 @@ Display                     .super []            format, display
             └── List        .super [Value]       .init, push
                 ├── Floats      .super [List]    .init, push
                 └── Intervals   .super [List]    .init, push, overlap
+```
+
+## Amendment, 2026-10-28 — `Boolean`, `Collection`, and the words `Integer` and `Float` (D225)
+
+On the owner's request and rulings, **D225**:
+
+- **`Boolean` is inserted above `Bool`**, under `Value`, with `and`, `or`
+  and `not`. `and` and `or` are D223's operators, each slot running the
+  word of its name on the wrapped value; `not` runs `not`. Each answers a
+  `Bool` object, so `False :and True !` is a `Bool`, as `True` is.
+  **This moves `bool-objects.golden`**, whose 20 ancestry slots (§5) gain
+  `Boolean`'s, and **`resolve-do-json.golden`**, whose `"Bool"
+  resolve.class` pushes the class with its `.super`. An object copies its class's slots, so giving `Bool` the methods
+  directly would have moved the same golden; leaving `Bool` alone would
+  have left `True` and `False` without them.
+- **`Collection` is inserted above `List`**, under `Value`, with `size` (what
+  `len` answers, as an `Integer` object) and `isEmpty` (a bare BOOL).
+  **This moves `oop-collections.golden`**, which dumps a `List`, a `Floats`
+  and an `Intervals` object: §S2's "any future golden over a `List` object
+  would differ" was already true of that probe.
+- **`Integer` and `Float` are words**: `42 Integer` is `42 :Integer
+  object`, applied by name as `True` applies `object`. The operand is
+  converted by the class's `.init`, so `"42" Integer` is the integer 42.
+
+The owner accepted the three goldens as deviations under D225, so
+CONFORMANCE and CEILING read 143/159.
+`booleans_collections_and_the_number_words` (`crates/bund2-stdlib/src/oop.rs`)
+is the record, and the diagram is current:
+
+### Bund2's hierarchy, as registered
+
+```
+Display                     .super []            format, display
+└── Printable               .super [Display]     str, print, println
+    └── Object              .super [Printable]   .id, .timestamp
+        └── Value           .super [Object]      .init
+            ├── Magnitude   .super [Value]       <, <=, >, >=, ==, !=, max, min, between
+            │   └── Number  .super [Magnitude]   +, -, *, /, abs, negated
+            │       ├── Integer   .super [Number]   .init
+            │       └── Float     .super [Number]   .init
+            ├── Boolean     .super [Value]       and, or, not
+            │   └── Bool    .super [Boolean]     .init
+            └── Collection  .super [Value]       size, isEmpty
+                └── List    .super [Collection]  .init, push
+                    ├── Floats      .super [List]    .init, push
+                    └── Intervals   .super [List]    .init, push, overlap
 ```

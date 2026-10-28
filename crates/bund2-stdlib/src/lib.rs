@@ -1480,7 +1480,7 @@ mod honesty_tests {
     /// outside this crate (RFC-0005 assumption 24).
     #[test]
     fn every_reentering_function_is_named() {
-        const REENTERING: [&str; 29] = [
+        const REENTERING: [&str; 31] = [
             // RFC-0008 §W2: a line typed at a debugger stop, applied value by
             // value. Called from a safepoint and never from a native.
             "lib.rs: eval_line",
@@ -1502,10 +1502,16 @@ mod honesty_tests {
             // `bool_object` does and for its reason: a rebound `object` must
             // reach them too (RFC-0010 S1).
             "oop.rs: empty_of",
+            // D225: `Integer` and `Float` apply a CALL to `object` for the
+            // same reason.
+            "oop.rs: number_object",
             // D223, D224: every number method applies a CALL to an operator
             // word through `operate`, so a rebound `+` reaches `Number`'s `+`
             // too.
             "oop.rs: operate",
+            // D225: `not`, `size` and `isEmpty` apply `not` and `len` the same
+            // way.
+            "oop.rs: operate_one",
             "oop.rs: run_init",
             "seq.rs: loop_base",
             "seq.rs: loop_over_base",

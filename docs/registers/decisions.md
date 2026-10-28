@@ -3669,6 +3669,87 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D225 — `Boolean` above `Bool`, `Collection` above `List`, and the words `Integer` and `Float`
+
+**Raised 2026-10-28** by the repository owner, choosing from the RFC
+remainder: "constructor words for Integer and Float; Boolean and
+Collection classes".
+
+- Blocks: nothing
+- Depends on: D222 (re-parenting toward Smalltalk's tree), D223 (operators
+  run by name on the wrapped value), D224, D72, D179, D96, RFC-0010
+- Options, as set out: `Boolean` above `Bool` (moves
+  `bool-objects.golden`), beside it, or deferred; `Collection` above `List`
+  or beside it; the classes with methods or bare; `Integer` and `Float`
+  taking an operand or building a zero.
+- Status: **RESOLVED — `Boolean` above `Bool` and `Collection` above
+  `List`, the three goldens they move accepted as deviations; core methods;
+  the words take an operand**, by the repository owner, 2026-10-28.
+
+### A correction to the options, first
+
+`Boolean` was first offered "beside `Bool`", with its methods on `Bool` as
+well. That cannot be done without the same cost: an object copies its
+class's slots (`make_object`, `crates/bund2-stdlib/src/oop.rs`), and
+`bool-objects.golden` dumps a `Bool` object, `.init` slot included, so any
+new slot on `Bool` moves it. Corrected before any code was written; the
+owner then chose `Boolean` above `Bool`.
+
+**And a second, found by `conform` after the code was written.** The options
+said `Collection` above `List` moves no golden, repeating RFC-0010 §S2's "no
+golden dumps a `List` object". `oop-collections.golden` does: it dumps a
+`List`, a `Floats` and an `Intervals` object. And `Boolean` moves a second
+golden, `resolve-do-json.golden`, whose `"Bool" resolve.class` pushes the
+`Bool` class itself, `.super` included. Three goldens moved, not one; the
+owner, told so, accepted all three.
+
+### What it is
+
+- **`Boolean`**, under `Value`, is `Bool`'s parent where the reference's is
+  `Value` (`reference/Bund/src/stdlib/functions/oop/bool_class.rs:35`). Its
+  slots: `and` and `or`, D223's operators running the words of their names
+  on the wrapped value, and `not`, running `not`. The words convert, so
+  `0 :or True !` is true. Each answers a `Bool` object; `True` and `False`
+  objects reach all three.
+- **`Collection`**, under `Value`, is `List`'s parent where the
+  reference's is `Value`
+  (`reference/Bund/src/stdlib/functions/oop/list_class.rs:63`), so `Floats`
+  and `Intervals` are collections too. Its slots: `size`, what `len`
+  answers for the wrapped value, as an `Integer` object; and `isEmpty`, a
+  bare BOOL, as `between` answers.
+- **`Integer` and `Float`** are words: `42 Integer` is `42 :Integer
+  object`, applying `object` by name as `True` does, so a rebound `object`
+  reaches them. The class's `.init` converts the operand: `"42" Integer` is
+  the integer 42, `2.5 Integer` is 2. The reference has neither word.
+
+Every method consumes its receiver (and `and`'s and `or`'s operand) and
+answers one value (D179). Neither new class has an `.init`, so construction
+consumes what it did.
+
+### What a program sees differently
+
+- **Three goldens move, each approved here as a deviation**:
+  `bool-objects.golden` (a `Bool` object's ancestry gains `Boolean`),
+  `resolve-do-json.golden` (the `Bool` class's `.super` names `Boolean`),
+  and `oop-collections.golden` (a `List`, `Floats` and `Intervals` object's
+  ancestry gains `Collection`). CONFORMANCE and CEILING each fall from 146 to
+  143 of 159. The fuzzer may report the same differences as state
+  differences, which this entry approves, as D222 did for numbers.
+- `?is` answers true for `:Boolean` of a `Bool` and `:Collection` of a
+  `List`, `Floats` or `Intervals`.
+
+### Built, the same day
+
+- `boolean_not`, `collection_size`, `collection_is_empty`, `operate_one`,
+  `number_object` and the `BOOLEAN_OPERATORS` table in
+  `crates/bund2-stdlib/src/oop.rs`. `operator_method` now takes what to do
+  with the answer; `push_number` keeps D223's rule, so arithmetic that
+  answers a BOOL still answers it bare.
+- `booleans_collections_and_the_number_words` pins values, answer classes,
+  ancestry and refusals; `REENTERING` names `number_object` and
+  `operate_one`.
+- RFC-0010's amendment of 2026-10-28 draws the hierarchy, fourteen rows.
+
 ## D224 — `max`, `min` and `between` on `Magnitude`; `abs` and `negated` on `Number`
 
 **Raised 2026-10-27** by the repository owner: "add max, min and between to

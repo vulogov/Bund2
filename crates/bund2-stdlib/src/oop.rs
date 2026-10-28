@@ -638,17 +638,23 @@ fn method_float_init(vm: &mut dyn Vm) -> Result<(), Error> {
 /// `3 + 0.5` is. Any other answer is pushed bare: `wrap` can put a string in a
 /// `Number`'s `.data`, and `+` on strings is no number. A comparison's answer
 /// is the word's BOOL, bare.
-fn operator_method(vm: &mut dyn Vm, class: &str, op: &str, number: bool) -> Result<(), Error> {
+///
+/// **D225: `Boolean`'s `and` and `or` are operators too**, and their answer
+/// is a `Bool` object, as `True` is.
+fn operator_method(vm: &mut dyn Vm, class: &str, op: &str, answer: Answer) -> Result<(), Error> {
     let (data, operands) = receiver_and(vm, class, op, 1)?;
     let operand = only(operands, class, op)?;
-    let answer = operate(vm, data, op, operand)?;
-    match number {
-        true => push_number(vm, answer),
-        false => {
-            vm.push(answer);
-            Ok(())
-        }
-    }
+    let value = operate(vm, data, op, operand)?;
+    answer(vm, value)
+}
+
+/// What a method does with the answer its word left: push it bare, or wrap
+/// it in the object its type calls for.
+type Answer = fn(&mut dyn Vm, BundValue) -> Result<(), Error>;
+
+fn push_bare(vm: &mut dyn Vm, answer: BundValue) -> Result<(), Error> {
+    vm.push(answer);
+    Ok(())
 }
 
 /// Pull the receiver and the `below` operands beneath it, nearest first, and
@@ -705,6 +711,22 @@ fn operate(
         .ok_or_else(|| Error(format!("'{op}' left no answer for a method")))
 }
 
+/// `op` on one value, by the stack word — `not`, and `len`, which leaves its
+/// operand beside the answer. Whatever the word leaves above the depth it
+/// started from, beyond the answer on top, is dropped.
+fn operate_one(vm: &mut dyn Vm, value: BundValue, op: &str) -> Result<BundValue, Error> {
+    let depth = vm.depth();
+    vm.push(value);
+    vm.apply(BundValue::call(op))?;
+    let answer = vm
+        .pull()
+        .ok_or_else(|| Error(format!("'{op}' left no answer for a method")))?;
+    while vm.depth() > depth {
+        vm.pull();
+    }
+    Ok(answer)
+}
+
 /// A comparison's answer as a Rust `bool`, for the methods that branch on one.
 fn compare(vm: &mut dyn Vm, left: BundValue, op: &str, right: BundValue) -> Result<bool, Error> {
     match operate(vm, left, op, right)?.unboxed() {
@@ -719,9 +741,19 @@ fn compare(vm: &mut dyn Vm, left: BundValue, op: &str, right: BundValue) -> Resu
 /// An `Integer` object for an INTEGER, a `Float` object for a FLOAT, anything
 /// else bare — D223's rule for every answer that is a number.
 fn push_number(vm: &mut dyn Vm, answer: BundValue) -> Result<(), Error> {
+    match answer.dt() {
+        bund2_value::BOOL => push_bare(vm, answer),
+        _ => push_as_object(vm, answer),
+    }
+}
+
+/// A `Bool` object for a BOOL — D225's rule for `Boolean`'s answers — and
+/// D223's for a number; anything else bare.
+fn push_as_object(vm: &mut dyn Vm, answer: BundValue) -> Result<(), Error> {
     let name = match answer.dt() {
         bund2_value::INTEGER => "Integer",
         bund2_value::FLOAT => "Float",
+        bund2_value::BOOL => "Bool",
         _ => {
             vm.push(answer);
             return Ok(());
@@ -806,6 +838,46 @@ const NUMBER_METHODS: &[(&str, &str, bund2_api::NativeFn, MethodEffect)] = &[
     ("negated", ".number_negated", number_negated, CONSUME_NONE),
 ];
 
+/// `not` — **D225**. The receiver's value through the `not` word, which
+/// converts as it does (`0 not` is true), answered as a `Bool` object.
+fn boolean_not(vm: &mut dyn Vm) -> Result<(), Error> {
+    let (data, _) = receiver_and(vm, "Boolean", "not", 0)?;
+    let answer = operate_one(vm, data, "not")?;
+    push_as_object(vm, answer)
+}
+
+const BOOLEAN_METHODS: &[(&str, &str, bund2_api::NativeFn, MethodEffect)] =
+    &[("not", ".boolean_not", boolean_not, CONSUME_NONE)];
+
+/// `size` — **D225**. What `len` answers for the receiver's value, as an
+/// `Integer` object: the element count of a `List`, `Floats` or `Intervals`,
+/// and `len`'s own answer for whatever `wrap` put there instead.
+fn collection_size(vm: &mut dyn Vm) -> Result<(), Error> {
+    let (data, _) = receiver_and(vm, "Collection", "size", 0)?;
+    let answer = operate_one(vm, data, "len")?;
+    push_number(vm, answer)
+}
+
+/// `isEmpty` — **D225**. Whether `len` answers 0, as a bare BOOL, as
+/// `between` answers.
+fn collection_is_empty(vm: &mut dyn Vm) -> Result<(), Error> {
+    let (data, _) = receiver_and(vm, "Collection", "isEmpty", 0)?;
+    let size = operate_one(vm, data, "len")?;
+    let empty = compare(vm, size, "==", BundValue::int(0))?;
+    vm.push(BundValue::boolean(empty));
+    Ok(())
+}
+
+const COLLECTION_METHODS: &[(&str, &str, bund2_api::NativeFn, MethodEffect)] = &[
+    ("size", ".collection_size", collection_size, CONSUME_NONE),
+    (
+        "isEmpty",
+        ".collection_is_empty",
+        collection_is_empty,
+        CONSUME_NONE,
+    ),
+];
+
 /// The receiver and one operand in, one answer out — every operator, and
 /// `max` and `min`.
 const CONSUME_ONE: MethodEffect = MethodEffect::Consume {
@@ -821,16 +893,16 @@ const CONSUME_NONE: MethodEffect = MethodEffect::Consume {
 
 /// The slot, the method's name and its native, for each operator — D223.
 macro_rules! operators {
-    ($table:ident, $class:literal, $number:literal: $($op:literal => $f:ident;)*) => {
+    ($table:ident, $class:literal, $answer:ident: $($op:literal => $f:ident;)*) => {
         $(fn $f(vm: &mut dyn Vm) -> Result<(), Error> {
-            operator_method(vm, $class, $op, $number)
+            operator_method(vm, $class, $op, $answer)
         })*
         const $table: &[(&str, &str, bund2_api::NativeFn)] =
             &[$(($op, concat!(".", stringify!($f)), $f)),*];
     };
 }
 
-operators!(MAGNITUDE_OPERATORS, "Magnitude", false:
+operators!(MAGNITUDE_OPERATORS, "Magnitude", push_bare:
     "<" => magnitude_lt;
     "<=" => magnitude_le;
     ">" => magnitude_gt;
@@ -839,12 +911,20 @@ operators!(MAGNITUDE_OPERATORS, "Magnitude", false:
     "!=" => magnitude_ne;
 );
 
-operators!(NUMBER_OPERATORS, "Number", true:
+operators!(NUMBER_OPERATORS, "Number", push_number:
     "+" => number_add;
     "-" => number_sub;
     "*" => number_mul;
     "/" => number_div;
 );
+
+operators!(BOOLEAN_OPERATORS, "Boolean", push_as_object:
+    "and" => boolean_and;
+    "or" => boolean_or;
+);
+
+/// Collection has no operator; the table `register_wrapped` reads is empty.
+const COLLECTION_OPERATORS: &[(&str, &str, bund2_api::NativeFn)] = &[];
 
 /// `List`'s `.init` — convert the wrapped data to LIST
 /// (`reference/Bund/src/stdlib/functions/oop/list_class.rs`,
@@ -1317,9 +1397,23 @@ fn register_wrapped(r: &mut Registry) {
     // word it runs. Every one consumes the receiver and the operand beneath
     // it and answers one value in their place. **D224** adds `max`, `min`
     // and `between` to `Magnitude` and `abs` and `negated` to `Number`.
+    //
+    // **D225: `Boolean` above `Bool`, and `Collection` above `List`**, each
+    // under `Value`, the owner's rulings. `Bool`'s parent is `Boolean` where
+    // the reference's is `Value` (`bool_class.rs:35`), which moves the
+    // ancestry `bool-objects.golden` captures: an approved deviation.
+    // `List`'s is `Collection` (`list_class.rs:63`), which no golden dumps.
+    // Neither new class has an `.init`.
     for (name, parent, ops, more) in [
         ("Magnitude", "Value", MAGNITUDE_OPERATORS, MAGNITUDE_METHODS),
         ("Number", "Magnitude", NUMBER_OPERATORS, NUMBER_METHODS),
+        ("Boolean", "Value", BOOLEAN_OPERATORS, BOOLEAN_METHODS),
+        (
+            "Collection",
+            "Value",
+            COLLECTION_OPERATORS,
+            COLLECTION_METHODS,
+        ),
     ] {
         let mut c = BundValue::class(Default::default())
             .set(".class_name", BundValue::str(name))
@@ -1333,7 +1427,7 @@ fn register_wrapped(r: &mut Registry) {
     }
     for (name, parent, init) in [
         ("Integer", "Number", ".int_init"),
-        ("Bool", "Value", ".bool_init"),
+        ("Bool", "Boolean", ".bool_init"),
         ("Float", "Number", ".float_init"),
     ] {
         let c = BundValue::class(Default::default())
@@ -1387,7 +1481,10 @@ fn register_wrapped(r: &mut Registry) {
 
     let list = BundValue::class(Default::default())
         .set(".class_name", BundValue::str("List"))
-        .set(".super", BundValue::list(vec![BundValue::str("Value")]))
+        .set(
+            ".super",
+            BundValue::list(vec![BundValue::str("Collection")]),
+        )
         .set(".init", BundValue::ptr(".list_init"))
         .set("push", BundValue::ptr(".list_push"));
     r.register_class("List", list);
@@ -1436,6 +1533,13 @@ fn empty_of(vm: &mut dyn Vm, class: &str) -> Result<(), Error> {
     vm.apply(BundValue::call("object"))
 }
 
+/// `Integer` and `Float` — **D225**: `42 Integer` is `42 :Integer object`,
+/// the operand converted as that class's `.init` converts it.
+fn number_object(vm: &mut dyn Vm, class: &str) -> Result<(), Error> {
+    vm.push(BundValue::str(class));
+    vm.apply(BundValue::call("object"))
+}
+
 /// `True` and `False` — a `Bool` object carrying the value.
 fn bool_object(vm: &mut dyn Vm, v: bool) -> Result<(), Error> {
     vm.push(BundValue::boolean(v));
@@ -1464,6 +1568,23 @@ pub fn register(r: &mut Registry) {
     }
     r.register_native("True", true_word, StackEffect::opaque(0), WordKind::Sync);
     r.register_native("False", false_word, StackEffect::opaque(0), WordKind::Sync);
+    // **D225, under D72: `Integer` and `Float` take their operand** and apply
+    // `object` by name, for `True`'s reason. The reference has no such words;
+    // its classes are reached only by `:Integer object`. Opaque for
+    // `object`'s reason.
+    fn integer_word(vm: &mut dyn Vm) -> Result<(), Error> {
+        number_object(vm, "Integer")
+    }
+    fn float_word(vm: &mut dyn Vm) -> Result<(), Error> {
+        number_object(vm, "Float")
+    }
+    r.register_native(
+        "Integer",
+        integer_word,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
+    r.register_native("Float", float_word, StackEffect::opaque(1), WordKind::Sync);
     // **Opaque — F91.** Construction runs the class's `.init`, and every
     // parent's, through `run_init`: a lambda, or a method native called
     // directly. What that leaves is the constructor's business, so the pair
@@ -1976,8 +2097,8 @@ mod tests {
             .collect();
         assert_eq!(
             diagram.len(),
-            12,
-            "the diagram has twelve rows: {diagram:#?}"
+            14,
+            "the diagram has fourteen rows: {diagram:#?}"
         );
 
         let mut i = Interp::new();
@@ -2234,6 +2355,81 @@ mod tests {
                 "\"a\" :max 2 :Integer object !",
                 "COMPARE: unsupported operand #2",
             ),
+        ] {
+            let e = err_of(src);
+            assert!(e.contains(want), "{src}:\n  got {e}\n want {want}");
+        }
+    }
+
+    /// **D225.** `Boolean`'s methods answer what `and`, `or` and `not`
+    /// answer, as a `Bool` object; `Collection`'s answer `len`'s count and
+    /// whether it is 0; `Integer` and `Float` are `:Integer object` and
+    /// `:Float object`; and the ancestry each new class sits in.
+    #[test]
+    fn booleans_collections_and_the_number_words() {
+        for (src, want, class) in [
+            ("False :and True !", "false", Some("Bool")),
+            ("True :and True !", "true", Some("Bool")),
+            ("False :or True !", "true", Some("Bool")),
+            ("false :or False !", "false", Some("Bool")),
+            (":not False !", "true", Some("Bool")),
+            (":not True !", "false", Some("Bool")),
+            // The words convert, so a number is a truth value here too.
+            ("0 :or True !", "true", Some("Bool")),
+            (":size List !", "0", Some("Integer")),
+            (":size [ 1 2 3 ] :List object !", "3", Some("Integer")),
+            (":size [ 1 2 ] :Floats object !", "2", Some("Integer")),
+            (
+                ":size [ [ 1 2 ] ] :Intervals object !",
+                "1",
+                Some("Integer"),
+            ),
+            (":isEmpty List !", "true", None),
+            (":isEmpty [ 1 ] :List object !", "false", None),
+            ("42 Integer", "42", Some("Integer")),
+            ("\"42\" Integer", "42", Some("Integer")),
+            ("2 Float", "2.0", Some("Float")),
+            ("2.5 Integer", "2", Some("Integer")),
+        ] {
+            let mut i = run_src(src).expect(src);
+            assert_eq!(i.depth(), 1, "{src}: one answer");
+            if let Some(class) = class {
+                let asked = format!("{src} \"{class}\" ?is");
+                let is = run_src(&asked).expect(&asked);
+                let is = is.peek().expect("an answer").render(true);
+                assert!(is.contains("Bool(true)"), "{asked}: {is}");
+                unwrap_word(&mut i).expect("an object");
+            }
+            let got = i.peek().expect("an answer").render(true);
+            assert!(got.contains(&format!("({want})")), "{src}: {got}");
+        }
+
+        for (src, class, answer) in [
+            ("True", "Boolean", true),
+            ("True", "Value", true),
+            ("True", "Magnitude", false),
+            ("List", "Collection", true),
+            ("Floats", "Collection", true),
+            ("Intervals", "Collection", true),
+            ("1 Integer", "Collection", false),
+            ("1 Integer", "Boolean", false),
+        ] {
+            let asked = format!("{src} :{class} ?is");
+            let out = run_src(&asked).expect(&asked);
+            let got = out.peek().expect("an answer").render(true);
+            assert!(got.contains(&format!("Bool({answer})")), "{asked}: {got}");
+        }
+
+        for (src, want) in [
+            (
+                ":and True !",
+                "Stack is too shallow for method 'Boolean::and'",
+            ),
+            ("1 :and 1 Integer !", "VM no method and has been registered"),
+            (":size True !", "VM no method size has been registered"),
+            (":not List !", "VM no method not has been registered"),
+            ("\"a\" Integer", "Integer: error converting to INT"),
+            ("Integer", "Object(Value) NO DATA #1"),
         ] {
             let e = err_of(src);
             assert!(e.contains(want), "{src}:\n  got {e}\n want {want}");

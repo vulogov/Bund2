@@ -110,7 +110,7 @@ Each leaves the object on the stack. `.id`, `.timestamp`, `str` and
 | class | made by | keeps |
 |---|---|---|
 | `Value` | `<v> :Value object` | `v` as given, in `.data` |
-| `Integer`, `Float`, `Bool` | `<v> :Integer object`, … | `v` converted: `"42" :Integer object` holds 42; in Bund2 an `Integer` or `Float` is also a `Number` (below) |
+| `Integer`, `Float`, `Bool` | `<v> :Integer object`, …; in Bund2 also `<v> Integer`, `<v> Float` | `v` converted: `"42" :Integer object` holds 42; in Bund2 an `Integer` or `Float` is also a `Number`, and a `Bool` a `Boolean` (below) |
 | `True`, `False` | the words `True` and `False` | a Bool object |
 | `List` | `List`, or `<list> :List object` | a list; `push` adds to it |
 | `Floats` | `Floats`, … | a list that makes each item a FLOAT |
@@ -143,16 +143,21 @@ the basket with a pear in it, and `15.0 :overlap :bands var? !` answers
   word, so no golden can run it.
 - **Numbers, in a tree after Smalltalk's** (D222, D223, D224). `Integer`
   and `Float` descend from `Number`, which descends from `Magnitude`, which
-  descends from `Value`. A `Bool` stays directly under `Value`. The
-  reference puts `Integer` and `Float` directly under `Value` and has
-  neither class, so none of this has a golden.
+  descends from `Value`. The reference puts `Integer` and `Float`
+  directly under `Value` and has neither class, so none of this has a
+  golden.
 
       Value
       ├── Magnitude   <  <=  >  >=  ==  !=  max  min  between
       │   └── Number  +  -  *  /  abs  negated
       │       ├── Integer
       │       └── Float
-      └── Bool
+      ├── Boolean     and  or  not
+      │   └── Bool
+      └── Collection  size  isEmpty
+          └── List
+              ├── Floats
+              └── Intervals
 
   **The operators are methods**, and an object stands where its value
   would: each runs the word of the same name on the value inside. The top
@@ -174,6 +179,20 @@ the basket with a pear in it, and `15.0 :overlap :bands var? !` answers
   operand. `between` takes the bounds low first, `1 3 :between :two var? !`,
   and counts both ends as inside. `abs` and `negated` keep an `Integer` an
   `Integer`, where the word `math.abs` refuses one.
+
+  **`Integer` and `Float` are words too** (D225): `42 Integer` is
+  `42 :Integer object`, and `"42" Integer` holds 42.
+- **Booleans and collections** (D225). `Boolean` sits above `Bool` and
+  `Collection` above `List`, where the reference has both directly under
+  `Value`. Three goldens capture that ancestry, and D225 approves each as a
+  deviation. `and`, `or` and `not` answer a new `Bool` object, so `True`
+  and `False` can use them; `size` answers an `Integer` object and
+  `isEmpty` true or false:
+
+      True and False:           false
+      not (False or False):     true
+      the basket's size:        2
+      an empty List is empty:   true
 - **Workbench forms.** `?class.`, `?object.`, `resolve.class.`, `is.`,
   `?is.` and `#.` take their operand from the workbench and leave the
   answer there. `?is.` still takes the class name from the stack.
@@ -187,6 +206,7 @@ Each of these is an error the demo catches with `?try`:
     a parent never registered: … OBJECT class Nobody not registered
     a misspelled word:        … i(Lsit) for stack returned: Inline Lsit not registered
     a Bool compared:          … VM no method < has been registered
+    an Integer's size:        … VM no method size has been registered
     ?is on a number:          … ?IS: NO OBJECT IN #2
 
 - **A missing parent is named.** The reference names the child instead,
@@ -199,8 +219,8 @@ Each of these is an error the demo catches with `?try`:
 
 Every other line the demo prints is what the reference prints for the
 same program, less the Rust source paths the reference adds to an error's
-text (F66). The exceptions are the words Bund2 adds, the number classes and
-their methods, and the missing parent's name.
+text (F66). The exceptions are the words Bund2 adds, the number, boolean
+and collection classes and their methods, and the missing parent's name.
 
 ## Writing Bund like this
 

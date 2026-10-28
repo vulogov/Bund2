@@ -5,7 +5,8 @@
 // match wins), methods that call other methods on the same object, the
 // base classes every object can reach, the classes that wrap one value,
 // and the words Bund2 adds: `<class> !` (D23, D25), `?is` (D96), the
-// workbench forms, and numbers as objects with methods (D222, D223, D224).
+// workbench forms, numbers as objects with methods (D222, D223, D224),
+// and booleans and collections as objects with methods (D225).
 // Run it:
 //
 //   bund2 demo.bund
@@ -289,6 +290,31 @@ class :.class_name "Point" set :x 3 set :y 4 set ! :x swap ! print " " print :y 
 "half negated, then abs:   " print :abs :negated :half var? ! ! unwrap println
 
 //
+// `Integer` and `Float` are words as well as classes (D225): `42 Integer`
+// is `42 :Integer object`, converting as the class does.
+//
+"the text 42 by Integer, plus 1: " print 1 :+ "42" Integer ! unwrap println
+"the word Float, on 2:     " print 2 Float unwrap println
+
+//
+// Booleans and collections (D225). A Bool is a `Boolean`, which has
+// `and`, `or` and `not`, each answering a new Bool object; a `List`,
+// `Floats` or `Intervals` is a `Collection`, which has `size` and
+// `isEmpty`.
+//
+"" println
+"-- booleans and collections" println
+"True is a Boolean:        " print True "Boolean" ?is println
+"True and False:           " print False :and True ! unwrap println
+"True or False:            " print False :or True ! unwrap println
+"not True:                 " print :not True ! unwrap println
+"not (False or False):     " print :not False :or False ! ! unwrap println
+"Floats is a Collection:   " print Floats "Collection" ?is println
+"the basket's size:        " print :size :basket var? ! unwrap println
+"an empty List is empty:   " print :isEmpty List ! println
+"the bands are empty:      " print :isEmpty :bands var? ! println
+
+//
 // 6. What goes wrong. Each mistake is an error the program catches.
 //
 "" println
@@ -319,6 +345,11 @@ class :.class_name "Point" set :x 3 set :y 4 set ! :x swap ! print " " print :y 
 ?try
   :try    { true :< True ! } set
   :except { "a Bool compared:          " print :context get println drop drop } set
+!
+// An Integer is no Collection, so it has no `size`; the handler drops it.
+?try
+  :try    { :size 3 Integer ! } set
+  :except { "an Integer's size:        " print :context get println drop } set
 !
 ?try
   :try    { 42 "Object" ?is } set
