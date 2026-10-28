@@ -3669,6 +3669,43 @@ instead of the MATRIX converter's. Bund2 refuses it with the same text.
   natives), F48 (no way to record the deviation against a golden), F120
 - Status: **RESOLVED**
 
+## D226 — RFC-0013's rulings, L1–L15: logic programming as a stdlib family of Bund2's own
+
+**Raised 2026-10-28** by RFC-0013 (`docs/rfc/RFC-0013-logic-programming.md`),
+which landed as a draft on the owner's "land it as a draft with D226". The
+owner describes it as "new stdlib feature adding logic programming
+capabilities". The draft filed these rulings as D225, which D225 (`Boolean`
+and `Collection`) had taken by then.
+
+- Blocks: RFC-0013
+- Depends on: D72 (Bund2 may add what the reference lacks), D28, D84, D88,
+  D111, RFC-0012
+- Status: **OPEN.** The RFC is written against each recommended option and
+  marks each dependent passage **[L*n*]**; none is adopted until ruled.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **L1** | What a variable is | **A** a CALL starting uppercase or `_`, without `\|`. **B** `?x`. **C** a PTR. | **A** |
+| **L2** | How constants compare | **A** atoms by text; INT ≠ FLOAT; floats by key equality. **B** by `dt`. | **A** |
+| **L3** | Where a KB lives | **A** a MAP value. **B** a store held by the engine. | **A** |
+| **L4** | Lists and atoms | **A** `nil` is the empty list and not an atom; a LIST is a compound only when its first item is an atom CALL; a compound with no arguments is its atom. **B** an explicit `[ list … ]` for data lists. | **A** |
+| **L5** | The shape of an answer | **A** a MAP per answer; LISTs from `kb.call`. **B** the instantiated goal. | **A** |
+| **L6** | Answers one at a time | **A** `query`'s `lambda`. **B** cursor values. | **A** (D84) |
+| **L7** | The occurs check | **A** always on. **B** off (ISO). **C** per KB. | **A** |
+| **L8** | An undefined predicate | **A** an existence error. **B** failure. | **A** |
+| **L9** | The default build | **A** in it. **B** a feature, off by default (D28). | **A** |
+| **L10** | CLP(FD) | **A** Bund2's own. **B** a pinned crate (D38). **C** out of scope. | **A** |
+| **L11** | Certainty through `q` | **A** yes. **B** an explicit argument. **C** defer. | **C** |
+| **L12** | The conditional's name | **A** `query`. **B** `kb.run`. **C** `?query`. | **A** |
+| **L13** | Opaque constants | **A** key equality, which is identity (D13, D20, D88). **B** structural. | **A** |
+| **L14** | What acceptance covers | **A** every phase, built in order, each gated by its criteria. **B** Phase 1 only. | **A** |
+| **L15** | Residuals in answers | **A** `_residual`. **B** omitted. | **A** |
+
+The reasoning for each is in the RFC, under the section the marker names.
+The three reviews the draft answers are not in the repository (its
+Appendix A), so the record of how these options were reached is the draft's
+own account.
+
 ## D225 — `Boolean` above `Bool`, `Collection` above `List`, and the words `Integer` and `Float`
 
 **Raised 2026-10-28** by the repository owner, choosing from the RFC
