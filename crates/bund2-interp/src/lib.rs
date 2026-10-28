@@ -2728,7 +2728,22 @@ impl Vm for Interp {
         // Carries an exit action, so the tier is never offered it — see
         // `push_frame`. The LIST does have a key, a new one on every call.
         // A `( … )` context is nobody's word, so the frame carries no symbol.
-        self.push_frame(BundValue::list(body), Some(ExitAction::ToStack(prev)), None)?;
+        //
+        // **F231.** The frame can be refused before it exists — D171's poll is
+        // `push_frame_once`'s first act — and then no exit action runs. Unwind
+        // whatever was pushed, and come back by hand if nothing did.
+        let pushed = self.push_frame(
+            BundValue::list(body),
+            Some(ExitAction::ToStack(prev.clone())),
+            None,
+        );
+        if let Err(e) = pushed {
+            self.unwind_to(floor);
+            if self.stacks.current_name() != prev {
+                self.to_stack(&prev);
+            }
+            return Err(e);
+        }
         self.run_to(floor)?;
         // F112, as in `Interp::apply`.
         self.exit_gate()

@@ -4292,7 +4292,7 @@ side. No corpus program reads a BLOB, so conformance does not move.
 ## F231 — `scoped_call` leaves the named stack current when the memory guard refuses its frame
 
 **Bund2 defect; found 2026-10-28** by RFC-0013's first review, and checked
-against the code when the RFC landed. Not fixed; RFC-0013's bridge guards
+against the code when the RFC landed. Fixed 2026-10-28 (below); RFC-0013's bridge guards
 against it (§S5, step 3.4).
 
 `scoped_call` (`crates/bund2-interp/src/lib.rs`) switches to the named stack
@@ -4308,6 +4308,16 @@ it. `context` takes the same path (`run_context`,
 Reached only after an OOM trip, so no golden and no corpus program sees it.
 A fix restores the stack in `scoped_call`'s error arm, or polls before the
 switch.
+
+**Fixed 2026-10-28**, on the owner's "fix F231": the error arm. When
+`push_frame` fails, `scoped_call` unwinds to its floor, which runs the exit
+action if the frame was pushed, and switches back by hand if the stack it
+came from is still not current. Polling before the switch would have left a
+window between the poll and the push. `context` is fixed with it, since it
+goes through `scoped_call`. Test:
+`a_trip_refusing_a_scoped_call_leaves_the_stack_where_it_was`
+(`crates/bund2-runtime/tests/oom_guard.rs`), which failed before the fix.
+No golden moves.
 
 ## F230 — the fuzzer's first triage: operands kept that the reference spends, guards missing, messages in Bund2's words
 

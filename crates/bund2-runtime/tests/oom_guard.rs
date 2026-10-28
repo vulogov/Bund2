@@ -103,3 +103,34 @@ fn a_running_program_is_stopped_at_its_next_call() {
     assert!(e.contains("OOM GUARD"), "{e}");
     runner.join().unwrap();
 }
+
+/// **F231.** `scoped_call` switches to its stack before the frame that
+/// switches back exists, and the guard's poll refuses that frame. The call
+/// fails, and the stack it came from is current again — through `context`,
+/// which takes the same path, as well as directly.
+#[test]
+fn a_trip_refusing_a_scoped_call_leaves_the_stack_where_it_was() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    on_eval_thread(|| {
+        let mut rt = Runtime::new();
+        let home = rt.interp.current_name();
+
+        memguard::trip(TRIP);
+        let e = rt
+            .interp
+            .scoped_call("elsewhere", vec![bund2_value::BundValue::int(1)])
+            .expect_err("the scoped call after a trip fails");
+        assert!(e.0.contains("OOM GUARD"), "{}", e.0);
+        assert_eq!(rt.interp.current_name(), home, "the stack was restored");
+
+        rt.eval_str(":ctx :elsewhere context :body { 1 } set var")
+            .unwrap();
+        memguard::trip(TRIP);
+        let e = rt
+            .eval_str(":body :ctx var? !")
+            .expect_err("the context after a trip fails");
+        assert!(e.0.contains("OOM GUARD"), "{}", e.0);
+        assert_eq!(rt.interp.current_name(), home, "context restored it");
+        assert_eq!(memguard::take(), None, "the trip was consumed");
+    });
+}
