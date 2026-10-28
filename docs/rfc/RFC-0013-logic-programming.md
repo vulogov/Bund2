@@ -1,13 +1,14 @@
 # RFC-0013: Logic programming — knowledge bases, unification and resolution
 
-- Status: **Draft — revision 7 (2026-10-28).**
+- Status: **Draft — revision 8 (2026-10-28).**
   - Revision 5 carried every correction from the pre-RFC review and three
     adversarial reviews (`reviews/RFC-0013-review-2026-10-28.md`, `-2.md`
     and `-3.md`, each "Not ready for Accepted").
   - Revision 6 answers the fourth review, the first on file
     (`reviews/RFC-0013-review-2026-10-28-4.md`: 1 blocking, 12 should-fix,
     8 notes). Revision 7 answers the fifth (`-5.md`: no blocking finding,
-    4 should-fix, 3 notes).
+    4 should-fix, 3 notes), and revision 8 the sixth (`-6.md`: no
+    blocking finding, 2 should-fix, 2 notes).
   - Appendix A maps each finding to the place that answers it.
   - **D226 (L1–L15) is RESOLVED** (2026-10-28, "all as recommended"):
     every ruling as this text is written, L11 deferred. The fifth review
@@ -72,7 +73,8 @@
   - ERRATA has no logic entry. The research document one would correct
     was never committed (below), so none is owed.
 - Reference SHA: `reference/Bund` 21b40b0. Bund2 read at `0c145de` on
-  landing, and at `2ebe0c4` for revision 6.
+  landing, at `2ebe0c4` for revision 6, at `311e16c` for revision 7 and at
+  `33bf856` for revision 8.
 - Supersedes: nothing in this repository. The draft named the research
   document `06-logic-programming.md` §4.2–§4.5, §7 and §8 (L3, L3a, L5),
   per an ERRATA entry; neither was ever committed, so there is nothing to
@@ -1463,11 +1465,11 @@ or `askable` is E14.
 | M1 | `term.rs`, `unify.rs`; D36's scan walks subdirectories (S6) | 2a, 3, 12a's scan |
 | M2 | `store.rs`; the building words, their `.` forms, `BUILT` | 1a |
 | M3 | `solve.rs`; `kb.query`, `kb.once`, `kb.holds`; caps; the guard poll | 1b, 2b, 5, 6a, 11, 15 |
-| M4 | `bridge.rs` | 1c, 6b, 7, 8a, 8c, 9, 14 |
+| M4 | `bridge.rs` | 1b's E24 path, 1c, 6b, 7, 8a, 8c, 9, 14 |
 | M5 | `kb.call`, `kb.word`, `query`, the `check` arms, the audit lists, `PROMOTABLE.txt` | 1d, 4, 8b, 10, 12a, 13 |
 | M6 | measurements | 16 |
 | M7 | proofs **[L14]** | 17 |
-| M8 | asking **[L14]** | 6c, 12b, 18 |
+| M8 | asking **[L14]** | 1b's E57 path, 6c, 12b, 18 |
 | M9 | `dif` **[L14]** | 19 |
 | M10 | tabling **[L14]** | 20 |
 | M11 | saturation **[L14]** | 21 |
@@ -1562,10 +1564,26 @@ otherwise, or a measurement in `docs/measurements/`.
    test for its answer, and each Phase 1 code has a test by its text:
    - **1a** — the building words (M2).
    - **1b** — the asking words: E10–E14, E26, E30, and E00 unprefixed
-     (M3). E40 is tested in `crates/bund2-runtime/tests/oom_guard.rs`,
-     because the guard's flag is process-wide and that binary runs one
-     test at a time: a trip met by the engine's poll is E40, and one met
-     inside a bridge's λ is E24, each carrying the guard's text (S5).
+     (M3). The guard's codes are tested in
+     `crates/bund2-runtime/tests/oom_guard.rs`, because the guard's flag
+     is process-wide and that binary runs one test at a time. A trip set
+     before the program starts is taken at its first body, before any
+     `kb.` word runs (`push_frame_once` polls first), so each path is
+     forced:
+     - **E40, the engine's poll (M3).** `[ loop ]` over
+       `[ [ loop ] ← [ loop ] ]`, which runs no bridge, is tripped from
+       another thread while it runs, as
+       `a_running_program_is_stopped_at_its_next_call` trips its loop. Only
+       the engine polls inside that query, so the code is always E40.
+     - **E24, the interpreter's poll inside λ (M4).** A bridge λ calls a
+       native the test registers, which calls `bund2_api::memguard::trip`,
+       and then calls a word the test has `register`ed. The next poll is
+       the one at that word's frame, inside λ, so the code is always E24,
+       carrying the guard's text.
+     - **E57 (M8)** is forced as E24 is, with the same two calls in the
+       `ask` lambda.
+     - The trip native is registered `StackEffect::opaque(0)`, so neither
+       `bund2 check` nor the palette reads it as a fixed effect.
    - **1c** — E20–E24, and `test` on `true`, `false`, a non-BOOL and
      nothing (M4).
    - **1d** — E09, E25, and `query`'s slots (M5).
@@ -1581,12 +1599,21 @@ otherwise, or a measurement in `docs/measurements/`.
 4. **No Rust depth across answers.** `[ nat _ ]` over `[ nat z ]` and
    `[ [ nat [ s N ] ] ← [ nat N ] ]`, with `limit` 1,000,000, answers
    1,000,000 empty MAPs. The Rust stack depth, sampled from `lambda` at the
-   100,000th and the 1,000,000th answer, is equal. The sample is taken by
-   a native the test registers, which pushes the address of one of its
-   own locals as an INT; equal addresses mean equal depth. Both samples
-   fall after `lambda` is hot, so under `--features jit` both come from
-   the same compiled caller: an earlier sample would come through the
-   interpreter's frames and differ for that reason alone.
+   100,000th and the 1,000,000th answer, is equal.
+   - **The probe.** A native the test registers, `StackEffect::opaque(0)`,
+     pushes the address of one of its own locals as an INT. Equal
+     addresses mean equal depth.
+   - **Where it runs.** In `crates/bund2-runtime/tests`, not in
+     `bund2-stdlib`. A tier exists only where `Runtime`'s constructor
+     installs one, under `bund2-runtime`'s `jit` feature, so a
+     `bund2-stdlib` test would only ever run at Tier 0. The suite runs
+     `bund2-runtime`'s tests with and without `--features jit`, so the
+     criterion holds at both tiers.
+   - **Why these two answers.** By the 100,000th answer, `lambda` has
+     been entered far beyond D74's default threshold of 1024, so under the
+     `jit` build both samples come through the compiled caller. A sample
+     taken before it compiled would come through the interpreter's frames,
+     and would differ for that reason alone.
 5. **The inference cap.** `[ loop ]` over `[ [ loop ] ← [ loop ] ]`, with
    `inferences` 20,000,000, emits W1 once, then E30, which `?try` catches.
    The arena growth is recorded.
@@ -1706,7 +1733,10 @@ otherwise, or a measurement in `docs/measurements/`.
       completion stack through the second KB's call sequence (leaders
       `path(a, _)`, `path(b, _)`, `path(c, _)`, `path(e, _)`; consumers
       `path(a, _)` from `path(c, _)` and `path(b, _)` from `path(e, _)`)
-      and asserts that every entry ends under the root `path(a, _)`. The
+      and asserts that the four entries `path(a, _)`, `path(b, _)`,
+      `path(c, _)` and `path(e, _)` end under the root `path(a, _)`.
+      `path(g, _)` and `path(h, _)` complete as SCCs of their own and are
+      popped before that. The
       KB tests show the answers are right; this one shows the merge
       reached from V's SCC root and not from V's own entry.
 21. **Saturation.**
@@ -1801,6 +1831,7 @@ tables below are the draft's own account and could not be checked.
 | 5, landed | D226 renumbered; citations converted to symbols; missing files noted |
 | 6 | answers the fourth review (1 blocking, 12 should-fix, 8 notes); F231 fixed apart |
 | 7 | answers the fifth review (no blocking, 4 should-fix, 3 notes) |
+| 8 | answers the sixth review (no blocking, 2 should-fix, 2 notes) |
 
 **Where each finding is answered.**
 
@@ -1928,3 +1959,13 @@ S5/S6, S11 and criterion 11.
 | N2 | criterion 20's unit test on the join rule |
 | N3 | Q44's register row narrowed |
 | Assumption | criterion 7's wrapper delegates to an `Interp`, in `bund2-stdlib`'s tests |
+
+**The sixth review (`-6.md`):**
+
+| Finding | Answered by |
+|---|---|
+| S1 | criterion 4 runs in `bund2-runtime`'s tests, at both tiers, for the reason given there |
+| S2 | criterion 1b forces each poll: E40 by a bridge-free loop tripped from another thread; E24 and E57 by a test native that trips from inside the lambda |
+| N1 | the join-rule test names its four entries |
+| N2 | the header's "Bund2 read at" reaches revision 8 |
+| Assumption | both test natives are `opaque(0)` (criteria 1b and 4) |
