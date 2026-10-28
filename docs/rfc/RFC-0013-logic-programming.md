@@ -1,6 +1,6 @@
 # RFC-0013: Logic programming — knowledge bases, unification and resolution
 
-- Status: **Draft — revision 10 (2026-10-28).**
+- Status: **Draft — revision 11 (2026-10-28).**
   - Revision 5 carried every correction from the pre-RFC review and three
     adversarial reviews (`reviews/RFC-0013-review-2026-10-28.md`, `-2.md`
     and `-3.md`, each "Not ready for Accepted").
@@ -11,7 +11,8 @@
     blocking finding, 2 should-fix, 2 notes), and revision 9 the seventh
     (`-7.md`: no blocking finding, 2 should-fix, 1 note). Revision 10
     answers the eighth (`-8.md`: no blocking finding, 1 should-fix,
-    1 note).
+    1 note), and revision 11 the ninth (`-9.md`: no blocking finding,
+    1 should-fix, 1 note).
   - Appendix A maps each finding to the place that answers it.
   - **D226 (L1–L15) is RESOLVED** (2026-10-28, "all as recommended"):
     every ruling as this text is written, L11 deferred. The fifth review
@@ -55,7 +56,8 @@
   - D39 and its notes of 2026-09-11 and 2026-09-12;
   - D41, D47, D48, D55, D71, D72, D73, D79, D84, D87, D88, D111, D171,
     D181, D182, D191, D192, D195, D199, D202, D211, D212.
-- Dispositions consumed: F57, F62, F63, F110, F116, F118, F140, F158, F218.
+- Dispositions consumed: F57, F62, F63, F104, F110, F116, F118, F140, F158,
+  F210, F218.
 - **Rulings: D226, L1–L15**, entered OPEN in
   `docs/registers/decisions.md` and **RESOLVED** by the owner on
   2026-10-28, all as recommended.
@@ -77,8 +79,8 @@
     was never committed (below), so none is owed.
 - Reference SHA: `reference/Bund` 21b40b0. Bund2 read at `0c145de` on
   landing, at `2ebe0c4` for revision 6, at `311e16c` for revision 7, at
-  `33bf856` for revision 8, at `b0b2ffb` for revision 9 and at `b39f0c9`
-  for revision 10.
+  `33bf856` for revision 8, at `b0b2ffb` for revision 9, at `b39f0c9`
+  for revision 10 and at `17a2b7c` for revision 11.
 - Supersedes: nothing in this repository. The draft named the research
   document `06-logic-programming.md` §4.2–§4.5, §7 and §8 (L3, L3a, L5),
   per an ERRATA entry; neither was ever committed, so there is nothing to
@@ -320,7 +322,16 @@ RFC or for one of its reviews.
   `crates/bund2-stdlib/src/terminal.rs`). The test build reads no terminal
   (F158).
 - **The memory guard.**
-  - It is polled "where a body starts running".
+  - The interpreter polls it "where a body starts running" (the module
+    header), the first act of `push_frame_once`. D171 calls that "the one
+    place", which it no longer is.
+  - **Natives poll it too.** `seq` asks between chunks of 4096 values
+    (`build` in `crates/bund2-stdlib/src/seq.rs`, F210's fix), and
+    `io.graph` every 4096 rows of its chart (`ascii_plot` in
+    `crates/bund2-stdlib/src/host.rs`, with F104's refusal). Both fail
+    with `Trip::error` as it is, with no prefix. The engine's poll (S4)
+    is the third, and follows them; this RFC reads D171 as amended in
+    practice by F210 and F104.
   - A trip is consumed by one `take` (the module header and `take` in
     `crates/bund2-api/src/memguard.rs`).
   - Its tests run in their own binary (the header of
@@ -612,7 +623,9 @@ is left, the query is exhausted.
   - The loop polls `bund2_api::memguard::take` at every inference. A trip
     is E40.
   - The poll is needed because a query that grows the arena without
-    starting a body would never meet the interpreter's own poll.
+    starting a body would never meet the interpreter's own poll. It is
+    the poll `seq` and `io.graph` already make, for the same reason
+    (F210; "Rules of the house").
 
 ### S5. Bridges
 
@@ -658,9 +671,10 @@ is left, the query is exhausted.
 5. **Errors.** An error in λ is E24, naming the goal, and `?try` catches
    it.
    - **A guard trip** is taken by whichever poll meets it first. The
-     engine's own poll (S4) raises E40: `<W>: ` and the guard's text, as
-     S12 prefixes every code but E00, so the text names the word that was
-     solving when the guard tripped. The
+     engine's own poll (S4) raises E40, the guard's text alone, as `seq`
+     and `io.graph` raise it ("Rules of the house"): the trip is the same
+     event whichever native meets it, and a program matches it the same
+     way. S12 lists E40 beside E00 as unprefixed. The
      interpreter's poll inside λ fails λ, so the trip surfaces as E24
      wrapping the guard's text; inside `ask` it is E57. All three carry
      the guard's text, which is what criterion 1b tests.
@@ -930,9 +944,11 @@ scratch stack, so it does not change the walk.
 
 ### S12. Refusals and warnings
 
-- Every text except E00 begins `<W>: `, where `<W>` is the word's name in
-  capitals.
+- Every text except E00 and E40 begins `<W>: `, where `<W>` is the word's
+  name in capitals.
 - E00 is the house text, unprefixed (`singles.rs`, `var`).
+- E40 is the guard's text, unprefixed, as `seq` and `io.graph` raise it
+  (S5).
 - Values are shown with `summary` (D36).
 
 #### Phase 1
@@ -962,7 +978,7 @@ scratch stack, so it does not change the walk.
 | E25 | `lambda returns: <error>` |
 | E26 | `a CONTEXT cannot be a term: <value>` |
 | E30 | `inference cap of <n> reached` |
-| E40 | the memory guard's own text (`Trip::error`) |
+| E40 | the memory guard's own text (`Trip::error`), **with no `<W>: ` before it** |
 | W1 | `<n> inferences and not finished; set kb.inferences to bound this query` (`Warning`) |
 
 #### Phase 2
@@ -1588,13 +1604,13 @@ otherwise, or a measurement in `docs/measurements/`.
        always E40, with no thread and no timing.
        - **The KB is capped** with `kb.inferences` at 1,000,000. With no
          cap the query never ends (S7), so an engine missing its poll
-         would hang the test; with one, it fails in under a second as
-         E30, which the test asserts against.
+         would hang the test; with one, it fails after 1,000,000
+         inferences as E30, which the test asserts against.
        - **The text is matched as a substring.** `Runtime::eval_str`
          goes through `Interp::eval`, which wraps a failure as
          `Attempt to evaluate value <v> returned error: <reason>`. The
-         test asserts that the message contains `KB.QUERY: ` and the
-         guard's text, as the existing guard tests use `contains`.
+         test asserts that the message contains the guard's text and
+         not `KB.QUERY: `, as the existing guard tests use `contains`.
        - The same holds for a
        query whose first goal is a bridge: the engine polls at the
        bridge's inference, before λ starts, so a trip set beforehand is
@@ -1860,6 +1876,7 @@ tables below are the draft's own account and could not be checked.
 | 8 | answers the sixth review (no blocking, 2 should-fix, 2 notes) |
 | 9 | answers the seventh review (no blocking, 2 should-fix, 1 note) |
 | 10 | answers the eighth review (no blocking, 1 should-fix, 1 note) |
+| 11 | answers the ninth review (no blocking, 1 should-fix, 1 note); E40 unprefixed |
 
 **Where each finding is answered.**
 
@@ -2012,3 +2029,10 @@ S5/S6, S11 and criterion 11.
 |---|---|
 | S1 | criterion 1b caps the E40 test's KB at 1,000,000 inferences, so a missing poll fails as E30 |
 | N1 | criterion 1b matches the text as a substring, inside `Interp::eval`'s wrapper |
+
+**The ninth review (`-9.md`):**
+
+| Finding | Answered by |
+|---|---|
+| S1 | F104 and F210 consumed; "Rules of the house" names the guard's three pollers; E40 follows `seq` and `io.graph`, unprefixed (S5, S12), reversing revision 9; criterion 1b's substring follows |
+| N1 | criterion 1b says "after 1,000,000 inferences", not a time |
