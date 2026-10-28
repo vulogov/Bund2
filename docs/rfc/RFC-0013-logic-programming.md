@@ -9,9 +9,9 @@
     8 notes). Revision 7 answers the fifth (`-5.md`: no blocking finding,
     4 should-fix, 3 notes).
   - Appendix A maps each finding to the place that answers it.
-  - What remains before acceptance: the owner's rulings, **D226
-    (L1–L15)**, which are OPEN. The fifth review found nothing else
-    blocking.
+  - **D226 (L1–L15) is RESOLVED** (2026-10-28, "all as recommended"):
+    every ruling as this text is written, L11 deferred. The fifth review
+    found nothing else blocking. What remains is the owner's acceptance.
   - **F231**, a Bund2 defect found along the way, was filed apart and is
     fixed (`6e900f8`).
   - *Landed 2026-10-28 on the owner's "land it as a draft with D226".*
@@ -52,11 +52,12 @@
   - D41, D47, D48, D55, D71, D72, D73, D79, D84, D87, D88, D111, D171,
     D181, D182, D191, D192, D195, D199, D202, D211, D212.
 - Dispositions consumed: F57, F62, F63, F110, F116, F118, F140, F158, F218.
-- **Rulings requested: D226, L1–L15**, entered **OPEN** in
-  `docs/registers/decisions.md`.
-  - The design is written against each recommended option.
+- **Rulings: D226, L1–L15**, entered OPEN in
+  `docs/registers/decisions.md` and **RESOLVED** by the owner on
+  2026-10-28, all as recommended.
+  - The design is written against each recommended option, so no passage
+    changes.
   - Every dependent passage is marked **[L*n*]**.
-  - No default is adopted silently (`CLAUDE.md`).
 - Registers searched by subject:
   - These found no entry: "prolog", "unif", "backtrack", "datalog", "logic
     var", "expert system", "inference engine", "rete".
@@ -1744,6 +1745,9 @@ otherwise, or a measurement in `docs/measurements/`.
 ---
 
 ## Rulings requested — D226
+
+*Ruled 2026-10-28, "all as recommended": each row's **Recommended**
+column is the ruling (D226, RESOLVED).*
 
 | | Question | Options | Recommended |
 |---|---|---|---|

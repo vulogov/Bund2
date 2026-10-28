@@ -3680,8 +3680,15 @@ and `Collection`) had taken by then.
 - Blocks: RFC-0013
 - Depends on: D72 (Bund2 may add what the reference lacks), D28, D84, D88,
   D111, RFC-0012
-- Status: **OPEN.** The RFC is written against each recommended option and
-  marks each dependent passage **[L*n*]**; none is adopted until ruled.
+- Status: **RESOLVED** by the repository owner, 2026-10-28: "all as
+  recommended". L1–L10 and L12–L15 are **A**; L11 is **C**, certainty
+  factors deferred and `q` left to D32. The rulings were given after the
+  owner was shown every option with its recommendation and reason, and
+  after RFC-0013's fifth review (`docs/rfc/reviews/RFC-0013-review-2026-10-28-5.md`)
+  found nothing else blocking. Ruling these does not accept the RFC; that
+  is the owner's separate step. *(Was: OPEN. The RFC is written against
+  each recommended option and marks each dependent passage **[L*n*]**;
+  none is adopted until ruled.)*
 
 | | Question | Options | Recommended |
 |---|---|---|---|
