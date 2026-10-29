@@ -3713,6 +3713,12 @@ The three reviews the draft answers are not in the repository (its
 Appendix A), so the record of how these options were reached is the draft's
 own account.
 
+**Note, 2026-10-28.** RFC-0013 is Accepted by the repository owner ("accept
+RFC-0013"), at revision 12, after its eleventh review
+(`docs/rfc/reviews/RFC-0013-review-2026-10-28-11.md`) found it ready. These
+rulings stand as the RFC records them. By L14 A, acceptance covers every
+phase, built in order, each gated by its own criteria.
+
 ## D225 — `Boolean` above `Bool`, `Collection` above `List`, and the words `Integer` and `Float`
 
 **Raised 2026-10-28** by the repository owner, choosing from the RFC

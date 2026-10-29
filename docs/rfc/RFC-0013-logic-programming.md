@@ -1,6 +1,20 @@
 # RFC-0013: Logic programming — knowledge bases, unification and resolution
 
-- Status: **Draft — revision 12 (2026-10-28).**
+- Status: **Accepted** (2026-10-28) by the repository owner ("accept
+  RFC-0013"), at revision 12. The eleventh review (`-11.md`) found
+  it ready: nothing blocking, no should-fix, nothing to rule. No review
+  since the fourth found anything blocking. Accepting means what "Which
+  points are rulings" lists:
+  - D226's L1–L15 as ruled;
+  - Phase 1's words, values, bridge, caps, effects, `.` forms, reserved set
+    and S12's texts;
+  - Phases 2 and 3 as specified, each built in order and gated by its own
+    criteria (L14 A);
+  - the family as Bund2's own, outside D14's in-scope set (D72);
+  - certainty factors deferred (L11 C).
+
+  The history below is kept as it was.
+- *Before acceptance:* **Draft — revision 12 (2026-10-28).**
   - Revision 5 carried every correction from the pre-RFC review and three
     adversarial reviews (`reviews/RFC-0013-review-2026-10-28.md`, `-2.md`
     and `-3.md`, each "Not ready for Accepted").
@@ -17,7 +31,7 @@
   - Appendix A maps each finding to the place that answers it.
   - **D226 (L1–L15) is RESOLVED** (2026-10-28, "all as recommended"):
     every ruling as this text is written, L11 deferred. The fifth review
-    found nothing else blocking. What remains is the owner's acceptance.
+    found nothing else blocking. *(Accepted 2026-10-28; see above.)*
   - **F231**, a Bund2 defect found along the way, was filed apart and is
     fixed (`6e900f8`).
   - *Landed 2026-10-28 on the owner's "land it as a draft with D226".*
