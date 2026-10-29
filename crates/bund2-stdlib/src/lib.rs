@@ -97,6 +97,9 @@ pub mod logging;
 pub mod series;
 // base64, `unique` and `pull.workbench`.
 pub mod encoding;
+// Logic programming, a family of Bund2's own (RFC-0013, D226); the crate's
+// first subdirectory.
+pub mod kb;
 
 /// Run a line of Bund source in `vm`, value by value, as `bund.eval` does
 /// (`reference/Bund/src/stdlib/helpers/eval.rs:7-37`).
@@ -1217,35 +1220,56 @@ mod honesty_tests {
     /// a stack snapshot under the default reporter while values were promoted.
     /// A source scan, so it sees paths no run reaches; each file is cut at its
     /// first `#[cfg(test)]` module, which in this crate always runs to the end.
+    ///
+    /// **It walks subdirectories** (RFC-0013 §S6, criterion 12a): it read
+    /// `src/` alone, with one `read_dir`, and a native under `kb/` would have
+    /// been out of its sight. It counts the files it reads under `kb/`, as
+    /// `nothing_shipped_follows_a_test_module` counts its own, so a scan that
+    /// stops descending fails here rather than passing on nothing.
     #[test]
     fn no_native_reports_at_error_severity() {
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut found = Vec::new();
-        for entry in std::fs::read_dir(&src).expect("src exists") {
-            let path = entry.expect("entry").path();
-            if path.extension().is_none_or(|x| x != "rs") {
-                continue;
-            }
-            let text = std::fs::read_to_string(&path).expect("reads");
-            let shipped = text.split("#[cfg(test)]\nmod ").next().unwrap_or_default();
-            for (n, line) in shipped.lines().enumerate() {
-                // **Comments are skipped, as D71's sibling scan already does.**
-                // The claim is about code; a doc comment *explaining* why a
-                // native does not report at `Error` severity names the thing
-                // it is promising not to do, and the first such comment —
-                // `logging.rs`'s, on D90's `log.error` mapping to `Warning` —
-                // was reported as a violation. A comment cannot report
-                // anything, so this is strictly more precise rather than
-                // weaker.
-                let t = line.trim_start();
-                if t.starts_with("//") {
+        let mut dirs = vec![src.clone()];
+        let mut under_kb = 0usize;
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).expect("src exists") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    dirs.push(path);
                     continue;
                 }
-                if t.contains("Diagnostic::error") || t.contains("Severity::Error") {
-                    found.push(format!("{}:{}", path.display(), n + 1));
+                if path.extension().is_none_or(|x| x != "rs") {
+                    continue;
+                }
+                if path.starts_with(src.join("kb")) {
+                    under_kb += 1;
+                }
+                let text = std::fs::read_to_string(&path).expect("reads");
+                let shipped = text.split("#[cfg(test)]\nmod ").next().unwrap_or_default();
+                for (n, line) in shipped.lines().enumerate() {
+                    // **Comments are skipped, as D71's sibling scan already does.**
+                    // The claim is about code; a doc comment *explaining* why a
+                    // native does not report at `Error` severity names the thing
+                    // it is promising not to do, and the first such comment —
+                    // `logging.rs`'s, on D90's `log.error` mapping to `Warning` —
+                    // was reported as a violation. A comment cannot report
+                    // anything, so this is strictly more precise rather than
+                    // weaker.
+                    let t = line.trim_start();
+                    if t.starts_with("//") {
+                        continue;
+                    }
+                    if t.contains("Diagnostic::error") || t.contains("Severity::Error") {
+                        found.push(format!("{}:{}", path.display(), n + 1));
+                    }
                 }
             }
         }
+        assert!(
+            under_kb > 0,
+            "the scan read no file under src/kb/; it is not descending"
+        );
         assert!(found.is_empty(), "reports at Error severity: {found:?}");
     }
 
