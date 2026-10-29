@@ -5,17 +5,26 @@
 //! `kb.…`, so `conform`, `IMPLEMENTED` and `COVERAGE` move by zero (D72), and
 //! what checks the family is its unit tests rather than a golden.
 //!
-//! The engine is built in the RFC's milestones, in order. M1 is here:
+//! The engine is built in the RFC's milestones, in order. M1 and M2 are
+//! here:
 //!
 //! - [`term`]: the arena, the atoms' interner, and conversion from a Bund
 //!   value and back (§S1);
 //! - [`unify`]: unification with the occurs check always on (L7), and the
-//!   trail (§S4).
-//!
-//! No word is registered yet; M2 adds the building words.
+//!   trail (§S4);
+//! - [`store`]: reading, validating and writing a KB's MAP (§S2);
+//! - [`words`]: the building words and their `.` forms (§S9). The asking
+//!   words are M3's.
 //!
 //! This is the crate's first subdirectory. Every source scan in `lib.rs`
 //! walks subdirectories, criterion 25's among them since M1 (§S6).
 
+pub mod store;
 pub mod term;
 pub mod unify;
+pub mod words;
+
+/// Register the family's words.
+pub fn register(r: &mut bund2_api::Registry) {
+    words::register(r);
+}

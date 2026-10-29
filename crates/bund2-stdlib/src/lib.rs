@@ -195,6 +195,7 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     graph_algorithms::register(r);
     library::register(r);
     library_string::register(r);
+    kb::register(r);
     // After `singles`, which registers `bund.eval-file`, and before
     // `--noeval`'s stubs, whose message wins when both flags are set (D132).
     if opts.noio {

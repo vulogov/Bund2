@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 383 promotable of 392 reached, of 474 fixed-effect natives; 9 reached natives
+# 385 promotable of 394 reached, of 488 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -168,6 +168,8 @@ io.banner
 io.banner.
 json.from_value
 json.from_value.
+kb!
+kb.new
 lambda
 lambda!
 lambda!.
@@ -472,6 +474,18 @@ var-
 # not reached: json.path.
 # not reached: json.to_value
 # not reached: json.to_value.
+# not reached: kb.assert
+# not reached: kb.assert.
+# not reached: kb.asserta
+# not reached: kb.asserta.
+# not reached: kb.clauses
+# not reached: kb.clauses.
+# not reached: kb.inferences
+# not reached: kb.inferences.
+# not reached: kb.merge
+# not reached: kb.merge.
+# not reached: kb.retract
+# not reached: kb.retract.
 # not reached: lambda=
 # not reached: lambda=.
 # not reached: raise

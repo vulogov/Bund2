@@ -106,7 +106,8 @@ const SOURCED: &[(&str, u8, u8)] = &[
     ("return_to", 1, 0),
 ];
 
-/// RFC-0012's twelve graph words' forms, Bund2's own, so there is nothing to
+/// RFC-0012's twelve graph words' forms and RFC-0013's six `kb.` forms,
+/// Bund2's own, so there is nothing to
 /// measure and nothing for the oracle to say. Their half is known by how they
 /// are built: `bench_form` takes the graph from the workbench and moves what
 /// the plain word left there, and each plain word leaves exactly one answer
@@ -126,6 +127,14 @@ const BUILT: &[&str] = &[
     "graph.mst.",
     "graph.bellmanford.",
     "graph.maxflow.",
+    // RFC-0013's six, built the same way: `bench_form` takes the KB from the
+    // workbench, and each plain word leaves exactly one answer (§S9).
+    "kb.assert.",
+    "kb.asserta.",
+    "kb.retract.",
+    "kb.merge.",
+    "kb.clauses.",
+    "kb.inferences.",
 ];
 
 /// Two `.` words that read the main stack and never the workbench, from

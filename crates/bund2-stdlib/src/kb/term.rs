@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use bund2_value::{BundValue, CONTEXT, LIST, NODATA};
 
 /// How wide a value is shown in a refusal (D36).
-const SHOWN: usize = 48;
+pub(crate) const SHOWN: usize = 48;
 
 /// A term: one cell of the arena.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
