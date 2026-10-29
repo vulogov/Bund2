@@ -162,6 +162,10 @@ impl Bridge for VmBridge<'_> {
             self.word
         )));
     }
+
+    fn run(&mut self, body: Vec<BundValue>) -> Result<Option<BundValue>, Error> {
+        super::bridge::run(self.vm, body)
+    }
 }
 
 /// How many answers an asking word wants, and what it answers with.

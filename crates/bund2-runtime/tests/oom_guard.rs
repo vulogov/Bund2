@@ -160,5 +160,47 @@ fn a_trip_stops_a_query_at_the_engines_first_poll() {
         assert!(!e.0.contains("inference cap"), "not E30: {}", e.0);
         assert!(!e.is_internal(), "{}", e.0);
         assert_eq!(memguard::take(), None, "the trip was consumed");
+
+        // A query whose first goal is a bridge: the engine polls at the
+        // bridge's inference, before λ starts, so it is E40 and not E24.
+        memguard::trip(TRIP);
+        let e = rt
+            .eval_str("kb.new [ test { true } ] kb.holds")
+            .expect_err("the query after a trip fails");
+        assert!(e.0.contains("OOM GUARD: "), "{}", e.0);
+        assert!(!e.0.contains("KB.HOLDS: "), "not E24: {}", e.0);
+        assert_eq!(memguard::take(), None, "the trip was consumed");
+    });
+}
+
+/// **RFC-0013 criterion 1b, E24: the interpreter's poll inside λ.** The
+/// bridge's λ calls a native that trips the guard, then a `register`ed word.
+/// The engine polled before λ started, so the next poll is at that word's
+/// frame, inside λ: λ fails, and the code is always E24, carrying the
+/// guard's text.
+#[test]
+fn a_trip_inside_a_bridge_is_the_bridges_error() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    on_eval_thread(|| {
+        let mut rt = Runtime::new();
+        // Opaque, so neither `bund2 check` nor the palette reads it as a
+        // fixed effect.
+        rt.interp.registry.register_native(
+            "trip.guard",
+            |_vm| {
+                memguard::trip(TRIP);
+                Ok(())
+            },
+            bund2_api::StackEffect::opaque(0),
+            bund2_api::WordKind::Sync,
+        );
+        rt.eval_str(":f { true } register").unwrap();
+        let e = rt
+            .eval_str("kb.new [ test { trip.guard f } ] kb.holds")
+            .expect_err("the bridge fails");
+        assert!(e.0.contains("KB.HOLDS: bridge lambda in "), "{}", e.0);
+        assert!(e.0.contains("OOM GUARD: "), "{}", e.0);
+        assert!(!e.is_internal(), "{}", e.0);
+        assert_eq!(memguard::take(), None, "the trip was consumed");
     });
 }

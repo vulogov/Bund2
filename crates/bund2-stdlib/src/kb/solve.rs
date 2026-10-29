@@ -3,7 +3,8 @@
 //! **Nothing here recurses in Rust.** The goal list is a chain of nodes in a
 //! `Vec`, the choicepoints are a `Vec`, and every walk over a term is
 //! `term.rs`'s or `unify.rs`'s, each with its own stack (D39). A bridge (S5)
-//! re-enters Bund through [`Bridge`]; that is M4's.
+//! re-enters Bund through [`Bridge`], and that recursion is bounded by
+//! `stack_ok` as any nested evaluation is.
 //!
 //! **Answers one at a time.** [`Solver::next`] runs to the next answer and
 //! returns, its state kept in the solver, so a caller can stop after any
@@ -42,7 +43,32 @@ pub const WARN_AT: u64 = 10_000_000;
 pub trait Bridge {
     /// Report W1, a `Warning`: the run goes on (D36).
     fn warn(&mut self, reason: String);
+    /// Run a bridge's λ, already substituted, on a scratch stack, and answer
+    /// what it left on top (§S5 step 3, `bridge.rs: run`).
+    fn run(&mut self, body: Vec<BundValue>) -> Result<Option<BundValue>, Error>;
 }
+
+/// The three bridges of §S5's table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Bridging {
+    Is,
+    Test,
+    In,
+}
+
+impl Bridging {
+    fn name(self) -> &'static str {
+        match self {
+            Bridging::Is => "is",
+            Bridging::Test => "test",
+            Bridging::In => "in",
+        }
+    }
+}
+
+/// A clause instance's variables by name: what a bridge's λ is substituted
+/// from (§S5 step 1).
+type Names = Rc<[(String, Term)]>;
 
 /// Why a query stopped short of its answers.
 #[derive(Debug)]
@@ -72,11 +98,13 @@ enum Goal {
     Fail,
 }
 
-/// A goal and the rest of the list after it.
+/// A goal, the rest of the list after it, and the clause instance it belongs
+/// to (an index into the solver's scopes; 0 is the query's).
 #[derive(Debug, Clone, Copy)]
 struct Node {
     goal: Goal,
     next: Option<usize>,
+    scope: usize,
 }
 
 /// What a choicepoint holds besides its marks, and what it resumes (§S4).
@@ -119,6 +147,9 @@ struct Choicepoint {
     trail: usize,
     mark: Mark,
     goals: usize,
+    /// How many clause-instance scopes there were, and which was current.
+    scopes: usize,
+    scope: usize,
     kind: Kind,
 }
 
@@ -138,6 +169,9 @@ struct Clause {
     body: Rc<[Term]>,
     /// Its first argument's key; `None` matches every call.
     key: Option<Key>,
+    /// Its variables by name, kept only when its body holds a LAMBDA: an
+    /// instance needs them only for a bridge to substitute from.
+    names: Option<Names>,
 }
 
 struct Pred {
@@ -188,6 +222,10 @@ pub struct Solver {
     count: u64,
     warned: bool,
     names: Vec<(String, Term)>,
+    /// Each clause instance's variables that a bridge may need, by name; the
+    /// query's first. Cut back on backtrack with the choicepoint's count.
+    scopes: Vec<Names>,
+    scope: usize,
     vars: HashMap<Term, Term>,
     started: bool,
     done: bool,
@@ -225,6 +263,7 @@ impl Solver {
             goals: vec![Node {
                 goal: Goal::Call(t),
                 next: None,
+                scope: 0,
             }],
             cont: Some(0),
             cps: Vec::new(),
@@ -237,6 +276,8 @@ impl Solver {
             count: 0,
             warned: false,
             names: scope.names().to_vec(),
+            scopes: vec![scope.names().into()],
+            scope: 0,
             vars: HashMap::new(),
             started: false,
             done: false,
@@ -300,6 +341,7 @@ impl Solver {
                 self.goals.pop();
             }
             self.cont = node.next;
+            self.scope = node.scope;
             let ok = match node.goal {
                 Goal::Cut(h) => {
                     self.cps.truncate(h);
@@ -312,7 +354,7 @@ impl Solver {
                 }
                 Goal::Call(t) => {
                     self.infer(bridge)?;
-                    self.call(t)?
+                    self.call(t, bridge)?
                 }
             };
             if !ok && !self.backtrack(bridge)? {
@@ -344,7 +386,11 @@ impl Solver {
     }
 
     fn push(&mut self, goal: Goal, next: Option<usize>) -> Option<usize> {
-        self.goals.push(Node { goal, next });
+        self.goals.push(Node {
+            goal,
+            next,
+            scope: self.scope,
+        });
         Some(self.goals.len() - 1)
     }
 
@@ -362,6 +408,8 @@ impl Solver {
             trail: self.trail.mark(),
             mark: self.arena.mark(),
             goals: self.goals.len(),
+            scopes: self.scopes.len(),
+            scope: self.scope,
             kind,
         });
     }
@@ -376,6 +424,8 @@ impl Solver {
             self.trail.undo_to(&mut self.arena, cp.trail);
             self.arena.reset(cp.mark);
             self.goals.truncate(cp.goals);
+            self.scopes.truncate(cp.scopes);
+            self.scope = cp.scope;
             match &mut cp.kind {
                 Kind::Clauses {
                     call,
@@ -484,7 +534,7 @@ impl Solver {
     }
 
     /// Run one goal. `false` means it failed.
-    fn call(&mut self, t: Term) -> Result<bool, Stop> {
+    fn call(&mut self, t: Term, bridge: &mut dyn Bridge) -> Result<bool, Stop> {
         let d = self.arena.deref(t);
         let rest = self.cont;
         let (f, args) = match self.arena.cell(d) {
@@ -590,9 +640,11 @@ impl Solver {
                 self.cont = self.prepend(&[Goal::Call(*goal), Goal::Collect(h), Goal::Fail], None);
                 Ok(true)
             }
-            (f, [x, l]) if f == c.in_ => self.member(*x, *l, d),
-            (f, [_, _]) if f == c.is => Err(self.no_bridge(d)),
-            (f, [_]) if f == c.test => Err(self.no_bridge(d)),
+            (f, [x, l]) if f == c.in_ => self.member(*x, *l, d, bridge),
+            (f, [x, lambda]) if f == c.is => {
+                self.bridge(Bridging::Is, Some(*x), *lambda, d, bridge)
+            }
+            (f, [lambda]) if f == c.test => self.bridge(Bridging::Test, None, *lambda, d, bridge),
             (f, _) => {
                 let n = args.len();
                 match self.lookup(f, n)? {
@@ -611,12 +663,18 @@ impl Solver {
         }
     }
 
-    /// `[ in X L ]` over a LIST. Over a λ it is a bridge (M4).
-    fn member(&mut self, x: Term, l: Term, goal: Term) -> Result<bool, Stop> {
+    /// `[ in X L ]` over a LIST; over a λ, a bridge.
+    fn member(
+        &mut self,
+        x: Term,
+        l: Term,
+        goal: Term,
+        bridge: &mut dyn Bridge,
+    ) -> Result<bool, Stop> {
         let l = self.arena.deref(l);
         match self.arena.cell(l) {
             Cell::Opaque(i) if self.arena.opaque_value(i).is_some_and(|v| v.dt() == LAMBDA) => {
-                return Err(self.no_bridge(goal));
+                return self.bridge(Bridging::In, Some(x), l, goal, bridge);
             }
             Cell::Var(_) => return Err(self.unbound(l, goal)),
             Cell::Nil | Cell::Cons(..) => {}
@@ -628,8 +686,13 @@ impl Solver {
             Cell::Var(_) => return Err(self.unbound(end, goal)),
             _ => return Err(self.not_a_list(l, goal)),
         }
+        Ok(self.each(x, &items))
+    }
+
+    /// X takes each of `items` on backtracking: `Items` holds the rest.
+    fn each(&mut self, x: Term, items: &[Term]) -> bool {
         let Some((first, others)) = items.split_first() else {
-            return Ok(false);
+            return false;
         };
         if !others.is_empty() {
             self.push_cp(Kind::Items {
@@ -639,7 +702,96 @@ impl Solver {
                 cont: self.cont,
             });
         }
-        Ok(unify(&mut self.arena, &mut self.trail, x, *first))
+        unify(&mut self.arena, &mut self.trail, x, *first)
+    }
+
+    /// A bridge (§S5): substitute the clause instance's variables into λ,
+    /// run it, and read what it left as `how` says.
+    fn bridge(
+        &mut self,
+        how: Bridging,
+        x: Option<Term>,
+        lambda: Term,
+        goal: Term,
+        bridge: &mut dyn Bridge,
+    ) -> Result<bool, Stop> {
+        let lambda = self.arena.deref(lambda);
+        let body = match self.arena.cell(lambda) {
+            Cell::Var(_) => return Err(self.unbound(lambda, goal)),
+            Cell::Opaque(i) => match self.arena.opaque_value(i) {
+                Some(v) if v.dt() == LAMBDA => v.as_lambda().unwrap_or(&[]).to_vec(),
+                _ => return Err(self.not_callable(lambda)),
+            },
+            _ => return Err(self.not_callable(lambda)),
+        };
+        let scope = self
+            .scopes
+            .get(self.scope)
+            .cloned()
+            .unwrap_or_else(|| Rc::from([]));
+        let arena = &self.arena;
+        let body = super::bridge::substitute(&body, &|name| {
+            scope.iter().find(|(n, _)| n == name).map(|(_, v)| {
+                let v = arena.deref(*v);
+                match arena.cell(v) {
+                    Cell::Var(_) => None,
+                    _ => Some(arena.to_value(v)),
+                }
+            })
+        })
+        .map_err(|var| {
+            Stop::Code(format!(
+                "instantiation error: {var} is unbound in the lambda of {}",
+                self.show(goal)
+            ))
+        })?;
+        let left = bridge.run(body).map_err(|e| {
+            Stop::Code(format!(
+                "bridge lambda in {} returns: {}",
+                self.show(goal),
+                e.0
+            ))
+        })?;
+        let Some(left) = left else {
+            return Err(Stop::Code(format!(
+                "{}: the lambda left nothing in {}",
+                how.name(),
+                self.show(goal)
+            )));
+        };
+        match how {
+            Bridging::Test => match left.unboxed() {
+                BundValue::Bool(b, _) => Ok(*b),
+                _ => Err(Stop::Code(format!(
+                    "test: expected BOOL, found {} in {}",
+                    left.type_name(),
+                    self.show(goal)
+                ))),
+            },
+            Bridging::Is => {
+                let t = self
+                    .arena
+                    .to_term(&left, &mut Scope::default())
+                    .map_err(Refused::from)?;
+                Ok(x.is_some_and(|x| unify(&mut self.arena, &mut self.trail, x, t)))
+            }
+            Bridging::In => {
+                let Some(items) = left.as_list().filter(|_| left.dt() == bund2_value::LIST) else {
+                    return Err(Stop::Code(format!(
+                        "in: expected a list, found {} in {}",
+                        left.summary(SHOWN),
+                        self.show(goal)
+                    )));
+                };
+                let mut scope = Scope::default();
+                let terms = items
+                    .iter()
+                    .map(|v| self.arena.to_term(v, &mut scope))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(Refused::from)?;
+                Ok(x.is_some_and(|x| self.each(x, &terms)))
+            }
+        }
     }
 
     /// What `functor/arity` names, decided once per activation.
@@ -682,10 +834,12 @@ impl Solver {
                 .map(|g| self.arena.to_template(g, &mut scope))
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(Refused::from)?;
+            let names = holds_lambda(goals_v).then(|| scope.names().into());
             clauses.push(Clause {
                 head,
                 body: body.into(),
                 key,
+                names,
             });
         }
         let all: Rc<[usize]> = (0..clauses.len()).collect();
@@ -757,7 +911,7 @@ impl Solver {
         let Some(clause) = self.preds.get(p).and_then(|pr| pr.clauses.get(ci)) else {
             return false;
         };
-        let (head, body) = (clause.head, clause.body.clone());
+        let (head, body, names) = (clause.head, clause.body.clone(), clause.names.clone());
         self.vars.clear();
         let h = self.arena.copy(head, &mut self.vars, false);
         if !unify(&mut self.arena, &mut self.trail, call, h) {
@@ -767,6 +921,15 @@ impl Solver {
             .iter()
             .map(|g| Goal::Call(self.arena.copy(*g, &mut self.vars, false)))
             .collect();
+        if let Some(names) = names {
+            // This instance's variables, for a bridge in its body.
+            let instance: Names = names
+                .iter()
+                .map(|(n, v)| (n.clone(), self.vars.get(v).copied().unwrap_or(*v)))
+                .collect();
+            self.scopes.push(instance);
+            self.scope = self.scopes.len() - 1;
+        }
         self.cont = self.prepend(&goals, rest);
         true
     }
@@ -781,9 +944,13 @@ impl Solver {
             .summary(SHOWN)
     }
 
+    /// A variable's name: the query's, else the current clause instance's,
+    /// else `_G`*n*.
     fn var_name(&self, v: Term) -> String {
+        let instance = self.scopes.get(self.scope).map_or(&[][..], |s| &s[..]);
         self.names
             .iter()
+            .chain(instance)
             .find(|(_, t)| self.arena.deref(*t) == v)
             .map_or_else(|| format!("_G{}", v.id()), |(n, _)| n.clone())
     }
@@ -810,14 +977,21 @@ impl Solver {
             self.show(goal)
         ))
     }
+}
 
-    /// A bridge goal, refused until M4 builds `bridge.rs`.
-    fn no_bridge(&self, goal: Term) -> Stop {
-        Stop::Code(format!(
-            "bridges are not built yet (RFC-0013 M4): {}",
-            self.show(goal)
-        ))
+/// Whether any of `values` holds a LAMBDA, at any depth: a clause whose body
+/// does may run a bridge, and keeps its variables' names for it.
+fn holds_lambda(values: &[BundValue]) -> bool {
+    let mut todo: Vec<&BundValue> = values.iter().collect();
+    while let Some(v) = todo.pop() {
+        if v.dt() == LAMBDA {
+            return true;
+        }
+        if let Some(items) = v.as_list() {
+            todo.extend(items);
+        }
     }
+    false
 }
 
 #[cfg(test)]
@@ -1255,6 +1429,9 @@ mod tests {
         struct Quiet;
         impl super::Bridge for Quiet {
             fn warn(&mut self, _: String) {}
+            fn run(&mut self, _: Vec<BundValue>) -> Result<Option<BundValue>, bund2_api::Error> {
+                Ok(None)
+            }
         }
         assert!(s.next(&mut Quiet).is_err());
         assert_eq!(s.inferences(), 1_000_001);

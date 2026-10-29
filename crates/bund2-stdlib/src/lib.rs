@@ -1402,7 +1402,7 @@ mod honesty_tests {
     /// descending into subdirectories as criterion 11's does.
     #[test]
     fn every_native_that_changes_the_current_stack_is_named() {
-        const SWITCHES: [&str; 19] = [
+        const SWITCHES: [&str; 20] = [
             // Restores the stack it came from, but a scan cannot tell that and
             // the gate does not lean on it.
             "conditional.rs: endcontext",
@@ -1429,6 +1429,10 @@ mod honesty_tests {
             "stack.rs: to_current",
             "stack.rs: to_stack",
             "world.rs: load_stacks",
+            // RFC-0013 §S5: a bridge runs λ on a scratch stack, switches
+            // back if the scratch stack is still current, and drops it. The
+            // asking words that reach it are `StackEffect::opaque`.
+            "kb/bridge.rs: run",
         ];
         const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
         const SWITCHERS: [&str; 7] = [
@@ -1509,7 +1513,7 @@ mod honesty_tests {
     /// outside this crate (RFC-0005 assumption 24).
     #[test]
     fn every_reentering_function_is_named() {
-        const REENTERING: [&str; 31] = [
+        const REENTERING: [&str; 32] = [
             // RFC-0008 §W2: a line typed at a debugger stop, applied value by
             // value. Called from a safepoint and never from a native.
             "lib.rs: eval_line",
@@ -1568,6 +1572,9 @@ mod honesty_tests {
             // `text`, a closure in the registration: it applies a TEXTBUFFER,
             // which pushes, so it cannot recurse.
             "values.rs: register_words",
+            // RFC-0013 §S5: a bridge's `scoped_call`. Opaque words reach it,
+            // and `stack_ok` bounds a λ that runs another query.
+            "kb/bridge.rs: run",
         ];
         const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
         // `.apply_placed(` is `.apply(` for an included file's top level.
