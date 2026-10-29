@@ -24,6 +24,14 @@ pub(crate) const SHOWN: usize = 48;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Term(usize);
 
+impl Term {
+    /// The cell's index, which names an unbound variable in a refusal's
+    /// text (`_G`*n*, as §S8 names one).
+    pub fn id(self) -> usize {
+        self.0
+    }
+}
+
 /// An interned atom's text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Atom(usize);
@@ -84,12 +92,33 @@ impl Interner {
     }
 }
 
-/// The cells of one activation.
+/// The bit that marks a term, an argument run or an opaque index as the
+/// template store's rather than the main store's.
+const TPL: usize = 1 << (usize::BITS - 1);
+
+/// One store's cells, compound arguments and opaque values.
 #[derive(Debug, Default)]
-pub struct Arena {
+struct Store {
     cells: Vec<Cell>,
     args: Vec<Term>,
     opaques: Vec<BundValue>,
+}
+
+/// The cells of one activation.
+///
+/// **Two stores.** The main store is what backtracking cuts back to a mark.
+/// The template store is never cut: it holds the clauses compiled for the
+/// activation (§S4's activation store) and `findall`'s copies, which must
+/// outlive the choicepoints they were made under (§S4's side store). A term
+/// of the template store carries [`TPL`] in its index, so every reader sees
+/// one arena, and a template's ground parts are shared by every renaming of
+/// it rather than copied.
+#[derive(Debug, Default)]
+pub struct Arena {
+    main: Store,
+    tpl: Store,
+    /// Whether constructors write to the template store.
+    in_tpl: bool,
     pub atoms: Interner,
 }
 
@@ -140,9 +169,9 @@ impl Scope {
 impl Arena {
     pub fn mark(&self) -> Mark {
         Mark {
-            cells: self.cells.len(),
-            args: self.args.len(),
-            opaques: self.opaques.len(),
+            cells: self.main.cells.len(),
+            args: self.main.args.len(),
+            opaques: self.main.opaques.len(),
         }
     }
 
@@ -150,27 +179,58 @@ impl Arena {
     /// same point first, or an older variable is left bound to a cell that
     /// no longer exists.
     pub fn reset(&mut self, m: Mark) {
-        self.cells.truncate(m.cells);
-        self.args.truncate(m.args);
-        self.opaques.truncate(m.opaques);
+        self.main.cells.truncate(m.cells);
+        self.main.args.truncate(m.args);
+        self.main.opaques.truncate(m.opaques);
     }
 
-    /// How many cells are live: what criterion 5 records as growth.
+    /// How many cells of the main store are live: what criterion 5 records
+    /// as growth.
     pub fn len(&self) -> usize {
-        self.cells.len()
+        self.main.cells.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.cells.is_empty()
+        self.main.cells.is_empty()
+    }
+
+    /// How many cells the template store holds.
+    pub fn template_len(&self) -> usize {
+        self.tpl.cells.len()
+    }
+
+    /// Whether `t` is the template store's.
+    pub fn is_template(t: Term) -> bool {
+        t.0 & TPL != 0
     }
 
     pub fn cell(&self, t: Term) -> Cell {
-        self.cells.get(t.0).copied().unwrap_or(Cell::Nil)
+        let (store, i) = self.store(t.0);
+        store.cells.get(i).copied().unwrap_or(Cell::Nil)
+    }
+
+    /// The store an index belongs to, and the index within it.
+    fn store(&self, i: usize) -> (&Store, usize) {
+        if i & TPL != 0 {
+            (&self.tpl, i & !TPL)
+        } else {
+            (&self.main, i)
+        }
+    }
+
+    /// The store constructors write to, and the bit its indices carry.
+    fn active(&mut self) -> (&mut Store, usize) {
+        if self.in_tpl {
+            (&mut self.tpl, TPL)
+        } else {
+            (&mut self.main, 0)
+        }
     }
 
     fn push(&mut self, c: Cell) -> Term {
-        self.cells.push(c);
-        Term(self.cells.len() - 1)
+        let (store, bit) = self.active();
+        store.cells.push(c);
+        Term((store.cells.len() - 1) | bit)
     }
 
     pub fn var(&mut self) -> Term {
@@ -204,12 +264,14 @@ impl Arena {
         self.structure(functor, args)
     }
 
-    fn structure(&mut self, functor: Atom, args: &[Term]) -> Term {
+    /// A compound of an interned functor, or the atom when `args` is empty.
+    pub fn structure(&mut self, functor: Atom, args: &[Term]) -> Term {
         if args.is_empty() {
             return self.push(Cell::Atom(functor));
         }
-        let start = self.args.len();
-        self.args.extend_from_slice(args);
+        let (store, bit) = self.active();
+        let start = store.args.len() | bit;
+        store.args.extend_from_slice(args);
         self.push(Cell::Struct {
             functor,
             start,
@@ -218,31 +280,139 @@ impl Arena {
     }
 
     pub fn opaque(&mut self, v: BundValue) -> Term {
-        self.opaques.push(v);
-        let i = self.opaques.len() - 1;
+        let (store, bit) = self.active();
+        store.opaques.push(v);
+        let i = (store.opaques.len() - 1) | bit;
         self.push(Cell::Opaque(i))
     }
 
     /// A compound's arguments. Empty for anything else.
     pub fn args(&self, start: usize, arity: usize) -> &[Term] {
-        self.args.get(start..start + arity).unwrap_or(&[])
+        let (store, i) = self.store(start);
+        store.args.get(i..i + arity).unwrap_or(&[])
     }
 
     pub fn opaque_value(&self, i: usize) -> Option<&BundValue> {
-        self.opaques.get(i)
+        let (store, i) = self.store(i);
+        store.opaques.get(i)
     }
 
     /// Bind an unbound variable. `unify.rs` trails it; nothing else binds.
+    /// A template's variables are never bound, since every use of a
+    /// template is a copy of it, so only the main store is written.
     pub(crate) fn bind(&mut self, var: Term, to: Term) {
-        if let Some(c) = self.cells.get_mut(var.0) {
+        if let Some(c) = self.main.cells.get_mut(var.0) {
             *c = Cell::Var(Some(to));
         }
     }
 
     pub(crate) fn unbind(&mut self, var: Term) {
-        if let Some(c) = self.cells.get_mut(var.0) {
+        if let Some(c) = self.main.cells.get_mut(var.0) {
             *c = Cell::Var(None);
         }
+    }
+
+    /// Read a value into the template store, which backtracking never cuts.
+    pub fn to_template(&mut self, v: &BundValue, scope: &mut Scope) -> Result<Term, Refusal> {
+        self.in_tpl = true;
+        let t = self.to_term(v, scope);
+        self.in_tpl = false;
+        t
+    }
+
+    /// A copy of `t` with its bindings followed, each unbound variable
+    /// replaced by a fresh one (`vars` maps old to new, so sharing is kept).
+    ///
+    /// **Into the main store** (`into_tpl` false), a subterm with no
+    /// variable is shared rather than copied: renaming a ground clause
+    /// allocates nothing. **Into the template store**, only the template
+    /// store's own cells are shared, since the main store's are cut back on
+    /// backtrack and the copy must outlive them (`findall`).
+    ///
+    /// Iterative, with its own stacks, as both conversions are.
+    pub fn copy(&mut self, t: Term, vars: &mut HashMap<Term, Term>, into_tpl: bool) -> Term {
+        enum Job {
+            Visit(Term),
+            Build(Term),
+        }
+        let keep = |t: Term| !into_tpl || Arena::is_template(t);
+        let mut jobs = vec![Job::Visit(t)];
+        let mut done: Vec<Term> = Vec::new();
+        self.in_tpl = into_tpl;
+        while let Some(job) = jobs.pop() {
+            match job {
+                Job::Visit(t) => {
+                    let t = self.deref(t);
+                    match self.cell(t) {
+                        Cell::Var(_) => {
+                            let fresh = match vars.get(&t) {
+                                Some(v) => *v,
+                                None => {
+                                    let v = self.var();
+                                    vars.insert(t, v);
+                                    v
+                                }
+                            };
+                            done.push(fresh);
+                        }
+                        Cell::Struct { start, arity, .. } => {
+                            jobs.push(Job::Build(t));
+                            let args = self.args(start, arity).to_vec();
+                            jobs.extend(args.into_iter().rev().map(Job::Visit));
+                        }
+                        Cell::Cons(h, tl) => {
+                            jobs.push(Job::Build(t));
+                            jobs.push(Job::Visit(tl));
+                            jobs.push(Job::Visit(h));
+                        }
+                        _ if keep(t) => done.push(t),
+                        Cell::Opaque(i) => {
+                            let v = self
+                                .opaque_value(i)
+                                .cloned()
+                                .unwrap_or_else(BundValue::nodata);
+                            let c = self.opaque(v);
+                            done.push(c);
+                        }
+                        c => {
+                            let c = self.push(c);
+                            done.push(c);
+                        }
+                    }
+                }
+                Job::Build(t) => match self.cell(t) {
+                    Cell::Struct {
+                        functor,
+                        start,
+                        arity,
+                    } => {
+                        let parts = done.split_off(done.len().saturating_sub(arity));
+                        // Shared only when nothing changed: a bound variable
+                        // among the arguments reads as what it is bound to,
+                        // so the copy differs and does not share the binding.
+                        if keep(t) && parts == self.args(start, arity) {
+                            done.push(t);
+                        } else {
+                            let c = self.structure(functor, &parts);
+                            done.push(c);
+                        }
+                    }
+                    Cell::Cons(h, tl) => {
+                        let tail = done.pop().unwrap_or(tl);
+                        let head = done.pop().unwrap_or(h);
+                        if keep(t) && head == h && tail == tl {
+                            done.push(t);
+                        } else {
+                            let c = self.cons(head, tail);
+                            done.push(c);
+                        }
+                    }
+                    _ => done.push(t),
+                },
+            }
+        }
+        self.in_tpl = false;
+        done.pop().unwrap_or(t)
     }
 
     /// Follow bindings to a term that is not a bound variable. The chain is
@@ -378,6 +548,12 @@ impl Arena {
 
     /// Read a term back as a value (§S1's second table).
     pub fn to_value(&self, t: Term) -> BundValue {
+        self.to_value_with(t, &|_| BundValue::nodata())
+    }
+
+    /// Read a term back, an unbound variable as `var` says: NODATA in an
+    /// answer, a PTR of its name in a refusal's text.
+    pub fn to_value_with(&self, t: Term, var: &dyn Fn(Term) -> BundValue) -> BundValue {
         enum Job {
             Visit(Term),
             Struct(Atom, usize),
@@ -386,6 +562,7 @@ impl Arena {
         }
         enum Tail {
             Proper,
+            /// Unbound; the variable was visited after the items.
             Partial,
             /// Bound to a non-list, which was visited after the items.
             Improper,
@@ -397,7 +574,7 @@ impl Arena {
                 Job::Visit(t) => {
                     let t = self.deref(t);
                     match self.cell(t) {
-                        Cell::Var(_) => done.push(BundValue::nodata()),
+                        Cell::Var(_) => done.push(var(t)),
                         Cell::Atom(a) => done.push(atom_value(self.atoms.text(a))),
                         Cell::Int(i) => done.push(BundValue::int(i)),
                         Cell::Float(f) => done.push(BundValue::float(f)),
@@ -424,9 +601,9 @@ impl Arena {
                                 Cell::Var(_) => Tail::Partial,
                                 _ => Tail::Improper,
                             };
-                            let improper = matches!(tail, Tail::Improper);
+                            let visit_end = !matches!(tail, Tail::Proper);
                             jobs.push(Job::List(items.len(), tail));
-                            if improper {
+                            if visit_end {
                                 jobs.push(Job::Visit(end));
                             }
                             jobs.extend(items.iter().rev().map(|h| Job::Visit(*h)));
@@ -441,15 +618,11 @@ impl Arena {
                     done.push(BundValue::list(items));
                 }
                 Job::List(n, tail) => {
-                    let extra = usize::from(matches!(tail, Tail::Improper));
+                    let extra = usize::from(!matches!(tail, Tail::Proper));
                     let mut items = done.split_off(done.len().saturating_sub(n + extra));
                     match tail {
                         Tail::Proper => {}
-                        Tail::Partial => {
-                            items.push(BundValue::call("|"));
-                            items.push(BundValue::nodata());
-                        }
-                        Tail::Improper => {
+                        Tail::Partial | Tail::Improper => {
                             let end = items.pop().unwrap_or_else(BundValue::nodata);
                             items.push(BundValue::call("|"));
                             items.push(end);

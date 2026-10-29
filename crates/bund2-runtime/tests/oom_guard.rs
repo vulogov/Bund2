@@ -134,3 +134,31 @@ fn a_trip_refusing_a_scoped_call_leaves_the_stack_where_it_was() {
         assert_eq!(memguard::take(), None, "the trip was consumed");
     });
 }
+
+/// **RFC-0013 criterion 1b, E40: the engine's own poll.** A top-level
+/// `kb.query` is reached with no frame, so no interpreter poll stands
+/// between the trip and the query; the engine polls at every inference
+/// (§S4), so its first poll takes the trip and the code is always E40.
+///
+/// The KB is capped at 1,000,000 inferences: an engine missing its poll fails
+/// as E30, which the test asserts against, rather than hanging. The text is
+/// the guard's own, unprefixed (§S12), matched as a substring because
+/// `Interp::eval` wraps the failure.
+#[test]
+fn a_trip_stops_a_query_at_the_engines_first_poll() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    on_eval_thread(|| {
+        let mut rt = Runtime::new();
+        rt.eval_str(":loops [ [ [ loop ] ← [ loop ] ] ] kb! 1000000 kb.inferences var")
+            .unwrap();
+        memguard::trip(TRIP);
+        let e = rt
+            .eval_str(":loops var? [ loop ] kb.query")
+            .expect_err("the query after a trip fails");
+        assert!(e.0.contains("OOM GUARD: "), "{}", e.0);
+        assert!(!e.0.contains("KB.QUERY: "), "unprefixed: {}", e.0);
+        assert!(!e.0.contains("inference cap"), "not E30: {}", e.0);
+        assert!(!e.is_internal(), "{}", e.0);
+        assert_eq!(memguard::take(), None, "the trip was consumed");
+    });
+}

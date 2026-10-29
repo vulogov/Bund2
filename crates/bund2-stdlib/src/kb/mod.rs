@@ -5,7 +5,7 @@
 //! `kb.…`, so `conform`, `IMPLEMENTED` and `COVERAGE` move by zero (D72), and
 //! what checks the family is its unit tests rather than a golden.
 //!
-//! The engine is built in the RFC's milestones, in order. M1 and M2 are
+//! The engine is built in the RFC's milestones, in order. M1 to M3 are
 //! here:
 //!
 //! - [`term`]: the arena, the atoms' interner, and conversion from a Bund
@@ -13,12 +13,15 @@
 //! - [`unify`]: unification with the occurs check always on (L7), and the
 //!   trail (§S4);
 //! - [`store`]: reading, validating and writing a KB's MAP (§S2);
-//! - [`words`]: the building words and their `.` forms (§S9). The asking
-//!   words are M3's.
+//! - [`solve`]: the loop, its choicepoints, control, indexing and caps
+//!   (§S4, §S6, §S7);
+//! - [`words`]: the building words and their `.` forms, and the asking
+//!   words `kb.query`, `kb.once` and `kb.holds` (§S9). Bridges are M4's.
 //!
 //! This is the crate's first subdirectory. Every source scan in `lib.rs`
 //! walks subdirectories, criterion 25's among them since M1 (§S6).
 
+pub mod solve;
 pub mod store;
 pub mod term;
 pub mod unify;

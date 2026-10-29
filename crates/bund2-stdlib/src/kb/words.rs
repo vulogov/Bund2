@@ -1,10 +1,14 @@
 //! The `kb.` natives (RFC-0013 §S9).
 //!
-//! M2 builds the building words: `kb.new`, `kb!`, `kb.consult*`,
-//! `kb.assert`, `kb.asserta`, `kb.retract`, `kb.merge`, `kb.clauses` and
-//! `kb.inferences`, with the `.` forms of the six that take a KB. Each reads
-//! and writes the KB through `store.rs`, so what is here is operands and
-//! texts.
+//! The building words (M2): `kb.new`, `kb!`, `kb.consult*`, `kb.assert`,
+//! `kb.asserta`, `kb.retract`, `kb.merge`, `kb.clauses` and `kb.inferences`,
+//! with the `.` forms of the six that take a KB. Each reads and writes the KB
+//! through `store.rs`, so what is here is operands and texts.
+//!
+//! The asking words (M3): `kb.query`, `kb.once` and `kb.holds`, each a
+//! `solve.rs` activation, and [`VmBridge`], the one implementation of
+//! `Bridge`. They are opaque: a bridge re-enters evaluation
+//! (`promotable.rs`).
 //!
 //! - **E00 is the house text, unprefixed** (`singles.rs`, `var`). Every
 //!   other refusal begins `<W>: `, the word's name in capitals (§S12).
@@ -15,6 +19,7 @@
 use bund2_api::{Error, Leaves, Registry, StackEffect, Vm, WordKind};
 use bund2_value::{BundValue, INTEGER, LIST, MAP, NODATA};
 
+use super::solve::{Bridge, Solver, Stop};
 use super::store::{Kb, Refused};
 
 fn refused(word: &str, r: &Refused) -> Error {
@@ -142,6 +147,80 @@ fn kb_inferences(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// The `Vm` as the engine sees it.
+pub struct VmBridge<'a> {
+    vm: &'a mut dyn Vm,
+    /// The asking word, in capitals, for W1's prefix.
+    word: String,
+}
+
+impl Bridge for VmBridge<'_> {
+    /// W1: a `Warning`, so the query goes on (D36, D39).
+    fn warn(&mut self, reason: String) {
+        self.vm.report(bund2_api::diag::Diagnostic::warning(format!(
+            "{}: {reason}",
+            self.word
+        )));
+    }
+}
+
+/// How many answers an asking word wants, and what it answers with.
+#[derive(Clone, Copy)]
+enum Asking {
+    /// `kb.query`: a LIST of every answer.
+    All,
+    /// `kb.once`: the first answer, or NODATA.
+    Once,
+    /// `kb.holds`: whether there is an answer.
+    Holds,
+}
+
+/// `kb goal kb.query` and its two siblings.
+fn ask(vm: &mut dyn Vm, word: &str, asking: Asking) -> Result<(), Error> {
+    let up = word.to_uppercase();
+    let stop = |s: Stop| match s {
+        Stop::Code(text) => Error(format!("{up}: {text}")),
+        Stop::Raw(e) => e,
+    };
+    let (kb, goal) = kb_and(vm, word)?;
+    if goal.dt() == NODATA {
+        return Err(Error(format!("{up}: the query has no goal")));
+    }
+    let mut solver = Solver::new(&kb, &goal).map_err(stop)?;
+    let mut bridge = VmBridge {
+        vm,
+        word: up.clone(),
+    };
+    let answer = match asking {
+        Asking::All => {
+            let mut all = Vec::new();
+            while let Some(a) = solver.next(&mut bridge).map_err(stop)? {
+                all.push(a);
+            }
+            BundValue::list(all)
+        }
+        Asking::Once => solver
+            .next(&mut bridge)
+            .map_err(stop)?
+            .unwrap_or_else(BundValue::nodata),
+        Asking::Holds => BundValue::boolean(solver.next(&mut bridge).map_err(stop)?.is_some()),
+    };
+    bridge.vm.push(answer);
+    Ok(())
+}
+
+fn kb_query(vm: &mut dyn Vm) -> Result<(), Error> {
+    ask(vm, "kb.query", Asking::All)
+}
+
+fn kb_once(vm: &mut dyn Vm) -> Result<(), Error> {
+    ask(vm, "kb.once", Asking::Once)
+}
+
+fn kb_holds(vm: &mut dyn Vm) -> Result<(), Error> {
+    ask(vm, "kb.holds", Asking::Holds)
+}
+
 fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect::fixed(consumes, produces)
 }
@@ -176,6 +255,14 @@ pub fn register(r: &mut Registry) {
     crate::wb::bench!(r, "kb.clauses", kb_clauses);
     r.register_native("kb.inferences", kb_inferences, eff(2, 1), WordKind::Sync);
     crate::wb::bench!(r, "kb.inferences", kb_inferences, 2, 1);
+    // Opaque: a bridge may re-enter evaluation, and no `.` form (D111).
+    for (name, f) in [
+        ("kb.query", kb_query as bund2_api::NativeFn),
+        ("kb.once", kb_once),
+        ("kb.holds", kb_holds),
+    ] {
+        r.register_native(name, f, StackEffect::opaque(2), WordKind::Sync);
+    }
 }
 
 /// **Criterion 1a**: each building word's answer, each `.` form's, and each

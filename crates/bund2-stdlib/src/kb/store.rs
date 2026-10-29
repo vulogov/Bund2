@@ -117,6 +117,12 @@ fn is_arrow(v: &BundValue) -> bool {
     v.dt() == CALL && matches!(v.str_ref(), Some("←" | "<-"))
 }
 
+/// A stored clause's head and body goals, for the solver to compile.
+pub(crate) fn split(v: &BundValue) -> (&BundValue, &[BundValue]) {
+    let p = parts(v);
+    (p.head, p.goals)
+}
+
 fn parts(v: &BundValue) -> Parts<'_> {
     if let Some(items @ [head, rest @ ..]) = v.as_list()
         && head.dt() == LIST
@@ -368,6 +374,19 @@ impl Kb {
         }
         self.set_preds(preds);
         Ok(self)
+    }
+
+    /// The inference cap, if one is set: `inferences` above 0 (§S7). E02
+    /// if it is not an INT.
+    pub fn inferences(&self) -> Result<Option<u64>, Refused> {
+        match self.map.get("inferences") {
+            None => Ok(None),
+            Some(v) if v.dt() == bund2_value::INTEGER => Ok(v
+                .as_int()
+                .and_then(|n| u64::try_from(n).ok())
+                .filter(|n| *n > 0)),
+            Some(_) => Err(Refused::Malformed("inferences".into(), "INT")),
+        }
     }
 
     /// The KB with its inference cap set; ≤ 0 means none (§S7).
