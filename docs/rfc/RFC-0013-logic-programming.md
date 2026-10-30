@@ -13,6 +13,12 @@
   - the family as Bund2's own, outside D14's in-scope set (D72);
   - certainty factors deferred (L11 C).
 
+  *Dated note, 2026-10-29:* S12's E14 row now reads `<f>/<n> or <slot>`,
+  and S11's runner refuses `prove true` with it, by the owner's ruling
+  recorded as D227. S12's E01 row now names a slot as well as a parameter,
+  and its E08 row shows the value for a count out of range, by the owner's
+  rulings recorded as D228. Nothing else in the accepted text changed.
+
   The history below is kept as it was.
 - *Before acceptance:* **Draft — revision 12 (2026-10-28).**
   - Revision 5 carried every correction from the pre-RFC review and three
@@ -946,6 +952,8 @@ is.
   `sqlite`'s behaviour on a negative `skip_first`, skipping every row, is
   not copied;
 - an error in `lambda`: E25;
+- `prove` set to `true` before Phase 2 is built: E14, naming the slot
+  (D227). Phase 2 replaces this refusal with S15's proofs;
 - otherwise, the asking words' codes, plus Phase 2's E52, E53, E57 and E58.
 
 **Answers one at a time [L6].** The runner solves to the next answer, runs
@@ -975,20 +983,20 @@ scratch stack, so it does not change the walk.
 | Code | Text after `<W>: ` |
 |---|---|
 | E00 | (unprefixed) `Stack is too shallow for inline <w>` |
-| E01 | `#<k> parameter must be a knowledge base` |
+| E01 | `<#k parameter or slot> must be a knowledge base` (D228) |
 | E02 | `malformed knowledge base: <key> is not a <kind>` |
 | E03 | `<f>/<n> is reserved and cannot be defined` |
 | E04 | `<name> is not a variable name: it contains '\|'` |
 | E05 | `'\|' must stand between a head and a tail in <list>` |
 | E06 | `a clause head must be an atom or a compound: <head>` |
 | E07 | `#1 parameter must be a list of clauses` |
-| E08 | `<slot or operand> must be <kind>, found <type>` |
+| E08 | `<slot or operand> must be <kind>, found <type>`; the value in place of `<type>` when the kind is right and the range is wrong (D228) |
 | E09 | `the functor must be a STRING and the arity a non-negative INT` |
 | E10 | `instantiation error: <what> is unbound in <goal>` |
 | E11 | `type error: <value> is not callable` |
 | E12 | `existence error: unknown predicate <f>/<n> in <goal>` **[L8]** |
 | E13 | `the query has no goal` |
-| E14 | `<f>/<n> belongs to Phase <p>, which is not built` |
+| E14 | `<f>/<n> or <slot> belongs to Phase <p>, which is not built` (D227) |
 | E20 | `instantiation error: <Var> is unbound in the lambda of <goal>` |
 | E21 | `<bridge>: the lambda left nothing in <goal>` |
 | E22 | `test: expected BOOL, found <type> in <goal>` |

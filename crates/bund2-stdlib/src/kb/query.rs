@@ -13,7 +13,7 @@
 //! `run_query` calls `eval_lambda`, so it is named in `REENTERING`.
 
 use bund2_api::{Error, Leaves, Registry, StackEffect, Vm, WordKind};
-use bund2_value::{BOOL, BundValue, INTEGER, LAMBDA, NODATA};
+use bund2_value::{BOOL, BundValue, INTEGER, LAMBDA, NODATA, PTR, STRING};
 
 use super::solve::{Solver, Stop};
 use super::store::{Kb, Refused};
@@ -57,9 +57,9 @@ fn count(c: &BundValue, slot: &str) -> Result<Option<usize>, Error> {
 ///
 /// Refuses a slot of the wrong kind, or a negative `limit` or `skip_first`
 /// (E08), a missing `kb` (E01) or `goal` (E13), an error in `lambda` (E25),
-/// and otherwise what the asking words refuse. `prove` is Phase 2's (S15);
-/// `ask` and `known` matter only to an askable predicate, which is E14 until
-/// Phase 2 is built.
+/// and otherwise what the asking words refuse. `prove true` is E14 until
+/// Phase 2 builds S15 (D227); `ask` and `known` matter only to an askable
+/// predicate, which is E14 until Phase 2 is built.
 pub fn run_query(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     let kb = match c.get("kb") {
         Some(v) => Kb::read(&v, 0).map_err(|_| code(Refused::NoKbSlot.text()))?,
@@ -79,6 +79,17 @@ pub fn run_query(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
             )));
         }
     };
+    // Phase 2's asking slots: unread until an askable predicate can be
+    // called, but a wrong kind is E08 now, as S11 says of every slot.
+    if let Some(a) = c.get("ask").filter(|a| a.dt() != LAMBDA) {
+        return Err(code(format!("ask must be LAMBDA, found {}", a.type_name())));
+    }
+    if let Some(k) = c.get("known").filter(|k| !matches!(k.dt(), STRING | PTR)) {
+        return Err(code(format!(
+            "known must be STRING, found {}",
+            k.type_name()
+        )));
+    }
     let limit = count(&c, "limit")?;
     let skip_first = count(&c, "skip_first")?.unwrap_or(0);
     match c.get("prove") {
@@ -261,6 +272,22 @@ mod tests {
         assert_eq!(
             err("query :kb kb.new set :goal [ p ] set :prove true set !"),
             "QUERY: prove belongs to Phase 2, which is not built"
+        );
+        assert_eq!(
+            err("query :kb kb.new set :goal [ p ] set :ask 1 set !"),
+            "QUERY: ask must be LAMBDA, found Integer"
+        );
+        assert_eq!(
+            err("query :kb kb.new set :goal [ p ] set :known 1 set !"),
+            "QUERY: known must be STRING, found Integer"
+        );
+        // Of the right kind, both are accepted and unread until Phase 2.
+        assert_eq!(
+            stack(&format!(
+                "{FAMILY} query :kb :family var? set :goal [ parent P C ] set \
+                 :lambda {{ :C get }} set :ask {{ true }} set :known :replies set !"
+            )),
+            ["bob", "ann", "pat"]
         );
         // The asking words' codes, prefixed `QUERY: `.
         assert!(

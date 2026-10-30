@@ -15806,3 +15806,60 @@ writers and still passes: the adapter writes `pending_tail` through the trait,
 not directly.
 - **Status 2026-10-19:** the mirror exists. §S6's cells (f7f4772) and `Vm::drain_tail_request` (2d2f575) landed 2026-09-13; `Interp::clear_tail_request` clears both `pending_tail` and the request cell (`crates/bund2-interp/src/lib.rs`), and `jit_call_native` calls it on error (`crates/bund2-jit/src/lower.rs`).
 
+
+## D227 — `query`'s `prove true` before Phase 2 is E14, naming the slot
+
+**Raised 2026-10-29** by RFC-0013 M5. S11 lists `prove` as a Phase 2 slot
+(S15) with default `false`, and does not say what `true` does before Phase 2
+is built. S12's E14, `<f>/<n> belongs to Phase <p>, which is not built`, is
+written for predicates only. M5 refused `prove true` with E14's shape and the
+slot's name in place of `<f>/<n>`: `QUERY: prove belongs to Phase 2, which is
+not built`.
+
+- Blocks: nothing
+- Depends on: D226 (L14, phases built in order)
+- Status: **RESOLVED** by the repository owner, 2026-10-29: "keep E14 and
+  amend its template to `<f>/<n> or <slot> belongs to Phase <p>, which is not
+  built`. Phase 2 then replaces this refusal, as it does for tabled and
+  askable predicates". RFC-0013's S12 row for E14 and S11's runner list are
+  amended to match, with a dated note under its status.
+
+### Rejected
+
+- **Running as if `false`.** A program asking for proofs would get answers
+  without them and no word of it.
+- **E08, `prove must be false`.** `true` is the slot's kind; what is missing
+  is the phase, which is what E14 says.
+
+## D228 — RFC-0013's E01 names a slot, and E08 shows a count out of range
+
+**Raised 2026-10-29** by RFC-0013 M5. Two of S12's texts have no reading
+for what `query`'s runner refuses:
+
+- **E01**, `#<k> parameter must be a knowledge base`, is written for an
+  operand. S11 gives a missing `kb` slot E01, and a slot has no position.
+  M5 fills `#<k> parameter` with the slot's name: `QUERY: kb must be a
+  knowledge base`, for a `kb` slot missing or not a KB.
+- **E08**, `<slot or operand> must be <kind>, found <type>`, reads `found
+  Integer` for `limit -1`, which says an INT was wanted and an INT found.
+  M5 shows the value when the kind is right and the range is wrong: `QUERY:
+  limit must be a non-negative INT, found -1`. A wrong kind still shows its
+  type.
+
+- Blocks: nothing
+- Depends on: D226
+- Status: **RESOLVED** by the repository owner, 2026-10-29, choosing the
+  recommended option for each after being shown the alternatives: E01's
+  template becomes `<#k parameter or slot> must be a knowledge base`; E08
+  shows the value in place of `<type>` when the kind is right and the range
+  is wrong. RFC-0013's S12 rows are amended to match, with a dated note
+  under its status. M5's texts already read this way.
+
+### Rejected
+
+- **E01: a separate text for a missing `kb`** (`the query has no knowledge
+  base`). A new text in S12 for what E01 already covers.
+- **E01: E08 for a `kb` slot that is present but not a KB.** S11's table
+  names E01 for `kb`.
+- **E08: the type, as written.** `found Integer` does not say what is wrong.
+- **E08: type and value** (`found Integer -1`). The only E08 of its shape.
