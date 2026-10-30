@@ -45,6 +45,14 @@ jit = ["dep:bund2-runtime", "bund2-runtime/jit", "dep:bund2-jit", "bund2-jit/jit
 # own note. `cargo bench -p bund2-bench --features unguarded -- guard_cost`.
 unguarded = ["jit", "bund2-jit/unguarded-bench"]
 relocation-test = ["dep:bund2-runtime", "bund2-runtime/relocation-test"]
+# RFC-0013 criterion 16's two shares of naive reverse: each is an A/B across
+# one of these, against a baseline saved without it —
+# `cargo bench -p bund2-bench --bench kb -- nrev --save-baseline on`, then
+# `cargo bench -p bund2-bench --bench kb --features kb-unchecked -- nrev
+# --baseline on`. Each forwards to a measurement-only `bund2-stdlib` feature
+# that compiles out the occurs check or the guard poll; see their note.
+kb-unchecked = ["dep:bund2-stdlib", "bund2-stdlib/kb-unchecked-bench"]
+kb-unpolled = ["dep:bund2-stdlib", "bund2-stdlib/kb-unpolled-bench"]
 
 # A regular dependency, not a dev one: Cargo forbids optional
 # dev-dependencies, and the feature has to be optional for the A/B to mean
@@ -52,6 +60,9 @@ relocation-test = ["dep:bund2-runtime", "bund2-runtime/relocation-test"]
 [dependencies]
 bund2-runtime = { workspace = true, optional = true }
 bund2-jit = { workspace = true, optional = true }
+# Optional and regular only so the two `kb-*` features can reach its
+# measurement-only features; the benches use it through the dev-dependency.
+bund2-stdlib = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
@@ -71,6 +82,10 @@ harness = false
 
 [[bench]]
 name = "fragment"
+harness = false
+
+[[bench]]
+name = "kb"
 harness = false
 
 # RFC-0005 criterion 11's floor check, by instructions retired. See the file.

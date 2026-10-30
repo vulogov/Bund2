@@ -17,6 +17,10 @@ use bund2_value::BundValue;
 
 use super::term::{Arena, Cell, Term};
 
+/// Whether binding runs the occurs check: always, except under the
+/// measurement-only `kb-unchecked-bench` (criterion 16), which is unsound.
+pub const CHECKED: bool = !cfg!(feature = "kb-unchecked-bench");
+
 /// The variables bound since the activation began, newest last.
 #[derive(Debug, Default)]
 pub struct Trail {
@@ -80,13 +84,13 @@ fn unify_pairs(arena: &mut Arena, trail: &mut Trail, a: Term, b: Term) -> bool {
                 trail.bind(arena, young, old);
             }
             (Cell::Var(_), _) => {
-                if occurs(arena, a, b) {
+                if CHECKED && occurs(arena, a, b) {
                     return false;
                 }
                 trail.bind(arena, a, b);
             }
             (_, Cell::Var(_)) => {
-                if occurs(arena, b, a) {
+                if CHECKED && occurs(arena, b, a) {
                     return false;
                 }
                 trail.bind(arena, b, a);

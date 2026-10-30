@@ -38,6 +38,10 @@ use super::unify::{Trail, unify};
 /// The inferences after which one activation warns, once (W1, D39).
 pub const WARN_AT: u64 = 10_000_000;
 
+/// Whether each inference polls the memory guard: always, except under the
+/// measurement-only `kb-unpolled-bench` (criterion 16), which is unsound.
+pub const POLLED: bool = !cfg!(feature = "kb-unpolled-bench");
+
 /// What the engine asks of the `Vm`, and nothing more. `words.rs` holds the
 /// one implementation.
 pub trait Bridge {
@@ -392,7 +396,7 @@ impl Solver {
     /// Count one inference: poll the guard (E40), hold the cap (E30), and
     /// warn once past [`WARN_AT`] (W1).
     fn infer(&mut self, bridge: &mut dyn Bridge) -> Result<(), Stop> {
-        if let Some(trip) = bund2_api::memguard::take() {
+        if POLLED && let Some(trip) = bund2_api::memguard::take() {
             return Err(Stop::Raw(trip.error()));
         }
         self.count += 1;
@@ -1419,6 +1423,20 @@ mod tests {
              :except {{ \"caught\" }} set !"
         ));
         assert_eq!(caught.as_str().as_deref(), Some("caught"));
+    }
+
+    /// **Criterion 16's switches are off in a shipped build.** The occurs
+    /// check (L7) and the guard poll (S4) are compiled out only by the
+    /// measurement-only features `kb-unchecked-bench` and
+    /// `kb-unpolled-bench`, which nothing enables but `bund2-bench`.
+    #[test]
+    fn the_shipped_engine_checks_and_polls() {
+        // Through `black_box`: a test of what the build compiled in, which
+        // clippy would otherwise read as an assertion on a constant.
+        let checked = std::hint::black_box(super::super::unify::CHECKED);
+        let polled = std::hint::black_box(super::POLLED);
+        assert!(checked, "the occurs check is compiled out");
+        assert!(polled, "the guard poll is compiled out");
     }
 
     /// **Criterion 5.** `[ loop ]` over `[ [ loop ] ← [ loop ] ]`, capped at

@@ -274,6 +274,19 @@ bund2-ir.workspace = true
 # `string.grok` and `string.grok.`. Off by default: see the note on the
 # dependency above and D40's amendment.
 grok = ["dep:grok"]
+# **Measurement only, and unsound when used.** RFC-0013 criterion 16 asks for
+# the occurs check's share of naive reverse, and the per-inference guard
+# poll's. Both are unconditional (L7; S4's poll), so there is nothing to
+# measure them against; each feature compiles one of them out, for
+# `bund2-bench`'s `kb` bench and nothing else, as `bund2-jit`'s
+# `unguarded-bench` does for RFC-0005 criterion 17.
+#
+# Without the occurs check a unification can build a cycle, and a walk over
+# it never ends; without the poll a query that grows the arena outruns the
+# memory guard. Neither `default` nor any other feature enables them, and
+# `the_shipped_engine_checks_and_polls` asserts the default.
+kb-unchecked-bench = []
+kb-unpolled-bench = []
 
 [lints]
 workspace = true
