@@ -5,7 +5,7 @@
 //! `kb.…`, so `conform`, `IMPLEMENTED` and `COVERAGE` move by zero (D72), and
 //! what checks the family is its unit tests rather than a golden.
 //!
-//! The engine is built in the RFC's milestones, in order. M1 to M4 are
+//! The engine is built in the RFC's milestones, in order. M1 to M5 are
 //! here:
 //!
 //! - [`term`]: the arena, the atoms' interner, and conversion from a Bund
@@ -18,12 +18,16 @@
 //! - [`words`]: the building words and their `.` forms, and the asking
 //!   words `kb.query`, `kb.once` and `kb.holds` (§S9);
 //! - [`bridge`]: running a bridge's λ on a scratch stack, and substituting
-//!   into it (§S5).
+//!   into it (§S5);
+//! - [`query`]: the `query` conditional and its runner (§S11).
+//!
+//! `kb.call` and `kb.word` are in [`words`] (§S9, §S10).
 //!
 //! This is the crate's first subdirectory. Every source scan in `lib.rs`
 //! walks subdirectories, criterion 25's among them since M1 (§S6).
 
 pub mod bridge;
+pub mod query;
 pub mod solve;
 pub mod store;
 pub mod term;
@@ -33,4 +37,5 @@ pub mod words;
 /// Register the family's words.
 pub fn register(r: &mut bund2_api::Registry) {
     words::register(r);
+    query::register(r);
 }

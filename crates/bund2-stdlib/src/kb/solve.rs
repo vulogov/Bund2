@@ -32,7 +32,7 @@ use bund2_api::Error;
 use bund2_value::{BundValue, LAMBDA};
 
 use super::store::{self, Kb, Refused};
-use super::term::{Arena, Atom, Cell, Mark, SHOWN, Scope, Term};
+use super::term::{Arena, Atom, Cell, Mark, Refusal, SHOWN, Scope, Term};
 use super::unify::{Trail, unify};
 
 /// The inferences after which one activation warns, once (W1, D39).
@@ -222,6 +222,8 @@ pub struct Solver {
     count: u64,
     warned: bool,
     names: Vec<(String, Term)>,
+    /// `kb.call`'s arguments, whose instances are its answers.
+    args: Option<Vec<Term>>,
     /// Each clause instance's variables that a bridge may need, by name; the
     /// query's first. Cut back on backtrack with the choicepoint's count.
     scopes: Vec<Names>,
@@ -235,13 +237,33 @@ impl Solver {
     /// An activation of `goal` over `kb`. Reads `preds`, `tabled`,
     /// `askable` and `inferences` (E02), and the goal (E04, E05, E26).
     pub fn new(kb: &Kb, goal: &BundValue) -> Result<Solver, Stop> {
+        Solver::build(kb, |arena, scope| Ok((arena.to_term(goal, scope)?, None)))
+    }
+
+    /// An activation of `functor(args…)` over `kb`, whose answers are each
+    /// the arguments as instantiated, a LIST (`kb.call`, L5).
+    pub fn for_call(kb: &Kb, functor: &str, args: &[BundValue]) -> Result<Solver, Stop> {
+        Solver::build(kb, |arena, scope| {
+            let ts = args
+                .iter()
+                .map(|a| arena.to_term(a, scope))
+                .collect::<Result<Vec<_>, _>>()?;
+            let f = arena.atoms.intern(functor);
+            Ok((arena.structure(f, &ts), Some(ts)))
+        })
+    }
+
+    fn build(
+        kb: &Kb,
+        goal: impl FnOnce(&mut Arena, &mut Scope) -> Result<(Term, Option<Vec<Term>>), Refusal>,
+    ) -> Result<Solver, Stop> {
         let source = kb.preds()?;
         let mut deferred = kb.names("tabled")?;
         deferred.extend(kb.names("askable")?);
         let cap = kb.inferences()?;
         let mut arena = Arena::default();
         let mut scope = Scope::default();
-        let t = arena.to_term(goal, &mut scope).map_err(Refused::from)?;
+        let (t, args) = goal(&mut arena, &mut scope).map_err(Refused::from)?;
         let mut a = |s: &str| arena.atoms.intern(s);
         let control = Control {
             true_: a("true"),
@@ -276,6 +298,7 @@ impl Solver {
             count: 0,
             warned: false,
             names: scope.names().to_vec(),
+            args,
             scopes: vec![scope.names().into()],
             scope: 0,
             vars: HashMap::new(),
@@ -315,6 +338,9 @@ impl Solver {
     }
 
     fn answer(&self) -> BundValue {
+        if let Some(args) = &self.args {
+            return BundValue::list(args.iter().map(|a| self.arena.to_value(*a)).collect());
+        }
         let map = self
             .names
             .iter()

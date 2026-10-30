@@ -188,6 +188,15 @@ fn prebind(stream: &[BundValue], registry: &Registry) -> Registry {
 /// template from the workbench, where no literal in this stream puts it; the
 /// walk reads it there instead, in [`Walker::call`].
 fn literal_operand_effect(prev: Option<&BundValue>, name: &str) -> Option<StackEffect> {
+    // RFC-0013 §S9: `kb.call` takes its arity's worth of arguments beneath the
+    // KB, the functor and the arity, and answers a LIST.
+    if name == "kb.call" {
+        let n = prev
+            .filter(|p| p.dt() == INTEGER)
+            .and_then(BundValue::as_int)
+            .and_then(|n| u8::try_from(n).ok())?;
+        return Some(StackEffect::fixed(n.checked_add(3)?, 1).leaving(Leaves::Tag(LIST)));
+    }
     if name != "format" {
         return None;
     }
@@ -917,6 +926,35 @@ impl<'a> Walker<'a> {
             self.apply_fixed(stack, name, eff, at, via);
             return true;
         }
+        // RFC-0013 §S10: `kb.word` made from literals binds a word whose body
+        // is `"var" var? "functor" n kb.call`, recorded as `register`'s is.
+        if name == "kb.word"
+            && self.is_native(name)
+            && let Some(n) = prev
+                .filter(|p| p.dt() == INTEGER)
+                .and_then(BundValue::as_int)
+        {
+            self.report.analysed += 1;
+            if let Some(mut t) = self.take(stack, 3, name, at, via) {
+                let (_, functor, var) = (t.remove(0), t.remove(0), t.remove(0));
+                if let (Abs::Name(_, f), Abs::Name(_, v)) = (functor, var) {
+                    if &*f == "endcontext" && !self.report.hazards.iter().any(|(a, _)| *a == at) {
+                        self.report
+                            .hazards
+                            .push((at, crate::values::ENDCONTEXT_SHADOWED.to_string()));
+                    }
+                    let body: Rc<[BundValue]> = Rc::from(vec![
+                        BundValue::str(&*v),
+                        BundValue::call("var?"),
+                        BundValue::str(&*f),
+                        BundValue::int(n),
+                        BundValue::call("kb.call"),
+                    ]);
+                    self.lambdas.insert(f.to_string(), body);
+                }
+            }
+            return true;
+        }
         // `format.`: the template is the workbench's top
         // (`format.rs:76`), and the walk knows it when `.` put a literal
         // there; the values come from the stack (`:91`) and the answer goes
@@ -1149,6 +1187,18 @@ impl<'a> Walker<'a> {
                         _ => {}
                     }
                 }
+                true
+            }
+            // RFC-0013 §S9: each asking word's effect on the current stack is
+            // fixed, since its bridges run on a scratch stack and restore it.
+            "kb.query" | "kb.once" | "kb.holds" => {
+                self.report.analysed += 1;
+                let _ = self.take(stack, 2, name, at, via);
+                stack.push(match name {
+                    "kb.query" => Abs::Tagged(LIST),
+                    "kb.holds" => Abs::Tagged(BOOL),
+                    _ => Abs::Unknown,
+                });
                 true
             }
             // `<container> <key> <value> set`. On a CLASS with a literal key
@@ -2125,7 +2175,9 @@ impl<'a> Walker<'a> {
                 self.join_branches("?ifthenelse", &then_b, &else_b, stack, at, level)
             }
             "tryexcept" => self.run_tryexcept(m, stack, at, level),
-            "csv" | "sqlite" => {
+            // RFC-0013 §S11: `query` pushes a MAP per answer, as `sqlite`
+            // pushes one per row.
+            "csv" | "sqlite" | "query" => {
                 let body = match Self::slot(m, "lambda") {
                     Slot::Lambda(b) => b,
                     Slot::Absent => Rc::from(Vec::new()),

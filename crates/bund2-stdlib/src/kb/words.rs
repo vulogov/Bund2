@@ -154,6 +154,16 @@ pub struct VmBridge<'a> {
     word: String,
 }
 
+impl<'a> VmBridge<'a> {
+    /// The bridge for one call of an asking word, `word` in capitals.
+    pub fn new(vm: &'a mut dyn Vm, word: &str) -> VmBridge<'a> {
+        VmBridge {
+            vm,
+            word: word.to_string(),
+        }
+    }
+}
+
 impl Bridge for VmBridge<'_> {
     /// W1: a `Warning`, so the query goes on (D36, D39).
     fn warn(&mut self, reason: String) {
@@ -213,6 +223,100 @@ fn ask(vm: &mut dyn Vm, word: &str, asking: Asking) -> Result<(), Error> {
     Ok(())
 }
 
+/// The functor and arity of `kb.call` and `kb.word`, `#2` and `#1`: a STRING
+/// (or PTR, as `:name` lowers) and a non-negative INT, or E09.
+fn functor_arity(word: &str, functor: &BundValue, n: &BundValue) -> Result<(String, usize), Error> {
+    let name = functor
+        .as_str()
+        .filter(|_| matches!(functor.dt(), bund2_value::STRING | bund2_value::PTR));
+    let arity = n
+        .as_int()
+        .filter(|_| n.dt() == INTEGER)
+        .and_then(|n| usize::try_from(n).ok());
+    match (name, arity) {
+        (Some(f), Some(n)) => Ok((f, n)),
+        _ => Err(Error(format!(
+            "{}: the functor must be a STRING and the arity a non-negative INT",
+            word.to_uppercase()
+        ))),
+    }
+}
+
+/// `a₁ … aₙ kb functor n kb.call` — every answer of `functor(a₁, …, aₙ)`,
+/// each the arguments as instantiated, a LIST (L5). NODATA among them is an
+/// unbound argument.
+fn kb_call(vm: &mut dyn Vm) -> Result<(), Error> {
+    let up = "KB.CALL";
+    let stop = |s: Stop| match s {
+        Stop::Code(text) => Error(format!("{up}: {text}")),
+        Stop::Raw(e) => e,
+    };
+    let mut ops = operands(vm, "kb.call", 3)?.into_iter();
+    let (Some(n), Some(functor), Some(kb)) = (ops.next(), ops.next(), ops.next()) else {
+        return Err(Error::internal(
+            "kb.call: three operands were guarded and not three pulled",
+        ));
+    };
+    let (functor, n) = functor_arity("kb.call", &functor, &n)?;
+    let kb = Kb::read(&kb, 3).map_err(|r| refused("kb.call", &r))?;
+    let mut args = operands(vm, "kb.call", n)?;
+    args.reverse();
+    let mut solver = Solver::for_call(&kb, &functor, &args).map_err(stop)?;
+    let mut bridge = VmBridge {
+        vm,
+        word: up.to_string(),
+    };
+    let mut all = Vec::new();
+    while let Some(a) = solver.next(&mut bridge).map_err(stop)? {
+        all.push(a);
+    }
+    bridge.vm.push(BundValue::list(all));
+    Ok(())
+}
+
+/// `var functor n kb.word` — register `functor` as a word whose body is
+/// `"var" var? "functor" n kb.call` (§S10). The KB is read when the word
+/// runs. It behaves as `register` does, and warns as it does on binding
+/// `endcontext` (F62).
+fn kb_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    let mut ops = operands(vm, "kb.word", 3)?.into_iter();
+    let (Some(n), Some(functor), Some(var)) = (ops.next(), ops.next(), ops.next()) else {
+        return Err(Error::internal(
+            "kb.word: three operands were guarded and not three pulled",
+        ));
+    };
+    let (functor, n) = functor_arity("kb.word", &functor, &n)?;
+    let Some(var) = var
+        .as_str()
+        .filter(|_| matches!(var.dt(), bund2_value::STRING | bund2_value::PTR))
+    else {
+        return Err(Error(format!(
+            "KB.WORD: #3 parameter must be STRING, found {}",
+            var.type_name()
+        )));
+    };
+    if super::store::reserved(&functor, n).is_some() {
+        return Err(refused(
+            "kb.word",
+            &Refused::Reserved(format!("{functor}/{n}")),
+        ));
+    }
+    let body = BundValue::lambda(vec![
+        BundValue::str(var),
+        BundValue::call("var?"),
+        BundValue::str(functor.as_str()),
+        BundValue::int(i64::try_from(n).unwrap_or(i64::MAX)),
+        BundValue::call("kb.call"),
+    ]);
+    if functor == "endcontext" {
+        vm.report(bund2_api::diag::Diagnostic::warning(
+            crate::values::ENDCONTEXT_SHADOWED,
+        ));
+    }
+    vm.register_lambda(&functor, body);
+    Ok(())
+}
+
 fn kb_query(vm: &mut dyn Vm) -> Result<(), Error> {
     ask(vm, "kb.query", Asking::All)
 }
@@ -267,6 +371,10 @@ pub fn register(r: &mut Registry) {
     ] {
         r.register_native(name, f, StackEffect::opaque(2), WordKind::Sync);
     }
+    // Its depth is the arity it is handed.
+    r.register_native("kb.call", kb_call, StackEffect::opaque(3), WordKind::Sync);
+    // `register`'s shape: three operands in, a word bound, nothing left.
+    r.register_native("kb.word", kb_word, eff(3, 0), WordKind::Sync);
 }
 
 /// **Criterion 1a**: each building word's answer, each `.` form's, and each

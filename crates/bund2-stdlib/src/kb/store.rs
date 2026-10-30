@@ -28,6 +28,9 @@ use super::unify::{Trail, unify};
 pub enum Refused {
     /// E01: the `k`th operand is not a KB.
     NotKb(usize),
+    /// E01 for the `query` conditional: its `kb` slot is missing or is not a
+    /// KB. A slot has no number, so it is named as E08 names one.
+    NoKbSlot,
     /// E02: a known key, named as shown, is not of its kind.
     Malformed(String, &'static str),
     /// E03: a clause would define a reserved `functor/arity`.
@@ -46,6 +49,7 @@ impl Refused {
     pub fn text(&self) -> String {
         match self {
             Refused::NotKb(k) => format!("#{k} parameter must be a knowledge base"),
+            Refused::NoKbSlot => "kb must be a knowledge base".into(),
             Refused::Malformed(key, kind) => {
                 format!("malformed knowledge base: {key} is not a {kind}")
             }

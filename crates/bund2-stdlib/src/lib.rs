@@ -661,13 +661,16 @@ mod honesty_tests {
         // Sorted as `declared_effects` sorts. `save.model` is here because of
         // its depth and is not run: it writes a world file (`ACTS_ON_HOST`).
         // `graph.maxflow`'s third operand is its sink, a node's name looked
-        // up in the graph (D192), as `graph.path`'s end is.
-        const UNVARIED: [&str; 16] = [
+        // up in the graph (D192), as `graph.path`'s end is. `kb.word`'s is
+        // the name of the variable its word reads the KB from when it runs
+        // (RFC-0013 §S10): a variable's name, not a stack's.
+        const UNVARIED: [&str; 17] = [
             "get,",
             "graph.maxflow",
             "graph.maxflow.",
             "graph.path",
             "graph.path.",
+            "kb.word",
             "save.model",
             "seq.asc",
             "seq.asc.",
@@ -1297,7 +1300,7 @@ mod honesty_tests {
     /// descending into subdirectories as criterion 11's does.
     #[test]
     fn every_native_reporting_mid_body_is_named() {
-        const REPORTS: [&str; 13] = [
+        const REPORTS: [&str; 14] = [
             // A notice, when a TRY block left an error the EXCEPT arm runs.
             "conditional.rs: run_error",
             // A warning, when the exit code is not an integer and 0 is taken
@@ -1330,6 +1333,9 @@ mod honesty_tests {
             // once and goes on (D39). Only the asking words report it, and
             // they are `StackEffect::opaque`, so no crossing reaches it.
             "kb/words.rs: warn",
+            // F62's warning, shared with `register` (§S10): `eff(3, 0)`, and
+            // in `promotable::REPORTS_MID_BODY` beside it.
+            "kb/words.rs: kb_word",
         ];
         const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
         const REPORTS_AT: [&str; 2] = ["Diagnostic::warning", "Diagnostic::notice"];
@@ -1513,7 +1519,7 @@ mod honesty_tests {
     /// outside this crate (RFC-0005 assumption 24).
     #[test]
     fn every_reentering_function_is_named() {
-        const REENTERING: [&str; 32] = [
+        const REENTERING: [&str; 33] = [
             // RFC-0008 §W2: a line typed at a debugger stop, applied value by
             // value. Called from a safepoint and never from a native.
             "lib.rs: eval_line",
@@ -1575,6 +1581,9 @@ mod honesty_tests {
             // RFC-0013 §S5: a bridge's `scoped_call`. Opaque words reach it,
             // and `stack_ok` bounds a λ that runs another query.
             "kb/bridge.rs: run",
+            // RFC-0013 §S11: `query` runs `lambda` once per answer, as
+            // `sqlite`'s runner runs its lambda once per row.
+            "kb/query.rs: run_query",
         ];
         const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
         // `.apply_placed(` is `.apply(` for an included file's top level.
