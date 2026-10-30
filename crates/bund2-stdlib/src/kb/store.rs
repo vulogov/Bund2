@@ -51,7 +51,12 @@ impl Refused {
             Refused::NotKb(k) => format!("#{k} parameter must be a knowledge base"),
             Refused::NoKbSlot => "kb must be a knowledge base".into(),
             Refused::Malformed(key, kind) => {
-                format!("malformed knowledge base: {key} is not a {kind}")
+                let a = if kind.starts_with(['A', 'E', 'I', 'O', 'U']) {
+                    "an"
+                } else {
+                    "a"
+                };
+                format!("malformed knowledge base: {key} is not {a} {kind}")
             }
             Refused::Reserved(key) => format!("{key} is reserved and cannot be defined"),
             Refused::Term(r) => r.text(),

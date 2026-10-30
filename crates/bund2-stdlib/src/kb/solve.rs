@@ -1283,7 +1283,7 @@ mod tests {
         );
         assert_eq!(
             err("kb.new :inferences :x set [ p ] kb.holds"),
-            "KB.HOLDS: malformed knowledge base: inferences is not a INT"
+            "KB.HOLDS: malformed knowledge base: inferences is not an INT"
         );
     }
 

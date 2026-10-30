@@ -15863,3 +15863,51 @@ for what `query`'s runner refuses:
   names E01 for `kb`.
 - **E08: the type, as written.** `found Integer` does not say what is wrong.
 - **E08: type and value** (`found Integer -1`). The only E08 of its shape.
+
+## D229 — RFC-0013's readings from M2–M5: rule shape, NODATA goal, unnamed variables, non-λ bridges, S12's texts, S13's palette
+
+**Raised 2026-10-29** by RFC-0013 M2–M5, each filling a gap the accepted
+text leaves:
+
+- **The rule shape (M2).** S2 says a rule is "a LIST whose first item is the
+  head term", which a compound fact such as `[ parent tom bob ]` also fits.
+  M2 reads a clause as a rule only when its first item is itself a LIST, the
+  one reading that keeps S2's own example: `[ [ ready ] ← … ]` a rule,
+  `[ ready ← … ]` the fact `ready(←, …)`. `[ :tom :bob ]` is E06.
+- **E02 and E08 (M2).** S12 gives templates. M2 names a key inside `preds`
+  as `preds <f>/<n>`, and an operand in E08 as `#<k> parameter`, as E01
+  does. It wrote `a` before every kind, giving `is not a INT`.
+- **A NODATA goal (M3).** S1 reads NODATA as a fresh variable and S3 makes an
+  unbound goal E10; M3 gives a NODATA goal operand E13, `the query has no
+  goal`, as `query` does for a missing slot.
+- **A variable with no name (M3).** E10 names `<what>`; M3 shows a variable
+  that is not one of the query's as `_G<n>`, as S8 names one in a residual.
+- **A bridge given something other than a λ (M4).** S5's table covers only
+  a λ. M4 refuses `[ is X 5 ]` and `[ test true ]` with E11, and an unbound
+  argument with E10, as S3 refuses a goal.
+- **S13's palette (M5).** S13 says the palette reaches `kb.word`. It does
+  not: the third operand names a variable (`UNVARIED`), the palette leaves
+  `7` there, and every run is E08. `PROMOTABLE.txt` lists it as not reached.
+
+- Blocks: nothing
+- Depends on: D226, D228
+- Status: **RESOLVED** by the repository owner, 2026-10-29, choosing the
+  recommended option for each after being shown the alternatives: each
+  reading as M2–M5 built it, except that E02 writes `an` before a vowel
+  (`inferences is not an INT`), which changes one text in `kb/store.rs`.
+  RFC-0013's S2, S3, S5, S12 (E02, E08, E10) and S13 are amended to match,
+  with a dated note under its status.
+
+### Rejected
+
+- **A rule as any clause with `←` second.** Contradicts S2's
+  `[ ready ← … ]` example, which is a fact.
+- **E02 kept as `is not a INT`.** A grammar error in a user-facing text.
+- **E10 for a NODATA goal.** Names an invented variable
+  (`_G1 is unbound in _G1`) for what is no goal at all.
+- **`_` for every unnamed variable.** Two unbound variables in one goal
+  would read alike.
+- **`[ is X 5 ]` as `X = 5`.** Gives a bridge two meanings and repeats `=`.
+- **Teaching the palette to vary `kb.word`'s name operand.** Changes a shared
+  audit tool for one word that `REPORTS_MID_BODY` excludes from promotion
+  anyway.

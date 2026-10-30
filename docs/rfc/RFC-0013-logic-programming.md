@@ -17,7 +17,10 @@
   and S11's runner refuses `prove true` with it, by the owner's ruling
   recorded as D227. S12's E01 row now names a slot as well as a parameter,
   and its E08 row shows the value for a count out of range, by the owner's
-  rulings recorded as D228. Nothing else in the accepted text changed.
+  rulings recorded as D228. S2's rule shape, S3's NODATA goal, S5's
+  non-λ bridge argument, S12's E02, E08 and E10 rows, and S13's palette
+  list are amended by the owner's rulings recorded as D229. Nothing else
+  in the accepted text changed.
 
   The history below is kept as it was.
 - *Before acceptance:* **Draft — revision 12 (2026-10-28).**
@@ -473,8 +476,10 @@ A KB is a MAP with these keys:
 **Clauses.**
 
 - A **fact** is a term.
-- A **rule** is a LIST whose first item is the head term and whose
-  remaining items are body goals.
+- A **rule** is a LIST whose first item is the head term, itself a LIST,
+  and whose remaining items are body goals (D229). Any other LIST is a
+  fact, read as S1 reads a term; so `[ :tom :bob ]` is E06, not the rule
+  `tom :- bob`.
   - One `←` or `<-` after the head is dropped when the rule is added.
   - A rule head of arity 0 is written `[ [ ready ] ← … ]`. Written as
     `[ ready ← … ]`, it is the fact `ready(←, …)`.
@@ -542,7 +547,8 @@ now.
 
 **What a goal may not be:**
 
-- an unbound goal: E10;
+- an unbound goal: E10. A goal operand that is NODATA is E13, not E10:
+  it means no goal was given (D229);
 - a number, an opaque constant, or the empty list (`nil`): E11;
 - a predicate that is neither defined nor reserved: E12 **[L8]**.
 
@@ -660,6 +666,10 @@ is left, the query is exhausted.
 | `[ test λ ]` | `true` or `false` | succeed or fail. Another kind is E22; nothing is E21. |
 | `[ in X λ ]` | a LIST | X takes each item on backtracking. Another kind is E23. |
 | `[ in X L ]` | — | L must be a proper list. If it is unbound or partial, that is E10; any other non-list, a compound or an improper list among them, is E23. |
+
+**An argument that is not a λ.** In `[ is X λ ]` and `[ test λ ]`, an
+unbound λ is E10 and any other non-LAMBDA, a number or `true` among them,
+is E11, as S3 refuses a goal (D229). `[ is X 5 ]` is not `X = 5`.
 
 **Running λ:**
 
@@ -984,15 +994,15 @@ scratch stack, so it does not change the walk.
 |---|---|
 | E00 | (unprefixed) `Stack is too shallow for inline <w>` |
 | E01 | `<#k parameter or slot> must be a knowledge base` (D228) |
-| E02 | `malformed knowledge base: <key> is not a <kind>` |
+| E02 | `malformed knowledge base: <key> is not a <kind>`; a key inside `preds` reads `preds <f>/<n>`, and `a` is `an` before a vowel (D229) |
 | E03 | `<f>/<n> is reserved and cannot be defined` |
 | E04 | `<name> is not a variable name: it contains '\|'` |
 | E05 | `'\|' must stand between a head and a tail in <list>` |
 | E06 | `a clause head must be an atom or a compound: <head>` |
 | E07 | `#1 parameter must be a list of clauses` |
-| E08 | `<slot or operand> must be <kind>, found <type>`; the value in place of `<type>` when the kind is right and the range is wrong (D228) |
+| E08 | `<slot or operand> must be <kind>, found <type>`; the value in place of `<type>` when the kind is right and the range is wrong (D228); an operand reads `#<k> parameter`, as in E01 (D229) |
 | E09 | `the functor must be a STRING and the arity a non-negative INT` |
-| E10 | `instantiation error: <what> is unbound in <goal>` |
+| E10 | `instantiation error: <what> is unbound in <goal>`; a variable with no name of the query's reads `_G`*n*, as S8 names it (D229) |
 | E11 | `type error: <value> is not callable` |
 | E12 | `existence error: unknown predicate <f>/<n> in <goal>` **[L8]** |
 | E13 | `the query has no goal` |
@@ -1045,11 +1055,13 @@ E55's `<reason>` is one of:
 
 - **Tier 1 never crosses an opaque word:** `kb.consult*`, `kb.query`,
   `kb.once`, `kb.holds`, `kb.call`, `kb.prove`, `kb.saturate`.
-- **The palette reaches four words:**
+- **The palette reaches three words:**
   - `kb.new`;
   - `kb!`;
-  - `kb.word`, which `REPORTS_MID_BODY` excludes;
   - `query`, as it reaches `?try` (`tests/golden/PROMOTABLE.txt:57`).
+- **It does not reach `kb.word`** (D229). Its third operand names a
+  variable, so it is in `UNVARIED`, and the palette's `7` there is E08.
+  `REPORTS_MID_BODY` excludes it as well.
 - **It does not reach the fixed words that read a KB.** The palette's
   `dict` has no `type` (RFC-0012 §S6).
 - **Epoch bumps.** Each bridge bumps the stack epoch twice: once in
