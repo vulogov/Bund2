@@ -21,7 +21,9 @@
 //!   to it, so a deterministic recursion such as `[ loop ] ← [ loop ]` runs in
 //!   constant goal space;
 //! - the choicepoints;
-//! - the predicate table and its first-argument indexes.
+//! - the predicate table and its first-argument indexes;
+//! - the suspended `dif`s and their attributes (§S17), taken back to a
+//!   choicepoint's mark as the trail is.
 //!
 //! Nothing here uses the `Vm`.
 
@@ -31,10 +33,11 @@ use std::rc::Rc;
 use bund2_api::Error;
 use bund2_value::{BundValue, LAMBDA};
 
+use super::dif::{DifMark, Difs};
 use super::proof::Proofs;
 use super::store::{self, Kb, Refused};
 use super::term::{Arena, Atom, Cell, Mark, Refusal, SHOWN, Scope, Term};
-use super::unify::{Trail, unify};
+use super::unify::{Trail, unify, unify_waking};
 
 /// The inferences after which one activation warns, once (W1, D39).
 pub const WARN_AT: u64 = 10_000_000;
@@ -201,6 +204,7 @@ enum Kind {
 struct Choicepoint {
     trail: usize,
     mark: Mark,
+    difs: DifMark,
     goals: usize,
     /// How many clause-instance scopes there were, and which was current.
     scopes: usize,
@@ -261,6 +265,7 @@ struct Control {
     is: Atom,
     test: Atom,
     in_: Atom,
+    dif: Atom,
 }
 
 /// One activation: a KB, a goal, and the search between them.
@@ -294,6 +299,8 @@ pub struct Solver {
     /// `known` is written with.
     replies: Vec<(Term, bool)>,
     told: Vec<BundValue>,
+    /// The `dif`s posted, and their attributes (§S17).
+    difs: Difs,
     started: bool,
     done: bool,
 }
@@ -347,6 +354,7 @@ impl Solver {
             is: a("is"),
             test: a("test"),
             in_: a("in"),
+            dif: a("dif"),
         };
         Ok(Solver {
             arena,
@@ -376,6 +384,7 @@ impl Solver {
             proofs: None,
             replies: Vec::new(),
             told: Vec::new(),
+            difs: Difs::default(),
             started: false,
             done: false,
         })
@@ -481,17 +490,21 @@ impl Solver {
         }
     }
 
-    fn answer(&self) -> BundValue {
+    fn answer(&mut self) -> BundValue {
         if let Some(args) = &self.args {
             return BundValue::list(args.iter().map(|a| self.arena.to_value(*a)).collect());
         }
-        let map = self
+        let mut map: Vec<(String, BundValue)> = self
             .names
             .iter()
             .filter(|(n, _)| !n.starts_with('_'))
             .map(|(n, t)| (n.clone(), self.arena.to_value(*t)))
             .collect();
-        let answer = BundValue::map(map);
+        let residual = self.residual();
+        if !residual.is_empty() {
+            map.push(("_residual".to_string(), BundValue::list(residual)));
+        }
+        let answer = BundValue::map(map.into_iter().collect());
         match self.proofs {
             None => answer,
             Some(p) => BundValue::map(
@@ -503,6 +516,31 @@ impl Solver {
                 .collect(),
             ),
         }
+    }
+
+    /// The suspended `dif`s, each as the goal `[ dif A B ]` that re-posted
+    /// restores it (§S8, L15). A query variable reads as a PTR of its name,
+    /// any other as a PTR `_G`*n*.
+    fn residual(&mut self) -> Vec<BundValue> {
+        let pending = self.difs.residual(&mut self.arena, &mut self.trail);
+        let named = |v: Term| {
+            let name = self
+                .names
+                .iter()
+                .find(|(_, t)| self.arena.deref(*t) == v)
+                .map_or_else(|| format!("_G{}", v.id()), |(n, _)| n.clone());
+            BundValue::ptr(name)
+        };
+        pending
+            .into_iter()
+            .map(|(a, b)| {
+                BundValue::list(vec![
+                    BundValue::call("dif"),
+                    self.arena.to_value_with(a, &named),
+                    self.arena.to_value_with(b, &named),
+                ])
+            })
+            .collect()
     }
 
     /// Run until the goal list is empty (an answer, `true`) or nothing is
@@ -577,6 +615,12 @@ impl Solver {
         Ok(())
     }
 
+    /// Unify, and run the wake-ups of what that bound (§S4, §S17). Every
+    /// unification the search makes goes through here; a trial's does not.
+    fn unify(&mut self, a: Term, b: Term) -> bool {
+        unify_waking(&mut self.arena, &mut self.trail, &mut self.difs, a, b)
+    }
+
     fn push(&mut self, goal: Goal, proof: Option<Term>, next: Option<usize>) -> Option<usize> {
         self.goals.push(Node {
             goal,
@@ -632,6 +676,7 @@ impl Solver {
         self.cps.push(Choicepoint {
             trail: self.trail.mark(),
             mark: self.arena.mark(),
+            difs: self.difs.mark(),
             goals: self.goals.len(),
             scopes: self.scopes.len(),
             scope: self.scope,
@@ -647,6 +692,7 @@ impl Solver {
                 return Ok(false);
             };
             self.trail.undo_to(&mut self.arena, cp.trail);
+            self.difs.undo_to(cp.difs);
             self.arena.reset(cp.mark);
             self.goals.truncate(cp.goals);
             self.scopes.truncate(cp.scopes);
@@ -721,7 +767,7 @@ impl Solver {
                     }
                     let Some(item) = item else { continue };
                     self.infer(bridge)?;
-                    if unify(&mut self.arena, &mut self.trail, var, item) {
+                    if self.unify(var, item) {
                         self.cont = cont;
                         return Ok(true);
                     }
@@ -772,7 +818,7 @@ impl Solver {
                     for c in copies.into_iter().rev() {
                         l = self.arena.cons(c, l);
                     }
-                    if unify(&mut self.arena, &mut self.trail, list, l) {
+                    if self.unify(list, l) {
                         let parts: Vec<Term> = self
                             .marker(|p| p.findall)
                             .into_iter()
@@ -883,7 +929,14 @@ impl Solver {
             }
             (f, []) if f == c.fail => Ok(false),
             (f, [a, b]) if f == c.eq => {
-                let ok = unify(&mut self.arena, &mut self.trail, *a, *b);
+                let ok = self.unify(*a, *b);
+                if ok {
+                    self.justify(proof, d, &builtin);
+                }
+                Ok(ok)
+            }
+            (f, [a, b]) if f == c.dif => {
+                let ok = self.difs.post(&mut self.arena, &mut self.trail, *a, *b);
                 if ok {
                     self.justify(proof, d, &builtin);
                 }
@@ -1078,7 +1131,7 @@ impl Solver {
                 cont: self.cont,
             });
         }
-        unify(&mut self.arena, &mut self.trail, x, *first)
+        self.unify(x, *first)
     }
 
     /// A bridge (§S5): substitute the clause instance's variables into λ,
@@ -1161,7 +1214,7 @@ impl Solver {
                     .arena
                     .to_term(&left, &mut Scope::default())
                     .map_err(Refused::from)?;
-                Ok(x.is_some_and(|x| unify(&mut self.arena, &mut self.trail, x, t)))
+                Ok(x.is_some_and(|x| self.unify(x, t)))
             }
             Bridging::In => {
                 let Some(items) = left.as_list().filter(|_| left.dt() == bund2_value::LIST) else {
@@ -1406,7 +1459,7 @@ impl Solver {
         let (head, body, names) = (clause.head, clause.body.clone(), clause.names.clone());
         self.vars.clear();
         let h = self.arena.copy(head, &mut self.vars, false);
-        if !unify(&mut self.arena, &mut self.trail, call, h) {
+        if !self.unify(call, h) {
             return false;
         }
         let mut goals: Vec<Slotted> = body
@@ -1854,13 +1907,10 @@ mod tests {
     #[test]
     fn e14_names_a_later_phase() {
         assert_eq!(
-            err("kb.new [ dif a b ] kb.query"),
-            "KB.QUERY: dif/2 belongs to Phase 2, which is not built"
-        );
-        assert_eq!(
             err("kb.new [ label X ] kb.query"),
             "KB.QUERY: label/1 belongs to Phase 3, which is not built"
         );
+        // `dif/2`, Phase 2's one reserved pair, is M9's (`dif.rs`'s tests).
         // A predicate named in `tabled` (the implementation plan), whether
         // or not it has clauses, until M10. `askable` is M8's (`query.rs`'s
         // tests).

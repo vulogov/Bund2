@@ -8,8 +8,11 @@
 //! contains it fails, so no unification builds a cycle and every walk over a
 //! term ends.
 //!
-//! Attributes and their wake-ups are Phase 2's (`dif`, S17) and Phase 3's
-//! (domains, S21) **[L14]**; nothing in Phase 1 carries one.
+//! **Attributes and their wake-ups** are Phase 2's (`dif`, S17) and Phase
+//! 3's (domains, S21) **[L14]**. [`unify_waking`] runs the wake-ups once the
+//! pair worklist is empty, so a half-built compound is never judged; a
+//! failure there fails the unification. [`unify`] runs none, which is what a
+//! trial unification is (S17).
 //!
 //! Nothing here uses the `Vm`.
 
@@ -49,6 +52,11 @@ impl Trail {
         self.bound.is_empty()
     }
 
+    /// The variables bound since `mark`, oldest first.
+    pub fn since(&self, mark: usize) -> &[Term] {
+        self.bound.get(mark..).unwrap_or(&[])
+    }
+
     fn bind(&mut self, arena: &mut Arena, var: Term, to: Term) {
         arena.bind(var, to);
         self.bound.push(var);
@@ -74,6 +82,41 @@ pub fn unify(arena: &mut Arena, trail: &mut Trail, a: Term, b: Term) -> bool {
         trail.undo_to(arena, mark);
     }
     ok
+}
+
+/// What a binding wakes: the attributes of the variables it bound (§S4).
+pub trait Wake {
+    /// Whether no variable carries an attribute, so nothing can wake: the
+    /// one test a query that posts no constraint pays.
+    fn idle(&self) -> bool;
+    /// Re-check what `bound`'s variables carry. `false` fails the
+    /// unification that bound them.
+    fn wake(&mut self, arena: &mut Arena, trail: &mut Trail, bound: &[Term]) -> bool;
+}
+
+/// Unify `a` and `b`, as [`unify`] does, and then run the wake-ups of the
+/// variables it bound, to a fixpoint (§S4). On failure, here too, nothing
+/// stays bound.
+pub fn unify_waking(
+    arena: &mut Arena,
+    trail: &mut Trail,
+    attrs: &mut dyn Wake,
+    a: Term,
+    b: Term,
+) -> bool {
+    let mark = trail.mark();
+    if !unify(arena, trail, a, b) {
+        return false;
+    }
+    if trail.len() == mark || attrs.idle() {
+        return true;
+    }
+    let bound = trail.since(mark).to_vec();
+    if attrs.wake(arena, trail, &bound) {
+        return true;
+    }
+    trail.undo_to(arena, mark);
+    false
 }
 
 fn unify_pairs(arena: &mut Arena, trail: &mut Trail, a: Term, b: Term) -> bool {

@@ -6,12 +6,12 @@
 //! what checks the family is its unit tests rather than a golden.
 //!
 //! The engine is built in the RFC's milestones, in order. Phase 1, M1 to
-//! M6, is here, and Phase 2's M7 and M8:
+//! M6, is here, and Phase 2's M7, M8 and M9:
 //!
 //! - [`term`]: the arena, the atoms' interner, and conversion from a Bund
 //!   value and back (§S1);
-//! - [`unify`]: unification with the occurs check always on (L7), and the
-//!   trail (§S4);
+//! - [`unify`]: unification with the occurs check always on (L7), the
+//!   trail, and the wake-ups a binding runs (§S4);
 //! - [`store`]: reading, validating and writing a KB's MAP (§S2);
 //! - [`solve`]: the loop, its choicepoints, control, indexing and caps
 //!   (§S4, §S6, §S7);
@@ -19,6 +19,9 @@
 //!   them, and the asking words `kb.query`, `kb.once`, `kb.holds` and
 //!   `kb.prove` (§S9);
 //! - [`proof`]: proof trees, kept only when asked for (§S15, M7);
+//! - [`dif`]: `dif/2`, a disequality suspended on the variables that could
+//!   still make its sides one term, and reported in `_residual` (§S17, §S8,
+//!   M9);
 //! - [`bridge`]: running a bridge's λ, or the `ask` lambda, on a scratch
 //!   stack, and substituting into a λ (§S5, §S16);
 //! - [`query`]: the `query` conditional and its runner, with its `ask` and
@@ -30,6 +33,7 @@
 //! walks subdirectories, criterion 25's among them since M1 (§S6).
 
 pub mod bridge;
+pub mod dif;
 pub mod proof;
 pub mod query;
 pub mod solve;
