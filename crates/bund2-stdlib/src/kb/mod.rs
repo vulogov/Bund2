@@ -5,8 +5,8 @@
 //! `kb.…`, so `conform`, `IMPLEMENTED` and `COVERAGE` move by zero (D72), and
 //! what checks the family is its unit tests rather than a golden.
 //!
-//! The engine is built in the RFC's milestones, in order. M1 to M5 are
-//! here:
+//! The engine is built in the RFC's milestones, in order. Phase 1, M1 to
+//! M6, is here, and Phase 2's M7:
 //!
 //! - [`term`]: the arena, the atoms' interner, and conversion from a Bund
 //!   value and back (§S1);
@@ -16,7 +16,8 @@
 //! - [`solve`]: the loop, its choicepoints, control, indexing and caps
 //!   (§S4, §S6, §S7);
 //! - [`words`]: the building words and their `.` forms, and the asking
-//!   words `kb.query`, `kb.once` and `kb.holds` (§S9);
+//!   words `kb.query`, `kb.once`, `kb.holds` and `kb.prove` (§S9);
+//! - [`proof`]: proof trees, kept only when asked for (§S15, M7);
 //! - [`bridge`]: running a bridge's λ on a scratch stack, and substituting
 //!   into it (§S5);
 //! - [`query`]: the `query` conditional and its runner (§S11).
@@ -27,6 +28,7 @@
 //! walks subdirectories, criterion 25's among them since M1 (§S6).
 
 pub mod bridge;
+pub mod proof;
 pub mod query;
 pub mod solve;
 pub mod store;

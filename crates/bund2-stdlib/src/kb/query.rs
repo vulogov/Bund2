@@ -57,9 +57,9 @@ fn count(c: &BundValue, slot: &str) -> Result<Option<usize>, Error> {
 ///
 /// Refuses a slot of the wrong kind, or a negative `limit` or `skip_first`
 /// (E08), a missing `kb` (E01) or `goal` (E13), an error in `lambda` (E25),
-/// and otherwise what the asking words refuse. `prove true` is E14 until
-/// Phase 2 builds S15 (D227); `ask` and `known` matter only to an askable
-/// predicate, which is E14 until Phase 2 is built.
+/// and otherwise what the asking words refuse. With `prove true` each
+/// answer is `{ answer, proof }` (§S15), as `kb.prove` gives it. `ask` and
+/// `known` matter only to an askable predicate, which is E14 until M8.
 pub fn run_query(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     let kb = match c.get("kb") {
         Some(v) => Kb::read(&v, 0).map_err(|_| code(Refused::NoKbSlot.text()))?,
@@ -92,17 +92,13 @@ pub fn run_query(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     }
     let limit = count(&c, "limit")?;
     let skip_first = count(&c, "skip_first")?.unwrap_or(0);
-    match c.get("prove") {
-        None => {}
-        Some(p) if p.dt() == BOOL => {
-            if matches!(p.unboxed(), BundValue::Bool(true, _)) {
-                return Err(code("prove belongs to Phase 2, which is not built"));
-            }
-        }
+    let prove = match c.get("prove") {
+        None => false,
+        Some(p) if p.dt() == BOOL => matches!(p.unboxed(), BundValue::Bool(true, _)),
         Some(p) => {
             return Err(code(format!("prove must be BOOL, found {}", p.type_name())));
         }
-    }
+    };
     if limit == Some(0) {
         return Ok(());
     }
@@ -111,6 +107,9 @@ pub fn run_query(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
         Stop::Raw(e) => e,
     };
     let mut solver = Solver::new(&kb, &goal).map_err(stop)?;
+    if prove {
+        solver = solver.proving();
+    }
     let mut seen = 0usize;
     let mut run = 0usize;
     loop {
@@ -268,10 +267,6 @@ mod tests {
         assert_eq!(
             err("query :kb kb.new set :goal [ p ] set :prove 1 set !"),
             "QUERY: prove must be BOOL, found Integer"
-        );
-        assert_eq!(
-            err("query :kb kb.new set :goal [ p ] set :prove true set !"),
-            "QUERY: prove belongs to Phase 2, which is not built"
         );
         assert_eq!(
             err("query :kb kb.new set :goal [ p ] set :ask 1 set !"),
@@ -470,5 +465,11 @@ mod tests {
         assert!(r.findings.is_empty() && r.abandoned == 0, "{r:?}");
         let r = check(":a :b kb.new :p 2 kb.call drop");
         assert!(r.findings.is_empty() && r.abandoned == 0, "{r:?}");
+        // `kb.prove` (M7): 2 → LIST, and underflow with one operand.
+        let r = check("kb.new [ p ] kb.prove len");
+        assert!(r.findings.is_empty() && r.abandoned == 0, "{r:?}");
+        let r = check("[ p ] kb.prove");
+        assert_eq!(r.findings.len(), 1, "{r:?}");
+        assert_eq!(r.findings[0].word, "kb.prove");
     }
 }

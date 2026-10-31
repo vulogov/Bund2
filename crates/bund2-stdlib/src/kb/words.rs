@@ -187,9 +187,11 @@ enum Asking {
     Once,
     /// `kb.holds`: whether there is an answer.
     Holds,
+    /// `kb.prove`: a LIST of every answer, each `{ answer, proof }` (§S15).
+    Prove,
 }
 
-/// `kb goal kb.query` and its two siblings.
+/// `kb goal kb.query` and its three siblings.
 fn ask(vm: &mut dyn Vm, word: &str, asking: Asking) -> Result<(), Error> {
     let up = word.to_uppercase();
     let stop = |s: Stop| match s {
@@ -201,12 +203,15 @@ fn ask(vm: &mut dyn Vm, word: &str, asking: Asking) -> Result<(), Error> {
         return Err(Error(format!("{up}: the query has no goal")));
     }
     let mut solver = Solver::new(&kb, &goal).map_err(stop)?;
+    if matches!(asking, Asking::Prove) {
+        solver = solver.proving();
+    }
     let mut bridge = VmBridge {
         vm,
         word: up.clone(),
     };
     let answer = match asking {
-        Asking::All => {
+        Asking::All | Asking::Prove => {
             let mut all = Vec::new();
             while let Some(a) = solver.next(&mut bridge).map_err(stop)? {
                 all.push(a);
@@ -329,6 +334,10 @@ fn kb_holds(vm: &mut dyn Vm) -> Result<(), Error> {
     ask(vm, "kb.holds", Asking::Holds)
 }
 
+fn kb_prove(vm: &mut dyn Vm) -> Result<(), Error> {
+    ask(vm, "kb.prove", Asking::Prove)
+}
+
 fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect::fixed(consumes, produces)
 }
@@ -368,6 +377,7 @@ pub fn register(r: &mut Registry) {
         ("kb.query", kb_query as bund2_api::NativeFn),
         ("kb.once", kb_once),
         ("kb.holds", kb_holds),
+        ("kb.prove", kb_prove),
     ] {
         r.register_native(name, f, StackEffect::opaque(2), WordKind::Sync);
     }

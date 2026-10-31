@@ -53,6 +53,13 @@ impl Trail {
         arena.bind(var, to);
         self.bound.push(var);
     }
+
+    /// Bind a proof slot (§S15), trailed so backtracking undoes it. No occurs
+    /// check is owed: a slot is a fresh variable that only its parent's proof
+    /// holds, so `to`, built after it, cannot contain it.
+    pub fn bind_slot(&mut self, arena: &mut Arena, slot: Term, to: Term) {
+        self.bind(arena, slot, to);
+    }
 }
 
 /// Unify `a` and `b`, with the occurs check.

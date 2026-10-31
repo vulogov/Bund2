@@ -31,6 +31,7 @@ use std::rc::Rc;
 use bund2_api::Error;
 use bund2_value::{BundValue, LAMBDA};
 
+use super::proof::Proofs;
 use super::store::{self, Kb, Refused};
 use super::term::{Arena, Atom, Cell, Mark, Refusal, SHOWN, Scope, Term};
 use super::unify::{Trail, unify};
@@ -104,12 +105,20 @@ enum Goal {
 
 /// A goal, the rest of the list after it, and the clause instance it belongs
 /// to (an index into the solver's scopes; 0 is the query's).
+///
+/// `proof` is the goal's proof slot (§S15): a fresh variable the goal's
+/// justification is bound to, trailed, so backtracking undoes it. `None`
+/// when proofs are not kept, and for the internal goals.
 #[derive(Debug, Clone, Copy)]
 struct Node {
     goal: Goal,
     next: Option<usize>,
     scope: usize,
+    proof: Option<Term>,
 }
+
+/// A goal to put on the goal list, and its proof slot.
+type Slotted = (Goal, Option<Term>);
 
 /// What a choicepoint holds besides its marks, and what it resumes (§S4).
 enum Kind {
@@ -119,11 +128,15 @@ enum Kind {
         cands: Rc<[usize]>,
         next: usize,
         cont: Option<usize>,
+        proof: Option<Term>,
     },
+    /// `or`'s branches after the first; `next` 0 is the second branch.
     Branches {
+        goal: Term,
         branches: Rc<[Term]>,
         next: usize,
         cont: Option<usize>,
+        proof: Option<Term>,
     },
     Items {
         var: Term,
@@ -132,18 +145,30 @@ enum Kind {
         cont: Option<usize>,
     },
     /// `not`'s goal had no solution: resume.
-    Not { cont: Option<usize> },
+    Not {
+        goal: Term,
+        cont: Option<usize>,
+        proof: Option<Term>,
+    },
     /// `if`'s condition had no solution: run the else branch.
     Else {
+        goal: Term,
         otherwise: Term,
         cont: Option<usize>,
+        proof: Option<Term>,
     },
     /// `findall`'s goal is exhausted: unify the copies with the list.
+    /// `inner` is the goal's own proof slot, and `proofs` its copies, one
+    /// beside each result, when proofs are kept.
     Collect {
+        goal: Term,
         template: Term,
         list: Term,
         results: Vec<Term>,
+        inner: Option<Term>,
+        proofs: Vec<Term>,
         cont: Option<usize>,
+        proof: Option<Term>,
     },
 }
 
@@ -233,6 +258,8 @@ pub struct Solver {
     scopes: Vec<Names>,
     scope: usize,
     vars: HashMap<Term, Term>,
+    /// Set when proofs are kept (`kb.prove`, `query`'s `prove`).
+    proofs: Option<Proofs>,
     started: bool,
     done: bool,
 }
@@ -290,6 +317,7 @@ impl Solver {
                 goal: Goal::Call(t),
                 next: None,
                 scope: 0,
+                proof: None,
             }],
             cont: Some(0),
             cps: Vec::new(),
@@ -306,9 +334,21 @@ impl Solver {
             scopes: vec![scope.names().into()],
             scope: 0,
             vars: HashMap::new(),
+            proofs: None,
             started: false,
             done: false,
         })
+    }
+
+    /// Keep proofs (§S15): each answer becomes `{ answer, proof }`. Called
+    /// before the first [`Solver::next`].
+    pub fn proving(mut self) -> Solver {
+        let proofs = Proofs::new(&mut self.arena);
+        if let Some(n) = self.goals.first_mut() {
+            n.proof = Some(proofs.root);
+        }
+        self.proofs = Some(proofs);
+        self
     }
 
     /// Inferences so far.
@@ -351,7 +391,18 @@ impl Solver {
             .filter(|(n, _)| !n.starts_with('_'))
             .map(|(n, t)| (n.clone(), self.arena.to_value(*t)))
             .collect();
-        BundValue::map(map)
+        let answer = BundValue::map(map);
+        match self.proofs {
+            None => answer,
+            Some(p) => BundValue::map(
+                [
+                    ("answer".to_string(), answer),
+                    ("proof".to_string(), self.arena.to_value(p.root)),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        }
     }
 
     /// Run until the goal list is empty (an answer, `true`) or nothing is
@@ -384,7 +435,7 @@ impl Solver {
                 }
                 Goal::Call(t) => {
                     self.infer(bridge)?;
-                    self.call(t, bridge)?
+                    self.call(t, node.proof, bridge)?
                 }
             };
             if !ok && !self.backtrack(bridge)? {
@@ -415,22 +466,55 @@ impl Solver {
         Ok(())
     }
 
-    fn push(&mut self, goal: Goal, next: Option<usize>) -> Option<usize> {
+    fn push(&mut self, goal: Goal, proof: Option<Term>, next: Option<usize>) -> Option<usize> {
         self.goals.push(Node {
             goal,
             next,
             scope: self.scope,
+            proof,
         });
         Some(self.goals.len() - 1)
     }
 
     /// `goals` in order, ahead of `rest`.
-    fn prepend(&mut self, goals: &[Goal], rest: Option<usize>) -> Option<usize> {
+    fn prepend(&mut self, goals: &[Slotted], rest: Option<usize>) -> Option<usize> {
         let mut cont = rest;
-        for g in goals.iter().rev() {
-            cont = self.push(*g, cont);
+        for (g, proof) in goals.iter().rev() {
+            cont = self.push(*g, *proof, cont);
         }
         cont
+    }
+
+    /// A fresh proof slot when proofs are kept and the goal has one to fill.
+    fn slot(&mut self, parent: Option<Term>) -> Option<Term> {
+        parent.map(|_| self.arena.var())
+    }
+
+    /// `goals` as calls, each with a fresh slot when `parent` has one.
+    fn slotted(&mut self, goals: &[Term], parent: Option<Term>) -> Vec<Slotted> {
+        goals
+            .iter()
+            .map(|g| (Goal::Call(*g), self.slot(parent)))
+            .collect()
+    }
+
+    /// Bind `slot` to `[ goal ← parts… ]` (§S15), when there is a slot.
+    fn justify(&mut self, slot: Option<Term>, goal: Term, parts: &[Term]) {
+        let (Some(slot), Some(p)) = (slot, self.proofs) else {
+            return;
+        };
+        let node = p.node(&mut self.arena, goal, parts);
+        self.trail.bind_slot(&mut self.arena, slot, node);
+    }
+
+    /// The marker atom `pick` names, when proofs are kept.
+    fn marker(&self, pick: fn(&Proofs) -> Term) -> Option<Term> {
+        self.proofs.as_ref().map(pick)
+    }
+
+    /// The parts' slots, as terms, for `justify`.
+    fn parts(goals: &[Slotted]) -> Vec<Term> {
+        goals.iter().filter_map(|(_, p)| *p).collect()
     }
 
     fn push_cp(&mut self, kind: Kind) {
@@ -463,8 +547,9 @@ impl Solver {
                     cands,
                     next,
                     cont,
+                    proof,
                 } => {
-                    let (call, pred, cont) = (*call, *pred, *cont);
+                    let (call, pred, cont, proof) = (*call, *pred, *cont, *proof);
                     let ci = cands.get(*next).copied();
                     *next += 1;
                     if *next < cands.len() {
@@ -472,22 +557,27 @@ impl Solver {
                     }
                     let Some(ci) = ci else { continue };
                     self.infer(bridge)?;
-                    if self.try_clause(call, pred, ci, cont) {
+                    if self.try_clause(call, pred, ci, cont, proof) {
                         return Ok(true);
                     }
                 }
                 Kind::Branches {
+                    goal,
                     branches,
                     next,
                     cont,
+                    proof,
                 } => {
-                    let (b, cont) = (branches.get(*next).copied(), *cont);
+                    let (goal, b, cont, proof) =
+                        (*goal, branches.get(*next).copied(), *cont, *proof);
+                    // The first branch is 1, as `goal i get` finds it.
+                    let i = *next + 2;
                     *next += 1;
                     if *next < branches.len() {
                         self.cps.push(cp);
                     }
                     let Some(b) = b else { continue };
-                    self.cont = self.push(Goal::Call(b), cont);
+                    self.cont = self.branch(goal, b, i, proof, cont);
                     return Ok(true);
                 }
                 Kind::Items {
@@ -508,31 +598,59 @@ impl Solver {
                         return Ok(true);
                     }
                 }
-                Kind::Not { cont } => {
+                Kind::Not { goal, cont, proof } => {
+                    let (goal, proof) = (*goal, *proof);
+                    let no = self.marker(|p| p.no_proof);
+                    self.justify(proof, goal, &[no].into_iter().flatten().collect::<Vec<_>>());
                     self.cont = *cont;
                     return Ok(true);
                 }
-                Kind::Else { otherwise, cont } => {
-                    self.cont = self.push(Goal::Call(*otherwise), *cont);
+                Kind::Else {
+                    goal,
+                    otherwise,
+                    cont,
+                    proof,
+                } => {
+                    let (goal, otherwise, cont, proof) = (*goal, *otherwise, *cont, *proof);
+                    let p_else = self.slot(proof);
+                    let parts: Vec<Term> = [self.marker(|p| p.else_), p_else]
+                        .into_iter()
+                        .flatten()
+                        .collect();
+                    self.justify(proof, goal, &parts);
+                    self.cont = self.push(Goal::Call(otherwise), p_else, cont);
                     return Ok(true);
                 }
                 Kind::Collect {
+                    goal,
                     list,
                     results,
+                    proofs,
                     cont,
+                    proof,
                     ..
                 } => {
-                    let (list, cont) = (*list, *cont);
+                    let (goal, list, cont, proof) = (*goal, *list, *cont, *proof);
                     let mut copies = Vec::with_capacity(results.len());
-                    for r in results.iter() {
+                    let mut proved = Vec::with_capacity(proofs.len());
+                    for (i, r) in results.iter().enumerate() {
                         self.vars.clear();
                         copies.push(self.arena.copy(*r, &mut self.vars, false));
+                        if let Some(p) = proofs.get(i) {
+                            proved.push(self.arena.copy(*p, &mut self.vars, false));
+                        }
                     }
                     let mut l = self.arena.nil();
                     for c in copies.into_iter().rev() {
                         l = self.arena.cons(c, l);
                     }
                     if unify(&mut self.arena, &mut self.trail, list, l) {
+                        let parts: Vec<Term> = self
+                            .marker(|p| p.findall)
+                            .into_iter()
+                            .chain(proved)
+                            .collect();
+                        self.justify(proof, goal, &parts);
                         self.cont = cont;
                         return Ok(true);
                     }
@@ -542,9 +660,14 @@ impl Solver {
     }
 
     /// `$collect`: copy the template, as it now stands, past backtracking.
+    /// `$collect`: copy the template, as it now stands, past backtracking;
+    /// and the goal's proof beside it, when proofs are kept, sharing the
+    /// copy's variables.
     fn collect(&mut self, h: usize) -> Result<(), Stop> {
-        let template = match self.cps.get(h).map(|c| &c.kind) {
-            Some(Kind::Collect { template, .. }) => *template,
+        let (template, inner) = match self.cps.get(h).map(|c| &c.kind) {
+            Some(Kind::Collect {
+                template, inner, ..
+            }) => (*template, *inner),
             _ => {
                 return Err(Stop::Raw(Error::internal(
                     "kb: a $collect goal outlived its findall choicepoint",
@@ -553,18 +676,49 @@ impl Solver {
         };
         self.vars.clear();
         let copy = self.arena.copy(template, &mut self.vars, true);
+        let proof = inner.map(|p| self.arena.copy(p, &mut self.vars, true));
         if let Some(Choicepoint {
-            kind: Kind::Collect { results, .. },
+            kind: Kind::Collect {
+                results, proofs, ..
+            },
             ..
         }) = self.cps.get_mut(h)
         {
             results.push(copy);
+            proofs.extend(proof);
         }
         Ok(())
     }
 
-    /// Run one goal. `false` means it failed.
-    fn call(&mut self, t: Term, bridge: &mut dyn Bridge) -> Result<bool, Stop> {
+    /// Run `or`'s branch `i` of `goal` (§S15: `[ goal ← :branch i p ]`).
+    fn branch(
+        &mut self,
+        goal: Term,
+        b: Term,
+        i: usize,
+        proof: Option<Term>,
+        cont: Option<usize>,
+    ) -> Option<usize> {
+        let pb = self.slot(proof);
+        if proof.is_some() {
+            let n = self.arena.int(i64::try_from(i).unwrap_or(i64::MAX));
+            let parts: Vec<Term> = [self.marker(|p| p.branch), Some(n), pb]
+                .into_iter()
+                .flatten()
+                .collect();
+            self.justify(proof, goal, &parts);
+        }
+        self.push(Goal::Call(b), pb, cont)
+    }
+
+    /// Run one goal, binding `proof`, its slot, as §S15 justifies it.
+    /// `false` means it failed.
+    fn call(
+        &mut self,
+        t: Term,
+        proof: Option<Term>,
+        bridge: &mut dyn Bridge,
+    ) -> Result<bool, Stop> {
         let d = self.arena.deref(t);
         let rest = self.cont;
         let (f, args) = match self.arena.cell(d) {
@@ -573,7 +727,9 @@ impl Solver {
                 let (items, end) = self.arena.spine(d);
                 return match self.arena.cell(end) {
                     Cell::Nil => {
-                        let goals: Vec<Goal> = items.into_iter().map(Goal::Call).collect();
+                        // A LIST of goals is proved as a rule body is.
+                        let goals = self.slotted(&items, proof);
+                        self.justify(proof, d, &Self::parts(&goals));
                         self.cont = self.prepend(&goals, rest);
                         Ok(true)
                     }
@@ -592,23 +748,38 @@ impl Solver {
             }
         };
         let c = self.control;
-        let calls = |g: &[Term]| g.iter().copied().map(Goal::Call).collect::<Vec<_>>();
+        let builtin: Vec<Term> = self.marker(|p| p.builtin).into_iter().collect();
         match (f, args.as_slice()) {
-            (f, []) if f == c.true_ => Ok(true),
+            (f, []) if f == c.true_ => {
+                self.justify(proof, d, &builtin);
+                Ok(true)
+            }
             (f, []) if f == c.fail => Ok(false),
-            (f, [a, b]) if f == c.eq => Ok(unify(&mut self.arena, &mut self.trail, *a, *b)),
+            (f, [a, b]) if f == c.eq => {
+                let ok = unify(&mut self.arena, &mut self.trail, *a, *b);
+                if ok {
+                    self.justify(proof, d, &builtin);
+                }
+                Ok(ok)
+            }
             (f, gs) if f == c.not => {
                 let h = self.cps.len();
-                self.push_cp(Kind::Not { cont: rest });
-                let mut goals = calls(gs);
-                goals.extend([Goal::Cut(h), Goal::Fail]);
+                self.push_cp(Kind::Not {
+                    goal: d,
+                    cont: rest,
+                    proof,
+                });
+                // G's own proofs are never read: `not` keeps none.
+                let mut goals = self.slotted(gs, None);
+                goals.extend([(Goal::Cut(h), None), (Goal::Fail, None)]);
                 self.cont = self.prepend(&goals, None);
                 Ok(true)
             }
             (f, gs) if f == c.once => {
                 let h = self.cps.len();
-                let mut goals = calls(gs);
-                goals.push(Goal::Cut(h));
+                let mut goals = self.slotted(gs, proof);
+                self.justify(proof, d, &Self::parts(&goals));
+                goals.push((Goal::Cut(h), None));
                 self.cont = self.prepend(&goals, rest);
                 Ok(true)
             }
@@ -618,22 +789,38 @@ impl Solver {
                 };
                 if !others.is_empty() {
                     self.push_cp(Kind::Branches {
+                        goal: d,
                         branches: others.into(),
                         next: 0,
                         cont: rest,
+                        proof,
                     });
                 }
-                self.cont = self.push(Goal::Call(*first), rest);
+                self.cont = self.branch(d, *first, 1, proof, rest);
                 Ok(true)
             }
             (f, [cond, then, otherwise]) if f == c.if_ => {
                 let h = self.cps.len();
                 self.push_cp(Kind::Else {
+                    goal: d,
                     otherwise: *otherwise,
                     cont: rest,
+                    proof,
                 });
-                self.cont =
-                    self.prepend(&[Goal::Call(*cond), Goal::Cut(h), Goal::Call(*then)], rest);
+                let (pc, pt) = (self.slot(proof), self.slot(proof));
+                let parts: Vec<Term> = [self.marker(|p| p.then_), pc, pt]
+                    .into_iter()
+                    .flatten()
+                    .collect();
+                self.justify(proof, d, &parts);
+                self.cont = self.prepend(
+                    &[
+                        (Goal::Call(*cond), pc),
+                        (Goal::Cut(h), None),
+                        (Goal::Call(*then), pt),
+                    ],
+                    rest,
+                );
                 Ok(true)
             }
             (f, [g, extra @ ..]) if f == c.call => {
@@ -656,29 +843,44 @@ impl Solver {
                     }
                     _ => return Err(self.not_callable(g)),
                 };
-                self.cont = self.push(Goal::Call(goal), rest);
+                // `call` is transparent: the called goal fills its slot.
+                self.cont = self.push(Goal::Call(goal), proof, rest);
                 Ok(true)
             }
             (f, [template, goal, list]) if f == c.findall => {
                 let h = self.cps.len();
+                let inner = self.slot(proof);
                 self.push_cp(Kind::Collect {
+                    goal: d,
                     template: *template,
                     list: *list,
                     results: Vec::new(),
+                    inner,
+                    proofs: Vec::new(),
                     cont: rest,
+                    proof,
                 });
-                self.cont = self.prepend(&[Goal::Call(*goal), Goal::Collect(h), Goal::Fail], None);
+                self.cont = self.prepend(
+                    &[
+                        (Goal::Call(*goal), inner),
+                        (Goal::Collect(h), None),
+                        (Goal::Fail, None),
+                    ],
+                    None,
+                );
                 Ok(true)
             }
-            (f, [x, l]) if f == c.in_ => self.member(*x, *l, d, bridge),
+            (f, [x, l]) if f == c.in_ => self.member(*x, *l, d, proof, bridge),
             (f, [x, lambda]) if f == c.is => {
-                self.bridge(Bridging::Is, Some(*x), *lambda, d, bridge)
+                self.bridge(Bridging::Is, Some(*x), *lambda, d, proof, bridge)
             }
-            (f, [lambda]) if f == c.test => self.bridge(Bridging::Test, None, *lambda, d, bridge),
+            (f, [lambda]) if f == c.test => {
+                self.bridge(Bridging::Test, None, *lambda, d, proof, bridge)
+            }
             (f, _) => {
                 let n = args.len();
                 match self.lookup(f, n)? {
-                    Known::User(p) => Ok(self.resolve(d, p, &args)),
+                    Known::User(p) => Ok(self.resolve(d, p, &args, proof)),
                     Known::Unbuilt(phase) => Err(Stop::Code(format!(
                         "{}/{n} belongs to Phase {phase}, which is not built",
                         self.arena.atoms.text(f)
@@ -699,12 +901,13 @@ impl Solver {
         x: Term,
         l: Term,
         goal: Term,
+        proof: Option<Term>,
         bridge: &mut dyn Bridge,
     ) -> Result<bool, Stop> {
         let l = self.arena.deref(l);
         match self.arena.cell(l) {
             Cell::Opaque(i) if self.arena.opaque_value(i).is_some_and(|v| v.dt() == LAMBDA) => {
-                return self.bridge(Bridging::In, Some(x), l, goal, bridge);
+                return self.bridge(Bridging::In, Some(x), l, goal, proof, bridge);
             }
             Cell::Var(_) => return Err(self.unbound(l, goal)),
             Cell::Nil | Cell::Cons(..) => {}
@@ -716,6 +919,10 @@ impl Solver {
             Cell::Var(_) => return Err(self.unbound(end, goal)),
             _ => return Err(self.not_a_list(l, goal)),
         }
+        // Justified before `Items` is pushed: every item has the same proof,
+        // so a backtrack to the next item keeps it.
+        let builtin: Vec<Term> = self.marker(|p| p.builtin).into_iter().collect();
+        self.justify(proof, goal, &builtin);
         Ok(self.each(x, &items))
     }
 
@@ -743,6 +950,7 @@ impl Solver {
         x: Option<Term>,
         lambda: Term,
         goal: Term,
+        proof: Option<Term>,
         bridge: &mut dyn Bridge,
     ) -> Result<bool, Stop> {
         let lambda = self.arena.deref(lambda);
@@ -775,6 +983,8 @@ impl Solver {
                 self.show(goal)
             ))
         })?;
+        // λ′, the substituted λ, which re-run reproduces the binding.
+        let shown = proof.map(|_| BundValue::lambda(body.clone()));
         let left = bridge.run(body).map_err(|e| {
             Stop::Code(format!(
                 "bridge lambda in {} returns: {}",
@@ -789,6 +999,15 @@ impl Solver {
                 self.show(goal)
             )));
         };
+        if let Some(l) = shown {
+            // Justified before the outcome binds anything, so `in`'s items
+            // share it, as they do over a LIST.
+            let parts: Vec<Term> = [self.marker(|p| p.bridge), Some(self.arena.opaque(l))]
+                .into_iter()
+                .flatten()
+                .collect();
+            self.justify(proof, goal, &parts);
+        }
         match how {
             Bridging::Test => match left.unboxed() {
                 BundValue::Bool(b, _) => Ok(*b),
@@ -897,7 +1116,7 @@ impl Solver {
 
     /// A user predicate's call: compute the candidates, push `Clauses` when
     /// two or more remain, and try the first.
-    fn resolve(&mut self, call: Term, p: usize, args: &[Term]) -> bool {
+    fn resolve(&mut self, call: Term, p: usize, args: &[Term], proof: Option<Term>) -> bool {
         let key = args.first().and_then(|a| self.key(*a));
         let Some(pred) = self.preds.get_mut(p) else {
             return false;
@@ -930,14 +1149,22 @@ impl Solver {
                 cands,
                 next: 1,
                 cont: rest,
+                proof,
             });
         }
-        self.try_clause(call, p, first, rest)
+        self.try_clause(call, p, first, rest, proof)
     }
 
     /// Rename clause `ci` of `p`, unify its head with `call`, and put its
     /// body ahead of `rest`.
-    fn try_clause(&mut self, call: Term, p: usize, ci: usize, rest: Option<usize>) -> bool {
+    fn try_clause(
+        &mut self,
+        call: Term,
+        p: usize,
+        ci: usize,
+        rest: Option<usize>,
+        proof: Option<Term>,
+    ) -> bool {
         let Some(clause) = self.preds.get(p).and_then(|pr| pr.clauses.get(ci)) else {
             return false;
         };
@@ -947,10 +1174,19 @@ impl Solver {
         if !unify(&mut self.arena, &mut self.trail, call, h) {
             return false;
         }
-        let goals: Vec<Goal> = body
+        let goals: Vec<Slotted> = body
             .iter()
-            .map(|g| Goal::Call(self.arena.copy(*g, &mut self.vars, false)))
+            .map(|g| {
+                let g = self.arena.copy(*g, &mut self.vars, false);
+                (Goal::Call(g), proof.map(|_| self.arena.var()))
+            })
             .collect();
+        // `[ goal ← :fact ]`, or `[ goal ← p₁ … pₖ ]` for a rule (§S15).
+        let parts = match self.marker(|p| p.fact) {
+            Some(fact) if goals.is_empty() => vec![fact],
+            _ => Self::parts(&goals),
+        };
+        self.justify(proof, call, &parts);
         if let Some(names) = names {
             // This instance's variables, for a bridge in its body.
             let instance: Names = names

@@ -1191,11 +1191,11 @@ impl<'a> Walker<'a> {
             }
             // RFC-0013 §S9: each asking word's effect on the current stack is
             // fixed, since its bridges run on a scratch stack and restore it.
-            "kb.query" | "kb.once" | "kb.holds" => {
+            "kb.query" | "kb.once" | "kb.holds" | "kb.prove" => {
                 self.report.analysed += 1;
                 let _ = self.take(stack, 2, name, at, via);
                 stack.push(match name {
-                    "kb.query" => Abs::Tagged(LIST),
+                    "kb.query" | "kb.prove" => Abs::Tagged(LIST),
                     "kb.holds" => Abs::Tagged(BOOL),
                     _ => Abs::Unknown,
                 });
