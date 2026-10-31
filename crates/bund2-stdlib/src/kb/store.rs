@@ -385,6 +385,31 @@ impl Kb {
         Ok(self)
     }
 
+    /// The KB with `functor/n` named in `key`, `tabled` or `askable`, once
+    /// (`kb.table`, `kb.askable`). Refuses a reserved pair (E03), and one the
+    /// other list names (E59).
+    pub fn name_in(mut self, key: &'static str, functor: &str, n: usize) -> Result<Kb, Refused> {
+        let name = format!("{functor}/{n}");
+        if reserved(functor, n).is_some() {
+            return Err(Refused::Reserved(name));
+        }
+        let other = if key == "askable" {
+            "tabled"
+        } else {
+            "askable"
+        };
+        if self.names(other)?.contains(&name) {
+            return Err(Refused::Both(name));
+        }
+        let mut names = self.names(key)?;
+        if !names.contains(&name) {
+            names.push(name);
+        }
+        let list = names.into_iter().map(BundValue::str).collect();
+        self.map.insert(key.into(), BundValue::list(list));
+        Ok(self)
+    }
+
     /// The inference cap, if one is set: `inferences` above 0 (§S7). E02
     /// if it is not an INT.
     pub fn inferences(&self) -> Result<Option<u64>, Refused> {

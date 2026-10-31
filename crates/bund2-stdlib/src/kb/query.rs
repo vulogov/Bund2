@@ -57,9 +57,14 @@ fn count(c: &BundValue, slot: &str) -> Result<Option<usize>, Error> {
 ///
 /// Refuses a slot of the wrong kind, or a negative `limit` or `skip_first`
 /// (E08), a missing `kb` (E01) or `goal` (E13), an error in `lambda` (E25),
-/// and otherwise what the asking words refuse. With `prove true` each
-/// answer is `{ answer, proof }` (§S15), as `kb.prove` gives it. `ask` and
-/// `known` matter only to an askable predicate, which is E14 until M8.
+/// what `known` holds when it is not a LIST of ground pairs (E58), and
+/// otherwise what the asking words and `ask` refuse. With `prove true` each
+/// answer is `{ answer, proof }` (§S15), as `kb.prove` gives it.
+///
+/// **Asking (§S16).** `ask` runs, through `bridge.rs: ask`, on an askable
+/// call no clause answered. Replies are remembered for the run; with
+/// `known`, they start from the variable it names, and are written through
+/// to it on every reply.
 pub fn run_query(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     let kb = match c.get("kb") {
         Some(v) => Kb::read(&v, 0).map_err(|_| code(Refused::NoKbSlot.text()))?,
@@ -79,17 +84,22 @@ pub fn run_query(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
             )));
         }
     };
-    // Phase 2's asking slots: unread until an askable predicate can be
-    // called, but a wrong kind is E08 now, as S11 says of every slot.
-    if let Some(a) = c.get("ask").filter(|a| a.dt() != LAMBDA) {
-        return Err(code(format!("ask must be LAMBDA, found {}", a.type_name())));
-    }
-    if let Some(k) = c.get("known").filter(|k| !matches!(k.dt(), STRING | PTR)) {
-        return Err(code(format!(
-            "known must be STRING, found {}",
-            k.type_name()
-        )));
-    }
+    let ask = match c.get("ask") {
+        None => None,
+        Some(a) if a.dt() == LAMBDA => Some(a),
+        Some(a) => return Err(code(format!("ask must be LAMBDA, found {}", a.type_name()))),
+    };
+    // A STRING, or the PTR `:name` lowers to.
+    let known = match c.get("known") {
+        None => None,
+        Some(k) if matches!(k.dt(), STRING | PTR) => k.as_str(),
+        Some(k) => {
+            return Err(code(format!(
+                "known must be STRING, found {}",
+                k.type_name()
+            )));
+        }
+    };
     let limit = count(&c, "limit")?;
     let skip_first = count(&c, "skip_first")?.unwrap_or(0);
     let prove = match c.get("prove") {
@@ -107,6 +117,11 @@ pub fn run_query(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
         Stop::Raw(e) => e,
     };
     let mut solver = Solver::new(&kb, &goal).map_err(stop)?;
+    if let Some(var) = &known {
+        solver = solver
+            .remembering(var, vm.var(var).as_ref())
+            .map_err(stop)?;
+    }
     if prove {
         solver = solver.proving();
     }
@@ -114,7 +129,7 @@ pub fn run_query(vm: &mut dyn Vm, c: BundValue) -> Result<(), Error> {
     let mut run = 0usize;
     loop {
         let answer = {
-            let mut bridge = VmBridge::new(vm, UP);
+            let mut bridge = VmBridge::new(vm, UP).asking(ask.clone(), known.clone());
             solver.next(&mut bridge).map_err(stop)?
         };
         let Some(answer) = answer else {
@@ -276,7 +291,8 @@ mod tests {
             err("query :kb kb.new set :goal [ p ] set :known 1 set !"),
             "QUERY: known must be STRING, found Integer"
         );
-        // Of the right kind, both are accepted and unread until Phase 2.
+        // Of the right kind, both are accepted; no predicate is askable, so
+        // `ask` never runs.
         assert_eq!(
             stack(&format!(
                 "{FAMILY} query :kb :family var? set :goal [ parent P C ] set \
@@ -471,5 +487,298 @@ mod tests {
         let r = check("[ p ] kb.prove");
         assert_eq!(r.findings.len(), 1, "{r:?}");
         assert_eq!(r.findings[0].word, "kb.prove");
+    }
+
+    // **Criterion 18: asking** (§S16, M8).
+
+    thread_local! {
+        /// The questions `script.ask` was asked, in order.
+        static ASKED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// A goal as `script.ask` hears it: its items' texts, a nested LIST by
+    /// its `display`.
+    fn said(goal: &BundValue) -> String {
+        goal.as_list().map_or_else(
+            || goal.display(),
+            |items| {
+                items
+                    .iter()
+                    .map(|v| v.as_str().unwrap_or_else(|| v.display()))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            },
+        )
+    }
+
+    /// A scripted `ask`: it records the goal and replies `false` to `says
+    /// woof`, `has feathers` and `says quack`, `true` to anything else, so
+    /// worked example 5's animal is the cat. `says boom` is an error.
+    fn script(vm: &mut dyn bund2_api::Vm) -> Result<(), bund2_api::Error> {
+        let goal = vm
+            .pull()
+            .ok_or_else(|| bund2_api::Error("script.ask: no goal".into()))?;
+        let s = said(&goal);
+        ASKED.with(|a| a.borrow_mut().push(s.clone()));
+        if s == "says boom" {
+            return Err(bund2_api::Error("boom".into()));
+        }
+        let no = matches!(s.as_str(), "says woof" | "has feathers" | "says quack");
+        vm.push(BundValue::boolean(!no));
+        Ok(())
+    }
+
+    /// An `Interp` with `script.ask`, and no question asked yet.
+    fn asking() -> Interp {
+        let mut i = interp();
+        i.registry.register_native(
+            "script.ask",
+            script,
+            bund2_api::StackEffect::opaque(1),
+            bund2_api::WordKind::Sync,
+        );
+        ASKED.with(|a| a.borrow_mut().clear());
+        i
+    }
+
+    fn asked() -> Vec<String> {
+        ASKED.with(|a| a.borrow().clone())
+    }
+
+    fn on(i: &mut Interp, src: &str) -> Vec<String> {
+        i.clear();
+        run_in(i, src).unwrap_or_else(|e| panic!("{src} failed: {e}"));
+        i.snapshot().iter().map(BundValue::display).collect()
+    }
+
+    fn err_in(i: &mut Interp, src: &str) -> String {
+        match run_in(i, src) {
+            Ok(()) => panic!("{src} was expected to fail"),
+            Err(e) => e,
+        }
+    }
+
+    /// Worked example 5's KB.
+    const ZOO: &str = ":zoo [ \
+        [ [ animal dog ] ← [ has fur ] [ says woof ] ] \
+        [ [ animal cat ] ← [ has fur ] [ says meow ] ] \
+        [ [ animal duck ] ← [ has feathers ] [ says quack ] ] \
+        ] kb! :has 1 kb.askable :says 1 kb.askable var";
+
+    /// Worked example 5's `query`, `script.ask` for the terminal.
+    const ZOO_QUERY: &str = "query :kb :zoo var? set :goal [ animal A ] set \
+        :known :answers set :ask { script.ask } set :lambda { :A get } set !";
+
+    /// Example 5 asks at most five questions, `[ has fur ]` once though two
+    /// rules need it, and writes each reply through to `answers`; a second
+    /// `query` with the same `known` asks none.
+    #[test]
+    fn example_5_asks_each_question_once() {
+        let mut i = asking();
+        run_in(&mut i, &format!("{ZOO} :answers list var")).unwrap();
+        assert_eq!(on(&mut i, ZOO_QUERY), ["cat"]);
+        assert_eq!(
+            asked(),
+            ["has fur", "says woof", "says meow", "has feathers"]
+        );
+        let answers = i.var("answers").unwrap();
+        let pairs = answers.as_list().unwrap();
+        assert_eq!(pairs.len(), 4, "{}", answers.display());
+        assert_eq!(said(&pairs[0].as_list().unwrap()[0]), "has fur");
+        assert_eq!(
+            pairs[0].as_list().unwrap()[1].display(),
+            BundValue::boolean(true).display()
+        );
+
+        ASKED.with(|a| a.borrow_mut().clear());
+        assert_eq!(on(&mut i, ZOO_QUERY), ["cat"]);
+        assert!(asked().is_empty(), "asked again: {:?}", asked());
+    }
+
+    /// With the five seeds, nothing is asked and the answer is `"cat"`.
+    #[test]
+    fn example_5_seeded_asks_nothing() {
+        let mut i = asking();
+        let seeds = ":answers [ [ [ has fur ] true ] [ [ says woof ] false ] \
+            [ [ says meow ] true ] [ [ has feathers ] false ] [ [ says quack ] false ] ] var";
+        run_in(&mut i, &format!("{ZOO} {seeds}")).unwrap();
+        assert_eq!(on(&mut i, ZOO_QUERY), ["cat"]);
+        assert!(asked().is_empty(), "{:?}", asked());
+    }
+
+    /// Without `known`, replies are still remembered for the run; a variable
+    /// that does not exist yet starts empty and is written.
+    #[test]
+    fn replies_are_remembered_within_a_run() {
+        let mut i = asking();
+        run_in(&mut i, ZOO).unwrap();
+        let q = "query :kb :zoo var? set :goal [ animal A ] set \
+                 :ask { script.ask } set :lambda { :A get } set !";
+        assert_eq!(on(&mut i, q), ["cat"]);
+        assert_eq!(asked().iter().filter(|q| *q == "has fur").count(), 1);
+        assert_eq!(
+            on(&mut i, &ZOO_QUERY.replace(":answers", ":fresh")),
+            ["cat"]
+        );
+        assert_eq!(i.var("fresh").unwrap().as_list().unwrap().len(), 4);
+    }
+
+    /// Matching is by unification, exact at any width and depth: goals that
+    /// differ only in a fifth argument, or only at depth 3, are each asked.
+    #[test]
+    fn goals_that_differ_anywhere_are_each_asked() {
+        let mut i = asking();
+        let q = |kb: &str, goal: &str| {
+            format!(
+                "query :kb {kb} set :goal {goal} set :ask {{ script.ask }} set \
+                 :lambda {{ drop \"yes\" }} set !"
+            )
+        };
+        let wide = q(
+            "kb.new :q 5 kb.askable",
+            "[ [ q a b c d e ] [ q a b c d f ] [ q a b c d e ] ]",
+        );
+        assert_eq!(on(&mut i, &wide), ["yes"]);
+        assert_eq!(asked(), ["q a b c d e", "q a b c d f"]);
+        ASKED.with(|a| a.borrow_mut().clear());
+        let deep = q(
+            "kb.new :r 1 kb.askable",
+            "[ [ r [ f [ g [ h a ] ] ] ] [ r [ f [ g [ h b ] ] ] ] ]",
+        );
+        assert_eq!(on(&mut i, &deep), ["yes"]);
+        assert_eq!(asked().len(), 2, "{:?}", asked());
+    }
+
+    /// A clause that answers an askable call stops it being asked, and the
+    /// question is asked once every clause has been tried. A `false` reply
+    /// fails. **Criterion 6c**: a predicate defined only by `askable` is not
+    /// E12.
+    #[test]
+    fn clauses_answer_first() {
+        let mut i = asking();
+        run_in(
+            &mut i,
+            ":k [ [ has fur ] [ [ has X ] ← [ = X scales ] [ fail ] ] ] kb! :has 1 kb.askable var",
+        )
+        .unwrap();
+        let q = |goal: &str| {
+            format!(
+                "query :kb :k var? set :goal {goal} set :ask {{ script.ask }} set \
+                 :lambda {{ drop \"yes\" }} set !"
+            )
+        };
+        assert_eq!(
+            on(&mut i, &q("[ has fur ]")),
+            ["yes"],
+            "once, and not asked"
+        );
+        assert!(asked().is_empty(), "{:?}", asked());
+        assert_eq!(on(&mut i, &q("[ has scales ]")), ["yes"]);
+        assert_eq!(asked(), ["has scales"]);
+        assert!(on(&mut i, &q("[ has feathers ]")).is_empty());
+        let e = err_in(&mut i, "kb.new :p 0 kb.askable [ p ] kb.query");
+        assert_eq!(
+            e,
+            "KB.QUERY: p/0 is askable, and this query has no ask lambda"
+        );
+    }
+
+    #[test]
+    fn e50_is_an_askable_call_with_no_ask_lambda() {
+        let mut i = asking();
+        run_in(&mut i, ZOO).unwrap();
+        assert_eq!(
+            err_in(&mut i, ":zoo var? [ animal A ] kb.query"),
+            "KB.QUERY: has/1 is askable, and this query has no ask lambda"
+        );
+        assert_eq!(
+            err_in(&mut i, "query :kb :zoo var? set :goal [ animal A ] set !"),
+            "QUERY: has/1 is askable, and this query has no ask lambda"
+        );
+    }
+
+    #[test]
+    fn e51_is_a_question_that_is_not_ground() {
+        let mut i = asking();
+        let e = err_in(&mut i, "kb.new :has 1 kb.askable [ has X ] kb.query");
+        assert!(e.starts_with("KB.QUERY: ask: "), "{e}");
+        assert!(e.ends_with(" must be ground"), "{e}");
+        assert!(e.contains('X'), "names the variable as the query does: {e}");
+        assert!(asked().is_empty());
+    }
+
+    #[test]
+    fn e52_e53_e57_refuse_what_ask_does() {
+        let q = |ask: &str| {
+            format!("query :kb kb.new :p 1 kb.askable set :goal [ p a ] set :ask {ask} set !")
+        };
+        let e = err(&q("{ drop }"));
+        assert!(
+            e.starts_with("QUERY: ask: the lambda left nothing for "),
+            "{e}"
+        );
+        let e = err(&q("{ drop 1 }"));
+        assert!(
+            e.starts_with("QUERY: ask: expected true or false, found 1 for "),
+            "{e}"
+        );
+        let e = err(&q("{ no_such_word_here }"));
+        assert!(e.starts_with("QUERY: ask lambda returns: "), "{e}");
+        // A reply is read as a term: a BOOL, and the CALLs and STRINGs
+        // `true` and `false`, all count.
+        for yes in ["{ drop true }", "{ drop :true }", "{ drop \"true\" }"] {
+            assert_eq!(stack(&format!("{} \"yes\"", q(yes))).len(), 2, "{yes}");
+        }
+        let caught = top(&format!(
+            "?try :try {{ {} }} set :except {{ \"caught\" }} set !",
+            q("{ no_such_word_here }")
+        ));
+        assert_eq!(caught.as_str().as_deref(), Some("caught"));
+    }
+
+    /// A reply is written through as it is given, so it survives a later
+    /// error in the same run.
+    #[test]
+    fn a_reply_survives_a_later_error() {
+        let mut i = asking();
+        let e = err_in(
+            &mut i,
+            "query :kb kb.new :has 1 kb.askable :says 1 kb.askable set \
+             :goal [ [ has fur ] [ says boom ] ] set :known :kept set :ask { script.ask } set !",
+        );
+        assert_eq!(e, "QUERY: ask lambda returns: boom");
+        let kept = i.var("kept").unwrap();
+        assert_eq!(kept.as_list().unwrap().len(), 1, "{}", kept.display());
+    }
+
+    #[test]
+    fn e58_is_a_known_variable_that_is_not_a_list_of_ground_pairs() {
+        let mut i = asking();
+        run_in(&mut i, ZOO).unwrap();
+        for held in [
+            "1",
+            "[ [ [ has X ] true ] ]",
+            "[ [ [ has fur ] 1 ] ]",
+            "[ [ has fur ] ]",
+            "[ [ [ has fur ] true :extra ] ]",
+        ] {
+            run_in(&mut i, &format!(":answers {held} var")).unwrap();
+            let e = err_in(&mut i, ZOO_QUERY);
+            assert!(
+                e.starts_with(
+                    "QUERY: known: answers must hold a LIST of ground [ goal reply ] pairs, found "
+                ),
+                "{held}: {e}"
+            );
+        }
+        assert!(asked().is_empty());
+    }
+
+    #[test]
+    fn e59_is_a_predicate_both_tabled_and_askable() {
+        assert_eq!(
+            err("kb.new :tabled [ \"p/1\" ] set :askable [ \"p/1\" ] set [ q ] kb.query"),
+            "KB.QUERY: p/1 cannot be both tabled and askable"
+        );
     }
 }

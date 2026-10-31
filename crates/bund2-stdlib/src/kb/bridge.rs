@@ -1,10 +1,10 @@
 //! Bridges: where a query re-enters Bund (RFC-0013 §S5, §S6).
 //!
-//! **[`run`] holds every `scoped_call`, `to_stack` and `drop_stack` the family
-//! makes**, so it is named in `REENTERING` and in `SWITCHES`. It runs λ on a
-//! scratch stack and brings the caller's stack back: the current stack is the
-//! same before and after a bridge, and the scratch stack exists only during
-//! it.
+//! **[`run`] and [`ask`] hold every `scoped_call`, `to_stack` and
+//! `drop_stack` the family makes**, so both are named in `REENTERING` and in
+//! `SWITCHES`. Each runs a lambda on a scratch stack and brings the caller's
+//! stack back: the current stack is the same before and after a bridge or a
+//! question, and the scratch stack exists only during it.
 //!
 //! **The scratch-name pool.** One name per activation depth, thread-local,
 //! minted with `fresh_name` the first time that depth is reached. Activations
@@ -77,6 +77,32 @@ pub fn run(vm: &mut dyn Vm, body: Vec<BundValue>) -> Result<Option<BundValue>, E
     let depth = Depth::enter();
     let name = scratch_name(vm, depth.0);
     let prev = vm.current_name();
+    let ran = vm.scoped_call(&name, body);
+    let left = vm.pull_from(&name);
+    if vm.current_name() == name {
+        vm.to_stack(&prev);
+    }
+    vm.drop_stack(&name);
+    ran.map(|()| left)
+}
+
+/// Run the `ask` lambda's `body` on `goal`, read back, and answer the value
+/// it left on top, or `None` (§S16 step 4).
+///
+/// Exactly as [`run`] runs a bridge's λ, with the goal pushed first: it is
+/// the body's first item, and a value read back from a term runs nothing
+/// when it is evaluated (§S1). The steps are [`run`]'s, written out again so
+/// that each function holds its own calls and both are named in
+/// `REENTERING` and `SWITCHES` (§S6).
+pub fn ask(
+    vm: &mut dyn Vm,
+    body: &[BundValue],
+    goal: BundValue,
+) -> Result<Option<BundValue>, Error> {
+    let depth = Depth::enter();
+    let name = scratch_name(vm, depth.0);
+    let prev = vm.current_name();
+    let body = std::iter::once(goal).chain(body.iter().cloned()).collect();
     let ran = vm.scoped_call(&name, body);
     let left = vm.pull_from(&name);
     if vm.current_name() == name {

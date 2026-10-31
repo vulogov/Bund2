@@ -645,6 +645,24 @@ impl Arena {
         }
         (items, at)
     }
+
+    /// Whether `t` holds no unbound variable, at any depth. A worklist, as
+    /// every walk here is.
+    pub fn is_ground(&self, t: Term) -> bool {
+        let mut todo = vec![t];
+        while let Some(t) = todo.pop() {
+            let t = self.deref(t);
+            match self.cell(t) {
+                Cell::Var(_) => return false,
+                Cell::Struct { start, arity, .. } => {
+                    todo.extend_from_slice(self.args(start, arity));
+                }
+                Cell::Cons(head, tail) => todo.extend([head, tail]),
+                _ => {}
+            }
+        }
+        true
+    }
 }
 
 /// What one level of a value reads as, before its parts are read.

@@ -663,13 +663,17 @@ mod honesty_tests {
         // `graph.maxflow`'s third operand is its sink, a node's name looked
         // up in the graph (D192), as `graph.path`'s end is. `kb.word`'s is
         // the name of the variable its word reads the KB from when it runs
-        // (RFC-0013 §S10): a variable's name, not a stack's.
-        const UNVARIED: [&str; 17] = [
+        // (RFC-0013 §S10): a variable's name, not a stack's. `kb.askable`'s
+        // third operand is the KB it names a predicate in (§S9), and its
+        // form's is the functor: neither is a stack's name.
+        const UNVARIED: [&str; 19] = [
             "get,",
             "graph.maxflow",
             "graph.maxflow.",
             "graph.path",
             "graph.path.",
+            "kb.askable",
+            "kb.askable.",
             "kb.word",
             "save.model",
             "seq.asc",
@@ -1408,7 +1412,7 @@ mod honesty_tests {
     /// descending into subdirectories as criterion 11's does.
     #[test]
     fn every_native_that_changes_the_current_stack_is_named() {
-        const SWITCHES: [&str; 20] = [
+        const SWITCHES: [&str; 21] = [
             // Restores the stack it came from, but a scan cannot tell that and
             // the gate does not lean on it.
             "conditional.rs: endcontext",
@@ -1437,7 +1441,9 @@ mod honesty_tests {
             "world.rs: load_stacks",
             // RFC-0013 §S5: a bridge runs λ on a scratch stack, switches
             // back if the scratch stack is still current, and drops it. The
-            // asking words that reach it are `StackEffect::opaque`.
+            // asking words that reach it are `StackEffect::opaque`. §S16's
+            // `ask` runs the same steps for a question.
+            "kb/bridge.rs: ask",
             "kb/bridge.rs: run",
         ];
         const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
@@ -1519,7 +1525,7 @@ mod honesty_tests {
     /// outside this crate (RFC-0005 assumption 24).
     #[test]
     fn every_reentering_function_is_named() {
-        const REENTERING: [&str; 33] = [
+        const REENTERING: [&str; 34] = [
             // RFC-0008 §W2: a line typed at a debugger stop, applied value by
             // value. Called from a safepoint and never from a native.
             "lib.rs: eval_line",
@@ -1579,7 +1585,9 @@ mod honesty_tests {
             // which pushes, so it cannot recurse.
             "values.rs: register_words",
             // RFC-0013 §S5: a bridge's `scoped_call`. Opaque words reach it,
-            // and `stack_ok` bounds a λ that runs another query.
+            // and `stack_ok` bounds a λ that runs another query. §S16: the
+            // `ask` lambda's, the same way.
+            "kb/bridge.rs: ask",
             "kb/bridge.rs: run",
             // RFC-0013 §S11: `query` runs `lambda` once per answer, as
             // `sqlite`'s runner runs its lambda once per row.

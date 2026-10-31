@@ -2,7 +2,8 @@
 //!
 //! The building words (M2): `kb.new`, `kb!`, `kb.consult*`, `kb.assert`,
 //! `kb.asserta`, `kb.retract`, `kb.merge`, `kb.clauses` and `kb.inferences`,
-//! with the `.` forms of the six that take a KB. Each reads and writes the KB
+//! with the `.` forms of the six that take a KB; and M8's `kb.askable` and
+//! its form. Each reads and writes the KB
 //! through `store.rs`, so what is here is operands and texts.
 //!
 //! The asking words (M3): `kb.query`, `kb.once` and `kb.holds`, each a
@@ -147,11 +148,30 @@ fn kb_inferences(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `kb functor n kb.askable` — the KB with `functor/n` named in `askable`
+/// (§S16): a call on it asks once its clauses are tried. Refuses E09, E03
+/// for a reserved pair, and E59 for one already tabled.
+fn kb_askable(vm: &mut dyn Vm) -> Result<(), Error> {
+    let mut ops = operands(vm, "kb.askable", 3)?.into_iter();
+    let (Some(n), Some(functor), Some(kb)) = (ops.next(), ops.next(), ops.next()) else {
+        return Err(Error::internal(
+            "kb.askable: three operands were guarded and not three pulled",
+        ));
+    };
+    let (functor, n) = functor_arity("kb.askable", &functor, &n)?;
+    let kb = Kb::read(&kb, 3).map_err(|r| refused("kb.askable", &r))?;
+    answer(vm, "kb.askable", kb.name_in("askable", &functor, n))
+}
+
 /// The `Vm` as the engine sees it.
 pub struct VmBridge<'a> {
     vm: &'a mut dyn Vm,
     /// The asking word, in capitals, for W1's prefix.
     word: String,
+    /// `query`'s `ask` lambda, and the variable its `known` slot names
+    /// (§S16). No other asking word has either.
+    ask: Option<BundValue>,
+    known: Option<String>,
 }
 
 impl<'a> VmBridge<'a> {
@@ -160,7 +180,16 @@ impl<'a> VmBridge<'a> {
         VmBridge {
             vm,
             word: word.to_string(),
+            ask: None,
+            known: None,
         }
+    }
+
+    /// With `query`'s `ask` lambda and `known` variable, when it has them.
+    pub fn asking(mut self, ask: Option<BundValue>, known: Option<String>) -> VmBridge<'a> {
+        self.ask = ask;
+        self.known = known;
+        self
     }
 }
 
@@ -175,6 +204,19 @@ impl Bridge for VmBridge<'_> {
 
     fn run(&mut self, body: Vec<BundValue>) -> Result<Option<BundValue>, Error> {
         super::bridge::run(self.vm, body)
+    }
+
+    fn ask(&mut self, goal: BundValue) -> Option<Result<Option<BundValue>, Error>> {
+        let body = self.ask.as_ref()?.as_lambda().unwrap_or(&[]);
+        Some(super::bridge::ask(self.vm, body, goal))
+    }
+
+    /// Written through with `register_var`, so a reply survives a later
+    /// error and a nested `query` naming the variable sees it (§S16).
+    fn remember(&mut self, replies: &[BundValue]) {
+        if let Some(var) = &self.known {
+            self.vm.register_var(var, BundValue::list(replies.to_vec()));
+        }
     }
 }
 
@@ -206,10 +248,7 @@ fn ask(vm: &mut dyn Vm, word: &str, asking: Asking) -> Result<(), Error> {
     if matches!(asking, Asking::Prove) {
         solver = solver.proving();
     }
-    let mut bridge = VmBridge {
-        vm,
-        word: up.clone(),
-    };
+    let mut bridge = VmBridge::new(vm, &up);
     let answer = match asking {
         Asking::All | Asking::Prove => {
             let mut all = Vec::new();
@@ -267,10 +306,7 @@ fn kb_call(vm: &mut dyn Vm) -> Result<(), Error> {
     let mut args = operands(vm, "kb.call", n)?;
     args.reverse();
     let mut solver = Solver::for_call(&kb, &functor, &args).map_err(stop)?;
-    let mut bridge = VmBridge {
-        vm,
-        word: up.to_string(),
-    };
+    let mut bridge = VmBridge::new(vm, up);
     let mut all = Vec::new();
     while let Some(a) = solver.next(&mut bridge).map_err(stop)? {
         all.push(a);
@@ -372,6 +408,8 @@ pub fn register(r: &mut Registry) {
     crate::wb::bench!(r, "kb.clauses", kb_clauses);
     r.register_native("kb.inferences", kb_inferences, eff(2, 1), WordKind::Sync);
     crate::wb::bench!(r, "kb.inferences", kb_inferences, 2, 1);
+    r.register_native("kb.askable", kb_askable, eff(3, 1), WordKind::Sync);
+    crate::wb::bench!(r, "kb.askable", kb_askable, 3, 2);
     // Opaque: a bridge may re-enter evaluation, and no `.` form (D111).
     for (name, f) in [
         ("kb.query", kb_query as bund2_api::NativeFn),
@@ -594,13 +632,14 @@ mod tests {
     #[test]
     fn each_form_holds_the_kb_on_the_workbench() {
         const KB: &str = "[ [ p a ] [ q a ] ] kb!";
-        let forms: [(&str, &str); 6] = [
+        let forms: [(&str, &str); 7] = [
             ("kb.assert", "[ p b ]"),
             ("kb.asserta", "[ p b ]"),
             ("kb.retract", "[ p a ]"),
             ("kb.merge", "[ [ p c ] ] kb!"),
             ("kb.clauses", ""),
             ("kb.inferences", "10"),
+            ("kb.askable", ":p 1"),
         ];
         for (word, rest) in forms {
             let plain = run(&format!("7 {KB} {rest} {word}"));
@@ -634,6 +673,7 @@ mod tests {
             ("kb.merge", 1),
             ("kb.clauses", 0),
             ("kb.inferences", 1),
+            ("kb.askable", 2),
         ] {
             let pad = "kb.new ".repeat(n);
             assert_eq!(
@@ -798,6 +838,49 @@ mod tests {
         assert_eq!(
             err("kb.new :tabled [ \"p/1\" ] set kb.new :askable [ \"p/1\" ] set kb.merge"),
             "KB.MERGE: p/1 cannot be both tabled and askable"
+        );
+    }
+
+    /// `kb.askable` names `functor/n` in `askable`, once, keeping the names
+    /// already there (M8).
+    #[test]
+    fn kb_askable_names_the_predicate_once() {
+        let kb = top("kb.new :has 1 kb.askable :says 1 kb.askable :has 1 kb.askable");
+        let askable = kb.as_map().unwrap().get("askable").unwrap().display();
+        assert_eq!(askable, shown("[ \"has/1\" \"says/1\" ]"));
+        // A predicate with clauses can be askable too.
+        let kb = top("[ [ has fur ] ] kb! \"has\" 1 kb.askable");
+        assert_eq!(
+            kb.as_map().unwrap().get("askable").unwrap().display(),
+            shown("[ \"has/1\" ]")
+        );
+    }
+
+    #[test]
+    fn kb_askable_refuses_as_section_s9_says() {
+        assert_eq!(
+            err("1 :p 1 kb.askable"),
+            "KB.ASKABLE: #3 parameter must be a knowledge base"
+        );
+        assert_eq!(
+            err("kb.new :p -1 kb.askable"),
+            "KB.ASKABLE: the functor must be a STRING and the arity a non-negative INT"
+        );
+        assert_eq!(
+            err("kb.new 1 1 kb.askable"),
+            "KB.ASKABLE: the functor must be a STRING and the arity a non-negative INT"
+        );
+        assert_eq!(
+            err("kb.new :not 1 kb.askable"),
+            "KB.ASKABLE: not/1 is reserved and cannot be defined"
+        );
+        assert_eq!(
+            err("kb.new :tabled [ \"p/1\" ] set :p 1 kb.askable"),
+            "KB.ASKABLE: p/1 cannot be both tabled and askable"
+        );
+        assert_eq!(
+            err("kb.new :askable 3 set :p 1 kb.askable"),
+            "KB.ASKABLE: malformed knowledge base: askable is not a LIST"
         );
     }
 }

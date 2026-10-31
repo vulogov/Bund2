@@ -106,7 +106,7 @@ const SOURCED: &[(&str, u8, u8)] = &[
     ("return_to", 1, 0),
 ];
 
-/// RFC-0012's twelve graph words' forms and RFC-0013's six `kb.` forms,
+/// RFC-0012's twelve graph words' forms and RFC-0013's `kb.` forms,
 /// Bund2's own, so there is nothing to
 /// measure and nothing for the oracle to say. Their half is known by how they
 /// are built: `bench_form` takes the graph from the workbench and moves what
@@ -135,6 +135,8 @@ const BUILT: &[&str] = &[
     "kb.merge.",
     "kb.clauses.",
     "kb.inferences.",
+    // Phase 2's (M8), built the same way.
+    "kb.askable.",
 ];
 
 /// Two `.` words that read the main stack and never the workbench, from

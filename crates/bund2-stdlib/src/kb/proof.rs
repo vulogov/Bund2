@@ -14,8 +14,9 @@
 //!
 //! **What reads back as what** (§S1): the arrow is the CALL `←`, kept as an
 //! opaque constant so it is not read back as an atom's STRING; the markers
-//! `fact`, `builtin`, `branch`, `then`, `else`, `findall`, `no-proof` and
-//! `bridge` are atoms, so they read back as STRINGs, as every atom does.
+//! `fact`, `builtin`, `branch`, `then`, `else`, `findall`, `no-proof`,
+//! `bridge`, and M8's `asked`, `known` and `yes`, are atoms, so they read back
+//! as STRINGs, as every atom does.
 //!
 //! The slots are threaded through `solve.rs`, which owns the goal list.
 //! Nothing here uses the `Vm`.
@@ -41,6 +42,10 @@ pub(crate) struct Proofs {
     pub findall: Term,
     pub no_proof: Term,
     pub bridge: Term,
+    /// §S16's two: a reply the `ask` lambda gave, and one remembered.
+    pub asked: Term,
+    pub known: Term,
+    pub yes: Term,
 }
 
 impl Proofs {
@@ -56,6 +61,9 @@ impl Proofs {
             findall: a.atom("findall"),
             no_proof: a.atom("no-proof"),
             bridge: a.atom("bridge"),
+            asked: a.atom("asked"),
+            known: a.atom("known"),
+            yes: a.atom("yes"),
         }
     }
 
@@ -72,7 +80,8 @@ impl Proofs {
 
 /// **Criterion 17**: `kb.prove` gives proofs as §S15 describes, for worked
 /// examples 1, 2 and 4, for a rule using `or` and one using `findall`; and
-/// re-running each `:bridge` λ′ reproduces its binding.
+/// re-running each `:bridge` λ′ reproduces its binding. M8 adds the asked
+/// and remembered rows.
 #[cfg(test)]
 mod tests {
     use bund2_api::Vm as _;
@@ -394,6 +403,33 @@ mod tests {
                 "{FAMILY} :family var? [ grandparent tom W ] kb.query"
             ))),
             "[ {W: :ann} {W: :pat} ]"
+        );
+    }
+
+    /// §S15's last row but one (M8): a reply the `ask` lambda gave is
+    /// `[ goal ← :asked :yes ]`, and one remembered `[ goal ← :known :yes ]`,
+    /// whether from `known` or from earlier in the run.
+    #[test]
+    fn an_asked_goal_is_proved_by_its_reply() {
+        let q = |known: &str| {
+            format!(
+                ":k [ [ [ furry X ] ← [ has X fur ] ] [ [ both X ] ← [ has X fur ] [ has X fur ] ] ] \
+                 kb! :has 2 kb.askable var {known} \
+                 query :kb :k var? set :goal [ both rex ] set :ask {{ drop true }} set \
+                 :prove true set !"
+            )
+        };
+        assert_eq!(
+            shape(&top(&q("")).as_map().unwrap()["proof"]),
+            "[ [ both :rex ] ← [ [ has :rex :fur ] ← :asked :yes ] \
+             [ [ has :rex :fur ] ← :known :yes ] ]"
+        );
+        let seeded = q(":seen [ [ [ has rex fur ] true ] ] var");
+        let seeded = seeded.replace("query ", "query :known :seen set ");
+        assert_eq!(
+            shape(&top(&seeded).as_map().unwrap()["proof"]),
+            "[ [ both :rex ] ← [ [ has :rex :fur ] ← :known :yes ] \
+             [ [ has :rex :fur ] ← :known :yes ] ]"
         );
     }
 }

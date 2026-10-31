@@ -51,6 +51,18 @@ pub trait Bridge {
     /// Run a bridge's λ, already substituted, on a scratch stack, and answer
     /// what it left on top (§S5 step 3, `bridge.rs: run`).
     fn run(&mut self, body: Vec<BundValue>) -> Result<Option<BundValue>, Error>;
+    /// Run the `ask` lambda on `goal`, read back, and answer what it left on
+    /// top (§S16 step 4, `bridge.rs: ask`). `None` when the query has no
+    /// `ask` lambda (E50), as no asking word but `query` has.
+    fn ask(&mut self, goal: BundValue) -> Option<Result<Option<BundValue>, Error>> {
+        let _ = goal;
+        None
+    }
+    /// Write the replies so far through to the `known` variable, when the
+    /// query names one (§S16). Each is a `[ goal reply ]` pair.
+    fn remember(&mut self, replies: &[BundValue]) {
+        let _ = replies;
+    }
 }
 
 /// The three bridges of §S5's table.
@@ -91,8 +103,9 @@ impl From<Refused> for Stop {
     }
 }
 
-/// One goal of the goal list. `Cut` and `Collect` are §S4's internal goals:
-/// a kind of their own, not terms, so a predicate named `$cut` is ordinary.
+/// One goal of the goal list. `Cut`, `Collect` and `Asked` are §S4's internal
+/// goals: a kind of their own, not terms, so a predicate named `$cut` is
+/// ordinary.
 #[derive(Debug, Clone, Copy)]
 enum Goal {
     Call(Term),
@@ -100,6 +113,8 @@ enum Goal {
     Cut(usize),
     /// Copy the template of the `Collect` choicepoint at this height.
     Collect(usize),
+    /// Mark the `Ask` choicepoint at this height answered (§S16).
+    Asked(usize),
     Fail,
 }
 
@@ -122,6 +137,7 @@ type Slotted = (Goal, Option<Term>);
 
 /// What a choicepoint holds besides its marks, and what it resumes (§S4).
 enum Kind {
+    /// `asked` is the height of the `Ask` beneath, for an askable call.
     Clauses {
         call: Term,
         pred: usize,
@@ -129,6 +145,7 @@ enum Kind {
         next: usize,
         cont: Option<usize>,
         proof: Option<Term>,
+        asked: Option<usize>,
     },
     /// `or`'s branches after the first; `next` 0 is the second branch.
     Branches {
@@ -167,6 +184,15 @@ enum Kind {
         results: Vec<Term>,
         inner: Option<Term>,
         proofs: Vec<Term>,
+        cont: Option<usize>,
+        proof: Option<Term>,
+    },
+    /// An askable call: ask, unless one of its clauses answered it (§S16).
+    /// `answered` is set by `$asked`, and is not trailed, so it survives
+    /// backtracking into the later clauses.
+    Ask {
+        call: Term,
+        answered: bool,
         cont: Option<usize>,
         proof: Option<Term>,
     },
@@ -213,7 +239,9 @@ struct Pred {
 #[derive(Debug, Clone, Copy)]
 enum Known {
     User(usize),
-    /// A later phase's: reserved by it, or named in `tabled` or `askable`.
+    /// Named in `askable`, with its clauses if `preds` has any (§S16).
+    Askable(Option<usize>),
+    /// A later phase's: reserved by it, or named in `tabled`.
     Unbuilt(u8),
     Unknown,
 }
@@ -243,7 +271,8 @@ pub struct Solver {
     cont: Option<usize>,
     cps: Vec<Choicepoint>,
     source: BTreeMap<String, BundValue>,
-    deferred: Vec<String>,
+    tabled: Vec<String>,
+    askable: Vec<String>,
     known: HashMap<(Atom, usize), Known>,
     preds: Vec<Pred>,
     control: Control,
@@ -260,13 +289,19 @@ pub struct Solver {
     vars: HashMap<Term, Term>,
     /// Set when proofs are kept (`kb.prove`, `query`'s `prove`).
     proofs: Option<Proofs>,
+    /// The remembered replies (§S16), each ground goal in the template
+    /// store, which no backtrack cuts; and the same pairs as values, what
+    /// `known` is written with.
+    replies: Vec<(Term, bool)>,
+    told: Vec<BundValue>,
     started: bool,
     done: bool,
 }
 
 impl Solver {
     /// An activation of `goal` over `kb`. Reads `preds`, `tabled`,
-    /// `askable` and `inferences` (E02), and the goal (E04, E05, E26).
+    /// `askable` and `inferences` (E02, and E59 for a predicate both tabled
+    /// and askable), and the goal (E04, E05, E26).
     pub fn new(kb: &Kb, goal: &BundValue) -> Result<Solver, Stop> {
         Solver::build(kb, |arena, scope| Ok((arena.to_term(goal, scope)?, None)))
     }
@@ -289,8 +324,11 @@ impl Solver {
         goal: impl FnOnce(&mut Arena, &mut Scope) -> Result<(Term, Option<Vec<Term>>), Refusal>,
     ) -> Result<Solver, Stop> {
         let source = kb.preds()?;
-        let mut deferred = kb.names("tabled")?;
-        deferred.extend(kb.names("askable")?);
+        let tabled = kb.names("tabled")?;
+        let askable = kb.names("askable")?;
+        if let Some(both) = tabled.iter().find(|n| askable.contains(n)) {
+            return Err(Refused::Both(both.clone()).into());
+        }
         let cap = kb.inferences()?;
         let mut arena = Arena::default();
         let mut scope = Scope::default();
@@ -322,7 +360,8 @@ impl Solver {
             cont: Some(0),
             cps: Vec::new(),
             source,
-            deferred,
+            tabled,
+            askable,
             known: HashMap::new(),
             preds: Vec::new(),
             control,
@@ -335,6 +374,8 @@ impl Solver {
             scope: 0,
             vars: HashMap::new(),
             proofs: None,
+            replies: Vec::new(),
+            told: Vec::new(),
             started: false,
             done: false,
         })
@@ -349,6 +390,65 @@ impl Solver {
         }
         self.proofs = Some(proofs);
         self
+    }
+
+    /// Start from the replies `var` holds, `held` (§S16's `known`): a LIST
+    /// of `[ goal reply ]` pairs, each goal ground and each reply `true` or
+    /// `false`, read as terms. A variable that does not exist yet, `None`,
+    /// starts empty. Anything else is E58. Called before the first
+    /// [`Solver::next`].
+    pub fn remembering(mut self, var: &str, held: Option<&BundValue>) -> Result<Solver, Stop> {
+        let Some(held) = held else {
+            return Ok(self);
+        };
+        let refused = || {
+            Stop::Code(format!(
+                "known: {var} must hold a LIST of ground [ goal reply ] pairs, found {}",
+                held.summary(SHOWN)
+            ))
+        };
+        let pairs = held
+            .as_list()
+            .filter(|_| held.dt() == bund2_value::LIST)
+            .ok_or_else(refused)?;
+        for pair in pairs {
+            let Some([goal, reply]) = pair.as_list().filter(|_| pair.dt() == bund2_value::LIST)
+            else {
+                return Err(refused());
+            };
+            let mark = self.arena.mark();
+            let read = self.arena.to_term(goal, &mut Scope::default());
+            let ground = read.is_ok_and(|g| self.arena.is_ground(g));
+            let reply = self.reply(reply);
+            self.arena.reset(mark);
+            let (true, Some(reply)) = (ground, reply) else {
+                return Err(refused());
+            };
+            let g = self
+                .arena
+                .to_template(goal, &mut Scope::default())
+                .map_err(Refused::from)?;
+            self.replies.push((g, reply));
+            self.told.push(pair.clone());
+        }
+        Ok(self)
+    }
+
+    /// A reply read as a term (§S16): `true` or `false`, so a BOOL, the
+    /// CALLs and the STRINGs all count. Anything else is `None`.
+    fn reply(&mut self, v: &BundValue) -> Option<bool> {
+        let mark = self.arena.mark();
+        let t = self.arena.to_term(v, &mut Scope::default()).ok();
+        let b = t.and_then(|t| match self.arena.cell(self.arena.deref(t)) {
+            Cell::Atom(a) => match self.arena.atoms.text(a) {
+                "true" => Some(true),
+                "false" => Some(false),
+                _ => None,
+            },
+            _ => None,
+        });
+        self.arena.reset(mark);
+        b
     }
 
     /// Inferences so far.
@@ -431,6 +531,17 @@ impl Solver {
                 Goal::Fail => false,
                 Goal::Collect(h) => {
                     self.collect(h)?;
+                    true
+                }
+                Goal::Asked(h) => {
+                    match self.cps.get_mut(h).map(|c| &mut c.kind) {
+                        Some(Kind::Ask { answered, .. }) => *answered = true,
+                        _ => {
+                            return Err(Stop::Raw(Error::internal(
+                                "kb: an $asked goal outlived its Ask choicepoint",
+                            )));
+                        }
+                    }
                     true
                 }
                 Goal::Call(t) => {
@@ -548,8 +659,9 @@ impl Solver {
                     next,
                     cont,
                     proof,
+                    asked,
                 } => {
-                    let (call, pred, cont, proof) = (*call, *pred, *cont, *proof);
+                    let (call, pred, cont, proof, asked) = (*call, *pred, *cont, *proof, *asked);
                     let ci = cands.get(*next).copied();
                     *next += 1;
                     if *next < cands.len() {
@@ -557,7 +669,23 @@ impl Solver {
                     }
                     let Some(ci) = ci else { continue };
                     self.infer(bridge)?;
-                    if self.try_clause(call, pred, ci, cont, proof) {
+                    if self.try_clause(call, pred, ci, cont, proof, asked) {
+                        return Ok(true);
+                    }
+                }
+                Kind::Ask {
+                    call,
+                    answered,
+                    cont,
+                    proof,
+                } => {
+                    if *answered {
+                        continue;
+                    }
+                    let (call, cont, proof) = (*call, *cont, *proof);
+                    self.infer(bridge)?;
+                    if self.ask(call, proof, bridge)? {
+                        self.cont = cont;
                         return Ok(true);
                     }
                 }
@@ -659,7 +787,6 @@ impl Solver {
         }
     }
 
-    /// `$collect`: copy the template, as it now stands, past backtracking.
     /// `$collect`: copy the template, as it now stands, past backtracking;
     /// and the goal's proof beside it, when proofs are kept, sharing the
     /// copy's variables.
@@ -880,7 +1007,19 @@ impl Solver {
             (f, _) => {
                 let n = args.len();
                 match self.lookup(f, n)? {
-                    Known::User(p) => Ok(self.resolve(d, p, &args, proof)),
+                    Known::User(p) => Ok(self.resolve(d, p, &args, proof, None)),
+                    Known::Askable(p) => {
+                        // `Ask` first, then `Clauses` above it: the question
+                        // comes only once every clause has been tried.
+                        let h = self.cps.len();
+                        self.push_cp(Kind::Ask {
+                            call: d,
+                            answered: false,
+                            cont: rest,
+                            proof,
+                        });
+                        Ok(p.is_some_and(|p| self.resolve(d, p, &args, proof, Some(h))))
+                    }
                     Known::Unbuilt(phase) => Err(Stop::Code(format!(
                         "{}/{n} belongs to Phase {phase}, which is not built",
                         self.arena.atoms.text(f)
@@ -1043,6 +1182,87 @@ impl Solver {
         }
     }
 
+    /// No clause answered an askable call: ask (§S16). The goal must be
+    /// ground (E51). A remembered reply that unifies with it is used; with
+    /// none, the `ask` lambda runs (E50 when there is none, E52, E53, E57),
+    /// and its reply is remembered and written through. `true` succeeds,
+    /// once; `false` fails.
+    fn ask(
+        &mut self,
+        call: Term,
+        proof: Option<Term>,
+        bridge: &mut dyn Bridge,
+    ) -> Result<bool, Stop> {
+        if !self.arena.is_ground(call) {
+            return Err(Stop::Code(format!(
+                "ask: {} must be ground",
+                self.show(call)
+            )));
+        }
+        let mut remembered = None;
+        for (g, reply) in &self.replies {
+            let bound = self.trail.mark();
+            let hit = unify(&mut self.arena, &mut self.trail, call, *g);
+            self.trail.undo_to(&mut self.arena, bound);
+            if hit {
+                remembered = Some(*reply);
+                break;
+            }
+        }
+        let (yes, how) = match remembered {
+            Some(yes) => (yes, self.marker(|p| p.known)),
+            None => {
+                let goal = self.arena.to_value(call);
+                let Some(ran) = bridge.ask(goal.clone()) else {
+                    return Err(Stop::Code(format!(
+                        "{} is askable, and this query has no ask lambda",
+                        self.key_of(call)
+                    )));
+                };
+                let left = ran.map_err(|e| Stop::Code(format!("ask lambda returns: {}", e.0)))?;
+                let Some(left) = left else {
+                    return Err(Stop::Code(format!(
+                        "ask: the lambda left nothing for {}",
+                        self.show(call)
+                    )));
+                };
+                let Some(yes) = self.reply(&left) else {
+                    return Err(Stop::Code(format!(
+                        "ask: expected true or false, found {} for {}",
+                        left.summary(SHOWN),
+                        self.show(call)
+                    )));
+                };
+                self.vars.clear();
+                let g = self.arena.copy(call, &mut self.vars, true);
+                self.replies.push((g, yes));
+                self.told
+                    .push(BundValue::list(vec![goal, BundValue::boolean(yes)]));
+                bridge.remember(&self.told);
+                (yes, self.marker(|p| p.asked))
+            }
+        };
+        if yes {
+            let parts: Vec<Term> = [how, self.marker(|p| p.yes)]
+                .into_iter()
+                .flatten()
+                .collect();
+            self.justify(proof, call, &parts);
+        }
+        Ok(yes)
+    }
+
+    /// A callable term's `functor/arity`, as E50 names it.
+    fn key_of(&self, t: Term) -> String {
+        match self.arena.cell(self.arena.deref(t)) {
+            Cell::Atom(a) => format!("{}/0", self.arena.atoms.text(a)),
+            Cell::Struct { functor, arity, .. } => {
+                format!("{}/{arity}", self.arena.atoms.text(functor))
+            }
+            _ => self.show(t),
+        }
+    }
+
     /// What `functor/arity` names, decided once per activation.
     fn lookup(&mut self, f: Atom, n: usize) -> Result<Known, Stop> {
         if let Some(k) = self.known.get(&(f, n)) {
@@ -1052,7 +1272,12 @@ impl Solver {
         let key = format!("{text}/{n}");
         let k = match store::reserved(&text, n) {
             Some(phase) if phase > 1 => Known::Unbuilt(phase),
-            _ if self.deferred.contains(&key) => Known::Unbuilt(2),
+            _ if self.tabled.contains(&key) => Known::Unbuilt(2),
+            _ if self.askable.contains(&key) => Known::Askable(if self.source.contains_key(&key) {
+                Some(self.compile(&key)?)
+            } else {
+                None
+            }),
             _ if self.source.contains_key(&key) => Known::User(self.compile(&key)?),
             _ => Known::Unknown,
         };
@@ -1115,8 +1340,16 @@ impl Solver {
     }
 
     /// A user predicate's call: compute the candidates, push `Clauses` when
-    /// two or more remain, and try the first.
-    fn resolve(&mut self, call: Term, p: usize, args: &[Term], proof: Option<Term>) -> bool {
+    /// two or more remain, and try the first. `asked` is the height of an
+    /// askable call's `Ask`, which each clause body marks when it succeeds.
+    fn resolve(
+        &mut self,
+        call: Term,
+        p: usize,
+        args: &[Term],
+        proof: Option<Term>,
+        asked: Option<usize>,
+    ) -> bool {
         let key = args.first().and_then(|a| self.key(*a));
         let Some(pred) = self.preds.get_mut(p) else {
             return false;
@@ -1150,13 +1383,14 @@ impl Solver {
                 next: 1,
                 cont: rest,
                 proof,
+                asked,
             });
         }
-        self.try_clause(call, p, first, rest, proof)
+        self.try_clause(call, p, first, rest, proof, asked)
     }
 
     /// Rename clause `ci` of `p`, unify its head with `call`, and put its
-    /// body ahead of `rest`.
+    /// body ahead of `rest`, followed by `$asked(h)` for an askable call.
     fn try_clause(
         &mut self,
         call: Term,
@@ -1164,6 +1398,7 @@ impl Solver {
         ci: usize,
         rest: Option<usize>,
         proof: Option<Term>,
+        asked: Option<usize>,
     ) -> bool {
         let Some(clause) = self.preds.get(p).and_then(|pr| pr.clauses.get(ci)) else {
             return false;
@@ -1174,7 +1409,7 @@ impl Solver {
         if !unify(&mut self.arena, &mut self.trail, call, h) {
             return false;
         }
-        let goals: Vec<Slotted> = body
+        let mut goals: Vec<Slotted> = body
             .iter()
             .map(|g| {
                 let g = self.arena.copy(*g, &mut self.vars, false);
@@ -1187,6 +1422,7 @@ impl Solver {
             _ => Self::parts(&goals),
         };
         self.justify(proof, call, &parts);
+        goals.extend(asked.map(|h| (Goal::Asked(h), None)));
         if let Some(names) = names {
             // This instance's variables, for a bridge in its body.
             let instance: Names = names
@@ -1625,18 +1861,12 @@ mod tests {
             err("kb.new [ label X ] kb.query"),
             "KB.QUERY: label/1 belongs to Phase 3, which is not built"
         );
-        // A predicate named in `tabled` or `askable` (the implementation
-        // plan), whether or not it has clauses.
+        // A predicate named in `tabled` (the implementation plan), whether
+        // or not it has clauses, until M10. `askable` is M8's (`query.rs`'s
+        // tests).
         assert_eq!(
             err("[ [ p 1 ] ] kb! :tabled [ \"p/1\" ] set [ p X ] kb.query"),
             "KB.QUERY: p/1 belongs to Phase 2, which is not built"
-        );
-        assert_eq!(
-            err_on(
-                vec![BundValue::call("q")],
-                "kb.new :askable [ \"q/0\" ] set swap kb.holds"
-            ),
-            "KB.HOLDS: q/0 belongs to Phase 2, which is not built"
         );
     }
 

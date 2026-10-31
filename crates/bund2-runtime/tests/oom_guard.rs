@@ -204,3 +204,35 @@ fn a_trip_inside_a_bridge_is_the_bridges_error() {
         assert_eq!(memguard::take(), None, "the trip was consumed");
     });
 }
+
+/// **RFC-0013 criterion 1b, E57: the interpreter's poll inside `ask`.** It is
+/// forced as E24 is, with the same two calls in the `ask` lambda: the engine
+/// polled before the lambda started, so the next poll is at `f`'s frame,
+/// inside it, and the code is always E57, carrying the guard's text.
+#[test]
+fn a_trip_inside_ask_is_the_asks_error() {
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    on_eval_thread(|| {
+        let mut rt = Runtime::new();
+        rt.interp.registry.register_native(
+            "trip.guard",
+            |_vm| {
+                memguard::trip(TRIP);
+                Ok(())
+            },
+            bund2_api::StackEffect::opaque(0),
+            bund2_api::WordKind::Sync,
+        );
+        rt.eval_str(":f { true } register").unwrap();
+        let e = rt
+            .eval_str(
+                "query :kb kb.new :p 0 kb.askable set :goal [ p ] set \
+                 :ask { drop trip.guard f } set !",
+            )
+            .expect_err("the question fails");
+        assert!(e.0.contains("QUERY: ask lambda returns: "), "{}", e.0);
+        assert!(e.0.contains("OOM GUARD: "), "{}", e.0);
+        assert!(!e.is_internal(), "{}", e.0);
+        assert_eq!(memguard::take(), None, "the trip was consumed");
+    });
+}
