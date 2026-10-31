@@ -135,8 +135,9 @@ const BUILT: &[&str] = &[
     "kb.merge.",
     "kb.clauses.",
     "kb.inferences.",
-    // Phase 2's (M8), built the same way.
+    // Phase 2's (M8, M10), built the same way.
     "kb.askable.",
+    "kb.table.",
 ];
 
 /// Two `.` words that read the main stack and never the workbench, from

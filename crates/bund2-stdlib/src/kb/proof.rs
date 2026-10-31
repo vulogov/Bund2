@@ -15,7 +15,7 @@
 //! **What reads back as what** (§S1): the arrow is the CALL `←`, kept as an
 //! opaque constant so it is not read back as an atom's STRING; the markers
 //! `fact`, `builtin`, `branch`, `then`, `else`, `findall`, `no-proof`,
-//! `bridge`, and M8's `asked`, `known` and `yes`, are atoms, so they read back
+//! `bridge`, M8's `asked`, `known` and `yes`, and M10's `tabled`, are atoms, so they read back
 //! as STRINGs, as every atom does.
 //!
 //! The slots are threaded through `solve.rs`, which owns the goal list.
@@ -46,6 +46,8 @@ pub(crate) struct Proofs {
     pub asked: Term,
     pub known: Term,
     pub yes: Term,
+    /// §S18's: a table answer, which keeps no proof.
+    pub tabled: Term,
 }
 
 impl Proofs {
@@ -64,6 +66,7 @@ impl Proofs {
             asked: a.atom("asked"),
             known: a.atom("known"),
             yes: a.atom("yes"),
+            tabled: a.atom("tabled"),
         }
     }
 

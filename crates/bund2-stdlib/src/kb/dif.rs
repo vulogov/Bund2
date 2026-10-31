@@ -101,6 +101,28 @@ impl Difs {
             .collect()
     }
 
+    /// The suspended `dif`s with a side that holds one of `t`'s variables:
+    /// `t`'s attributes, as a tabled variant and its answers carry them
+    /// (§S18).
+    pub fn touching(&self, arena: &mut Arena, trail: &mut Trail, t: Term) -> Vec<(Term, Term)> {
+        if self.watch.is_empty() {
+            return Vec::new();
+        }
+        let mine = vars_of(arena, &[t]);
+        if mine.is_empty() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for &(a, b) in &self.posted {
+            if vars_of(arena, &[a, b]).iter().any(|v| mine.contains(v))
+                && matches!(check(arena, trail, a, b), Check::Suspends(_))
+            {
+                out.push((a, b));
+            }
+        }
+        out
+    }
+
     fn attach(&mut self, id: usize, vars: &[Term]) {
         for v in vars {
             let ids = self.watch.entry(*v).or_default();
@@ -138,6 +160,22 @@ impl Wake for Difs {
         }
         true
     }
+}
+
+/// The unbound variables of `ts`, dereferenced.
+fn vars_of(arena: &Arena, ts: &[Term]) -> Vec<Term> {
+    let mut out = Vec::new();
+    let mut todo = ts.to_vec();
+    while let Some(t) = todo.pop() {
+        let t = arena.deref(t);
+        match arena.cell(t) {
+            Cell::Var(_) if !out.contains(&t) => out.push(t),
+            Cell::Cons(h, tail) => todo.extend([h, tail]),
+            Cell::Struct { start, arity, .. } => todo.extend_from_slice(arena.args(start, arity)),
+            _ => {}
+        }
+    }
+    out
 }
 
 /// The trial (§S17): unify `a` and `b` with no wake-ups, note what it bound,

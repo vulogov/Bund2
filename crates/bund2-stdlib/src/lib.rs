@@ -664,9 +664,9 @@ mod honesty_tests {
         // up in the graph (D192), as `graph.path`'s end is. `kb.word`'s is
         // the name of the variable its word reads the KB from when it runs
         // (RFC-0013 §S10): a variable's name, not a stack's. `kb.askable`'s
-        // third operand is the KB it names a predicate in (§S9), and its
-        // form's is the functor: neither is a stack's name.
-        const UNVARIED: [&str; 19] = [
+        // and `kb.table`'s third operand is the KB they name a predicate in
+        // (§S9), and their forms' is the functor: none is a stack's name.
+        const UNVARIED: [&str; 21] = [
             "get,",
             "graph.maxflow",
             "graph.maxflow.",
@@ -674,6 +674,8 @@ mod honesty_tests {
             "graph.path.",
             "kb.askable",
             "kb.askable.",
+            "kb.table",
+            "kb.table.",
             "kb.word",
             "save.model",
             "seq.asc",

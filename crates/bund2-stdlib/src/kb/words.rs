@@ -2,8 +2,8 @@
 //!
 //! The building words (M2): `kb.new`, `kb!`, `kb.consult*`, `kb.assert`,
 //! `kb.asserta`, `kb.retract`, `kb.merge`, `kb.clauses` and `kb.inferences`,
-//! with the `.` forms of the six that take a KB; and M8's `kb.askable` and
-//! its form. Each reads and writes the KB
+//! with the `.` forms of the six that take a KB; M8's `kb.askable` and M10's
+//! `kb.table`, and their forms. Each reads and writes the KB
 //! through `store.rs`, so what is here is operands and texts.
 //!
 //! The asking words (M3): `kb.query`, `kb.once` and `kb.holds`, each a
@@ -152,15 +152,27 @@ fn kb_inferences(vm: &mut dyn Vm) -> Result<(), Error> {
 /// (§S16): a call on it asks once its clauses are tried. Refuses E09, E03
 /// for a reserved pair, and E59 for one already tabled.
 fn kb_askable(vm: &mut dyn Vm) -> Result<(), Error> {
-    let mut ops = operands(vm, "kb.askable", 3)?.into_iter();
+    name_in(vm, "kb.askable", "askable")
+}
+
+/// `kb functor n kb.table` — the KB with `functor/n` named in `tabled`
+/// (§S18): its calls are answered from tables. Refuses E09, E03 for a
+/// reserved pair, and E59 for one already askable.
+fn kb_table(vm: &mut dyn Vm) -> Result<(), Error> {
+    name_in(vm, "kb.table", "tabled")
+}
+
+/// `kb.askable` and `kb.table`: name `functor/n` in `key`, once.
+fn name_in(vm: &mut dyn Vm, word: &str, key: &'static str) -> Result<(), Error> {
+    let mut ops = operands(vm, word, 3)?.into_iter();
     let (Some(n), Some(functor), Some(kb)) = (ops.next(), ops.next(), ops.next()) else {
-        return Err(Error::internal(
-            "kb.askable: three operands were guarded and not three pulled",
-        ));
+        return Err(Error::internal(format!(
+            "{word}: three operands were guarded and not three pulled"
+        )));
     };
-    let (functor, n) = functor_arity("kb.askable", &functor, &n)?;
-    let kb = Kb::read(&kb, 3).map_err(|r| refused("kb.askable", &r))?;
-    answer(vm, "kb.askable", kb.name_in("askable", &functor, n))
+    let (functor, n) = functor_arity(word, &functor, &n)?;
+    let kb = Kb::read(&kb, 3).map_err(|r| refused(word, &r))?;
+    answer(vm, word, kb.name_in(key, &functor, n))
 }
 
 /// The `Vm` as the engine sees it.
@@ -410,6 +422,8 @@ pub fn register(r: &mut Registry) {
     crate::wb::bench!(r, "kb.inferences", kb_inferences, 2, 1);
     r.register_native("kb.askable", kb_askable, eff(3, 1), WordKind::Sync);
     crate::wb::bench!(r, "kb.askable", kb_askable, 3, 2);
+    r.register_native("kb.table", kb_table, eff(3, 1), WordKind::Sync);
+    crate::wb::bench!(r, "kb.table", kb_table, 3, 2);
     // Opaque: a bridge may re-enter evaluation, and no `.` form (D111).
     for (name, f) in [
         ("kb.query", kb_query as bund2_api::NativeFn),
@@ -632,7 +646,7 @@ mod tests {
     #[test]
     fn each_form_holds_the_kb_on_the_workbench() {
         const KB: &str = "[ [ p a ] [ q a ] ] kb!";
-        let forms: [(&str, &str); 7] = [
+        let forms: [(&str, &str); 8] = [
             ("kb.assert", "[ p b ]"),
             ("kb.asserta", "[ p b ]"),
             ("kb.retract", "[ p a ]"),
@@ -640,6 +654,7 @@ mod tests {
             ("kb.clauses", ""),
             ("kb.inferences", "10"),
             ("kb.askable", ":p 1"),
+            ("kb.table", ":p 1"),
         ];
         for (word, rest) in forms {
             let plain = run(&format!("7 {KB} {rest} {word}"));
@@ -674,6 +689,7 @@ mod tests {
             ("kb.clauses", 0),
             ("kb.inferences", 1),
             ("kb.askable", 2),
+            ("kb.table", 2),
         ] {
             let pad = "kb.new ".repeat(n);
             assert_eq!(
@@ -881,6 +897,35 @@ mod tests {
         assert_eq!(
             err("kb.new :askable 3 set :p 1 kb.askable"),
             "KB.ASKABLE: malformed knowledge base: askable is not a LIST"
+        );
+    }
+
+    /// `kb.table` names `functor/n` in `tabled`, once, and refuses as
+    /// `kb.askable` does (M10).
+    #[test]
+    fn kb_table_names_the_predicate_once() {
+        let kb = top("kb.new :path 2 kb.table :edge 2 kb.table :path 2 kb.table");
+        let tabled = kb.as_map().unwrap().get("tabled").unwrap().display();
+        assert_eq!(tabled, shown("[ \"path/2\" \"edge/2\" ]"));
+        assert_eq!(
+            err("1 :p 1 kb.table"),
+            "KB.TABLE: #3 parameter must be a knowledge base"
+        );
+        assert_eq!(
+            err("kb.new :p -1 kb.table"),
+            "KB.TABLE: the functor must be a STRING and the arity a non-negative INT"
+        );
+        assert_eq!(
+            err("kb.new :dif 2 kb.table"),
+            "KB.TABLE: dif/2 is reserved and cannot be defined"
+        );
+        assert_eq!(
+            err("kb.new :p 1 kb.askable :p 1 kb.table"),
+            "KB.TABLE: p/1 cannot be both tabled and askable"
+        );
+        assert_eq!(
+            err("kb.new :tabled 3 set :p 1 kb.table"),
+            "KB.TABLE: malformed knowledge base: tabled is not a LIST"
         );
     }
 }

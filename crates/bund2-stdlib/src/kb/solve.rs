@@ -14,7 +14,8 @@
 //!
 //! - the arena's main store, cut back to a choicepoint's mark on backtrack;
 //! - the arena's template store, never cut: each predicate's clauses,
-//!   compiled on its first call, and `findall`'s copies;
+//!   compiled on its first call, `findall`'s copies, and the tables' calls
+//!   and answers;
 //! - the trail, unwound to a choicepoint's mark;
 //! - the goal nodes, cut back to a choicepoint's count. A node popped above
 //!   the newest choicepoint's count is reclaimed at once: nothing can return
@@ -22,6 +23,7 @@
 //!   constant goal space;
 //! - the choicepoints;
 //! - the predicate table and its first-argument indexes;
+//! - the tables and the completion stack (§S18, `table.rs`), never undone;
 //! - the suspended `dif`s and their attributes (§S17), taken back to a
 //!   choicepoint's mark as the trail is.
 //!
@@ -36,6 +38,7 @@ use bund2_value::{BundValue, LAMBDA};
 use super::dif::{DifMark, Difs};
 use super::proof::Proofs;
 use super::store::{self, Kb, Refused};
+use super::table::{Instance, Neg, Status, Tables};
 use super::term::{Arena, Atom, Cell, Mark, Refusal, SHOWN, Scope, Term};
 use super::unify::{Trail, unify, unify_waking};
 
@@ -106,8 +109,8 @@ impl From<Refused> for Stop {
     }
 }
 
-/// One goal of the goal list. `Cut`, `Collect` and `Asked` are §S4's internal
-/// goals: a kind of their own, not terms, so a predicate named `$cut` is
+/// One goal of the goal list. `Cut`, `Collect`, `Asked` and `Answer` are
+/// §S4's internal goals: a kind of their own, not terms, so a predicate named `$cut` is
 /// ordinary.
 #[derive(Debug, Clone, Copy)]
 enum Goal {
@@ -118,6 +121,11 @@ enum Goal {
     Collect(usize),
     /// Mark the `Ask` choicepoint at this height answered (§S16).
     Asked(usize),
+    /// `$answer`: add `call`, as it now stands, to `table`, and fail (§S18).
+    Answer {
+        table: usize,
+        call: Term,
+    },
     Fail,
 }
 
@@ -140,7 +148,7 @@ type Slotted = (Goal, Option<Term>);
 
 /// What a choicepoint holds besides its marks, and what it resumes (§S4).
 enum Kind {
-    /// `asked` is the height of the `Ask` beneath, for an askable call.
+    /// `after` follows each clause body: `$asked` for an askable call.
     Clauses {
         call: Term,
         pred: usize,
@@ -148,7 +156,7 @@ enum Kind {
         next: usize,
         cont: Option<usize>,
         proof: Option<Term>,
-        asked: Option<usize>,
+        after: Option<Goal>,
     },
     /// `or`'s branches after the first; `next` 0 is the second branch.
     Branches {
@@ -199,6 +207,29 @@ enum Kind {
         cont: Option<usize>,
         proof: Option<Term>,
     },
+    /// A new variant of a tabled call, leading (§S18). It runs `run`'s
+    /// clauses, the `next`th on, each followed by `$answer`: on the first
+    /// pass its own, `table`'s, on `call`; on a later pass each member's of
+    /// its SCC in turn, `member` being the entry run, on a renaming of the
+    /// member's variant. `pass` is the answers added when the pass began.
+    Leader {
+        table: usize,
+        call: Term,
+        run: usize,
+        member: usize,
+        next: usize,
+        pass: u64,
+        cont: Option<usize>,
+        proof: Option<Term>,
+    },
+    /// A tabled call reading `table`'s answers, the `next`th on.
+    Consumer {
+        call: Term,
+        table: usize,
+        next: usize,
+        cont: Option<usize>,
+        proof: Option<Term>,
+    },
 }
 
 struct Choicepoint {
@@ -245,7 +276,9 @@ enum Known {
     User(usize),
     /// Named in `askable`, with its clauses if `preds` has any (§S16).
     Askable(Option<usize>),
-    /// A later phase's: reserved by it, or named in `tabled`.
+    /// Named in `tabled`, with its clauses if `preds` has any (§S18).
+    Tabled(Option<usize>),
+    /// A later phase's: reserved by it.
     Unbuilt(u8),
     Unknown,
 }
@@ -301,6 +334,8 @@ pub struct Solver {
     told: Vec<BundValue>,
     /// The `dif`s posted, and their attributes (§S17).
     difs: Difs,
+    /// The tables and the completion stack (§S18).
+    tables: Tables,
     started: bool,
     done: bool,
 }
@@ -385,6 +420,7 @@ impl Solver {
             replies: Vec::new(),
             told: Vec::new(),
             difs: Difs::default(),
+            tables: Tables::default(),
             started: false,
             done: false,
         })
@@ -582,6 +618,10 @@ impl Solver {
                     }
                     true
                 }
+                Goal::Answer { table, call } => {
+                    self.add_answer(table, call);
+                    false
+                }
                 Goal::Call(t) => {
                     self.infer(bridge)?;
                     self.call(t, node.proof, bridge)?
@@ -705,9 +745,9 @@ impl Solver {
                     next,
                     cont,
                     proof,
-                    asked,
+                    after,
                 } => {
-                    let (call, pred, cont, proof, asked) = (*call, *pred, *cont, *proof, *asked);
+                    let (call, pred, cont, proof, after) = (*call, *pred, *cont, *proof, *after);
                     let ci = cands.get(*next).copied();
                     *next += 1;
                     if *next < cands.len() {
@@ -715,7 +755,114 @@ impl Solver {
                     }
                     let Some(ci) = ci else { continue };
                     self.infer(bridge)?;
-                    if self.try_clause(call, pred, ci, cont, proof, asked) {
+                    if self.try_clause(call, pred, ci, cont, proof, after) {
+                        return Ok(true);
+                    }
+                }
+                Kind::Leader {
+                    table,
+                    call,
+                    run,
+                    member,
+                    next,
+                    pass,
+                    cont,
+                    proof,
+                } => {
+                    let (table, call, run, member, pass, cont, proof) =
+                        (*table, *call, *run, *member, *pass, *cont, *proof);
+                    // The term this run resolves: the leader's own call, or
+                    // a member's variant, renamed below once a clause is
+                    // there to try.
+                    let own = run == table;
+                    let src = if own {
+                        Some(call)
+                    } else {
+                        self.tables.call(run).map(|c| c.term)
+                    };
+                    let pred = self.tables.pred(run);
+                    let ci = match (pred, src) {
+                        (Some(p), Some(src)) => self.candidates(p, src).get(*next).copied(),
+                        _ => None,
+                    };
+                    if let (Some(ci), Some(p)) = (ci, pred) {
+                        *next += 1;
+                        self.cps.push(cp);
+                        self.infer(bridge)?;
+                        let term = if own { Some(call) } else { self.renamed(run) };
+                        let Some(term) = term else { continue };
+                        let answer = Goal::Answer {
+                            table: run,
+                            call: term,
+                        };
+                        // The body runs, and its `$answer` fails back here.
+                        if self.try_clause(term, p, ci, None, None, Some(answer)) {
+                            return Ok(true);
+                        }
+                        continue;
+                    }
+                    // This run's clauses are spent (step 3).
+                    let Some(root) = self.tables.root_entry(table) else {
+                        // Not its SCC's root: fail back, and leave its
+                        // entry for the root to complete.
+                        continue;
+                    };
+                    let following = member + 1;
+                    let restart = if following < self.tables.height() {
+                        Some((following, pass))
+                    } else if self.tables.added > pass {
+                        Some((root, self.tables.added))
+                    } else {
+                        None
+                    };
+                    if let Some((m, pass)) = restart {
+                        let run = self.tables.table_at(m).unwrap_or(table);
+                        cp.kind = Kind::Leader {
+                            table,
+                            call,
+                            run,
+                            member: m,
+                            next: 0,
+                            pass,
+                            cont,
+                            proof,
+                        };
+                        self.cps.push(cp);
+                        continue;
+                    }
+                    // A whole pass added nothing: the SCC is complete, and
+                    // the leader returns its answers.
+                    self.tables.complete(root);
+                    cp.kind = Kind::Consumer {
+                        call,
+                        table,
+                        next: 0,
+                        cont,
+                        proof,
+                    };
+                    self.cps.push(cp);
+                }
+                Kind::Consumer {
+                    call,
+                    table,
+                    next,
+                    cont,
+                    proof,
+                } => {
+                    let (call, table, cont, proof) = (*call, *table, *cont, *proof);
+                    let Some(answer) = self.tables.answer(table, *next).cloned() else {
+                        continue;
+                    };
+                    *next += 1;
+                    // An evaluating table may grow before this is resumed.
+                    if *next < self.tables.len(table)
+                        || self.tables.status(table) == Some(Status::Evaluating)
+                    {
+                        self.cps.push(cp);
+                    }
+                    self.infer(bridge)?;
+                    if self.take(call, &answer, proof) {
+                        self.cont = cont;
                         return Ok(true);
                     }
                 }
@@ -1060,7 +1207,7 @@ impl Solver {
             (f, _) => {
                 let n = args.len();
                 match self.lookup(f, n)? {
-                    Known::User(p) => Ok(self.resolve(d, p, &args, proof, None)),
+                    Known::User(p) => Ok(self.resolve(d, p, proof, None)),
                     Known::Askable(p) => {
                         // `Ask` first, then `Clauses` above it: the question
                         // comes only once every clause has been tried.
@@ -1071,8 +1218,9 @@ impl Solver {
                             cont: rest,
                             proof,
                         });
-                        Ok(p.is_some_and(|p| self.resolve(d, p, &args, proof, Some(h))))
+                        Ok(p.is_some_and(|p| self.resolve(d, p, proof, Some(Goal::Asked(h)))))
                     }
+                    Known::Tabled(p) => self.tabled(d, f, n, p, proof),
                     Known::Unbuilt(phase) => Err(Stop::Code(format!(
                         "{}/{n} belongs to Phase {phase}, which is not built",
                         self.arena.atoms.text(f)
@@ -1325,7 +1473,11 @@ impl Solver {
         let key = format!("{text}/{n}");
         let k = match store::reserved(&text, n) {
             Some(phase) if phase > 1 => Known::Unbuilt(phase),
-            _ if self.tabled.contains(&key) => Known::Unbuilt(2),
+            _ if self.tabled.contains(&key) => Known::Tabled(if self.source.contains_key(&key) {
+                Some(self.compile(&key)?)
+            } else {
+                None
+            }),
             _ if self.askable.contains(&key) => Known::Askable(if self.source.contains_key(&key) {
                 Some(self.compile(&key)?)
             } else {
@@ -1392,22 +1544,18 @@ impl Solver {
         }
     }
 
-    /// A user predicate's call: compute the candidates, push `Clauses` when
-    /// two or more remain, and try the first. `asked` is the height of an
-    /// askable call's `Ask`, which each clause body marks when it succeeds.
-    fn resolve(
-        &mut self,
-        call: Term,
-        p: usize,
-        args: &[Term],
-        proof: Option<Term>,
-        asked: Option<usize>,
-    ) -> bool {
-        let key = args.first().and_then(|a| self.key(*a));
-        let Some(pred) = self.preds.get_mut(p) else {
-            return false;
+    /// The candidates of `p` for `call`, by its first argument's key (§S6).
+    /// The index is built on a key's first use.
+    fn candidates(&mut self, p: usize, call: Term) -> Rc<[usize]> {
+        let first = match self.arena.cell(self.arena.deref(call)) {
+            Cell::Struct { start, arity, .. } => self.arena.args(start, arity).first().copied(),
+            _ => None,
         };
-        let cands = match key {
+        let key = first.and_then(|a| self.key(a));
+        let Some(pred) = self.preds.get_mut(p) else {
+            return Rc::from([]);
+        };
+        match key {
             None => pred.all.clone(),
             Some(k) => {
                 let clauses = &pred.clauses;
@@ -1423,7 +1571,14 @@ impl Solver {
                     })
                     .clone()
             }
-        };
+        }
+    }
+
+    /// A user predicate's call: compute the candidates, push `Clauses` when
+    /// two or more remain, and try the first. `after` follows each clause
+    /// body: an askable call's `$asked`, which marks its `Ask` answered.
+    fn resolve(&mut self, call: Term, p: usize, proof: Option<Term>, after: Option<Goal>) -> bool {
+        let cands = self.candidates(p, call);
         let Some(&first) = cands.first() else {
             return false;
         };
@@ -1436,14 +1591,158 @@ impl Solver {
                 next: 1,
                 cont: rest,
                 proof,
-                asked,
+                after,
             });
         }
-        self.try_clause(call, p, first, rest, proof, asked)
+        self.try_clause(call, p, first, rest, proof, after)
+    }
+
+    /// A call of tabled `functor/n` (§S18): a new variant leads, an
+    /// evaluating one is consumed and merges its SCC (E54), and a complete
+    /// one is read. Each pushes its choicepoint and fails into it.
+    fn tabled(
+        &mut self,
+        call: Term,
+        f: Atom,
+        n: usize,
+        pred: Option<usize>,
+        proof: Option<Term>,
+    ) -> Result<bool, Stop> {
+        let rest = self.cont;
+        let difs = self.difs.touching(&mut self.arena, &mut self.trail, call);
+        let variant = self.tables.variant(&self.arena, call, &difs);
+        match self.tables.find(&variant) {
+            Some(t) => {
+                if self.tables.status(t) == Some(Status::Evaluating) {
+                    let neg = self.construct();
+                    self.tables.merge(t, neg).map_err(|u| {
+                        Stop::Code(format!(
+                            "{} over the incomplete table of {}: the program is not stratified",
+                            u.construct, u.name
+                        ))
+                    })?;
+                }
+                self.push_cp(Kind::Consumer {
+                    call,
+                    table: t,
+                    next: 0,
+                    cont: rest,
+                    proof,
+                });
+            }
+            None => {
+                let kept = self.keep(call, &difs);
+                let name = format!("{}/{n}", self.arena.atoms.text(f));
+                let neg = self.construct();
+                let t = self
+                    .tables
+                    .lead(variant, name, kept, pred, self.cps.len(), neg);
+                let entry = self.tables.height() - 1;
+                self.push_cp(Kind::Leader {
+                    table: t,
+                    call,
+                    run: t,
+                    member: entry,
+                    next: 0,
+                    pass: self.tables.added,
+                    cont: rest,
+                    proof,
+                });
+            }
+        }
+        Ok(false)
+    }
+
+    /// The innermost `not`, `if` whose condition is running, or `findall`
+    /// on the choicepoint stack: what a tabled call is made under (E54).
+    fn construct(&self) -> Option<Neg> {
+        self.cps.iter().enumerate().rev().find_map(|(height, cp)| {
+            let construct = match cp.kind {
+                Kind::Not { .. } => "not",
+                Kind::Else { .. } => "if",
+                Kind::Collect { .. } => "findall",
+                _ => return None,
+            };
+            Some(Neg { height, construct })
+        })
+    }
+
+    /// A member's variant, renamed into the arena with its `dif`s posted
+    /// again, for a later pass to run. `None` if a `dif` fails, which a
+    /// variant's own cannot.
+    fn renamed(&mut self, t: usize) -> Option<Term> {
+        let call = self.tables.call(t)?.clone();
+        self.restore(&call)
+    }
+
+    /// An instance of the template store renamed into the arena, its
+    /// `dif`s posted again; `None` if one fails.
+    fn restore(&mut self, i: &Instance) -> Option<Term> {
+        self.vars.clear();
+        let term = self.arena.copy(i.term, &mut self.vars, false);
+        let difs: Vec<(Term, Term)> = i
+            .difs
+            .iter()
+            .map(|(a, b)| {
+                (
+                    self.arena.copy(*a, &mut self.vars, false),
+                    self.arena.copy(*b, &mut self.vars, false),
+                )
+            })
+            .collect();
+        for (a, b) in difs {
+            if !self.difs.post(&mut self.arena, &mut self.trail, a, b) {
+                return None;
+            }
+        }
+        Some(term)
+    }
+
+    /// A table answer for `call`: rename it, unify, and justify `proof` by
+    /// `[ goal ← :tabled ]` (§S15).
+    fn take(&mut self, call: Term, answer: &Instance, proof: Option<Term>) -> bool {
+        let Some(t) = self.restore(answer) else {
+            return false;
+        };
+        if !self.unify(call, t) {
+            return false;
+        }
+        let tabled: Vec<Term> = self.marker(|p| p.tabled).into_iter().collect();
+        self.justify(proof, call, &tabled);
+        true
+    }
+
+    /// `$answer`: add `call`, as the clause left it, to `table`, with the
+    /// `dif`s on its variables, unless a variant of it is there (§S18).
+    fn add_answer(&mut self, table: usize, call: Term) {
+        let difs = self.difs.touching(&mut self.arena, &mut self.trail, call);
+        let variant = self.tables.variant(&self.arena, call, &difs);
+        if !self.tables.has(table, &variant) {
+            let kept = self.keep(call, &difs);
+            self.tables.add(table, variant, kept);
+        }
+    }
+
+    /// `t` and its `dif`s copied into the template store, sharing their
+    /// variables, where no backtrack cuts them.
+    fn keep(&mut self, t: Term, difs: &[(Term, Term)]) -> Instance {
+        self.vars.clear();
+        let term = self.arena.copy(t, &mut self.vars, true);
+        let difs = difs
+            .iter()
+            .map(|(a, b)| {
+                (
+                    self.arena.copy(*a, &mut self.vars, true),
+                    self.arena.copy(*b, &mut self.vars, true),
+                )
+            })
+            .collect();
+        Instance { term, difs }
     }
 
     /// Rename clause `ci` of `p`, unify its head with `call`, and put its
-    /// body ahead of `rest`, followed by `$asked(h)` for an askable call.
+    /// body ahead of `rest`, followed by `after`: `$asked(h)` for an askable
+    /// call, `$answer` for a tabled one.
     fn try_clause(
         &mut self,
         call: Term,
@@ -1451,7 +1750,7 @@ impl Solver {
         ci: usize,
         rest: Option<usize>,
         proof: Option<Term>,
-        asked: Option<usize>,
+        after: Option<Goal>,
     ) -> bool {
         let Some(clause) = self.preds.get(p).and_then(|pr| pr.clauses.get(ci)) else {
             return false;
@@ -1475,7 +1774,7 @@ impl Solver {
             _ => Self::parts(&goals),
         };
         self.justify(proof, call, &parts);
-        goals.extend(asked.map(|h| (Goal::Asked(h), None)));
+        goals.extend(after.map(|g| (g, None)));
         if let Some(names) = names {
             // This instance's variables, for a bridge in its body.
             let instance: Names = names
@@ -1910,14 +2209,8 @@ mod tests {
             err("kb.new [ label X ] kb.query"),
             "KB.QUERY: label/1 belongs to Phase 3, which is not built"
         );
-        // `dif/2`, Phase 2's one reserved pair, is M9's (`dif.rs`'s tests).
-        // A predicate named in `tabled` (the implementation plan), whether
-        // or not it has clauses, until M10. `askable` is M8's (`query.rs`'s
-        // tests).
-        assert_eq!(
-            err("[ [ p 1 ] ] kb! :tabled [ \"p/1\" ] set [ p X ] kb.query"),
-            "KB.QUERY: p/1 belongs to Phase 2, which is not built"
-        );
+        // `dif/2`, Phase 2's one reserved pair, is M9's (`dif.rs`'s tests);
+        // `askable` is M8's (`query.rs`'s) and `tabled` M10's (`table.rs`'s).
     }
 
     #[test]
