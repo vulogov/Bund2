@@ -1,0 +1,27 @@
+-- 1. facts, a rule, three ways to ask
+tom's grandchildren:       [ ann ::  pat :: ]
+is ann one of them:        true
+tom is a grandparent of pat
+
+-- 2. bridges
+the adults:                [ ann ::  pat :: ]
+bob's next age:            { N=16 :: }
+
+-- 3. a graph word as a generator
+what A reaches:            [ A ::  B ::  C :: ]
+
+-- 4. diagnosis, and a predicate as a word
+what impairs web:          [ [ web ::  cache :: ] :: ]
+
+-- 5. an expert system
+it is a cat
+
+-- 6. tabling and saturation
+what a reaches, in table order: [ b ::  c ::  a :: ]
+clauses before saturating: 5
+clauses after saturating:  14
+path facts it derives:     9
+
+-- 7. SEND + MORE = MONEY
+S E N D M O R Y:           [ 9 ::  5 ::  6 ::  7 ::  1 ::  0 ::  8 ::  2 :: ]
+how many solutions:        1

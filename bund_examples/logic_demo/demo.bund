@@ -1,0 +1,163 @@
+//
+// The seven worked examples of RFC-0013, logic programming, one after
+// another: facts and rules asked three ways, bridges into Bund, a graph word
+// as a generator, a predicate turned into a word, an expert system, tabling
+// and saturation, and SEND + MORE = MONEY with CLP(FD). Run it:
+//
+//   bund2 demo.bund
+//
+// It reads nothing from the terminal: example 5's replies are seeded, as
+// the RFC says to run it unattended. Each line it prints is the answer the
+// example's comment in the RFC gives, so `expected.txt` beside this file is
+// what a run must print.
+//
+// A KB is a LIST of clauses made into a MAP by `kb!`. A clause is a fact,
+// `[ parent tom bob ]`, or a rule, `[ head ← goal goal … ]`. A capitalised
+// name is a variable; any other name is an atom, and answers as a STRING.
+//
+
+//
+// 1. Facts, a rule, three ways to ask. `kb.query` answers every solution,
+//    a MAP of bindings each; `kb.holds` answers whether there is one; the
+//    `query` conditional runs a lambda for each, with the bindings on top.
+//
+"-- 1. facts, a rule, three ways to ask" println
+:family [
+  [ parent tom bob ] [ parent bob ann ] [ parent bob pat ]
+  [ [ grandparent X Z ] ← [ parent X Y ] [ parent Y Z ] ]
+] kb! var
+
+"tom's grandchildren:       " print
+:family var? [ grandparent tom W ] kb.query { :W get } map println
+"is ann one of them:        " print
+:family var? [ grandparent tom :ann ] kb.holds println
+query
+  :kb     :family var? set
+  :goal   [ grandparent G :pat ] set
+  :lambda { :G get "{0} is a grandparent of pat" format println } set
+!
+"" println
+
+//
+// 2. Bridges. `test` runs a lambda over the bindings and keeps the solution
+//    if it answers true; `is` binds a variable to what a lambda answers.
+//    Operands go in Bund's order: `A 18 <=` asks 18 <= A.
+//
+"-- 2. bridges" println
+:people [
+  [ age ann 34 ] [ age bob 15 ] [ age pat 71 ]
+  [ [ adult P ]      ← [ age P A ] [ test { A 18 <= } ] ]
+  [ [ older P Q ]    ← [ age P A ] [ age Q B ] [ test { A B < } ] ]
+  [ [ next_age P N ] ← [ age P A ] [ is N { A 1 + } ] ]
+] kb! var
+
+"the adults:                " print
+:people var? [ adult P ] kb.query { :P get } map println
+"bob's next age:            " print
+:people var? [ next_age bob N ] kb.once println
+"" println
+
+//
+// 3. A graph word as a generator. `in` binds a variable to each item of
+//    the LIST a lambda answers, here every node `graph.reachable` reaches.
+//    Node names are Title-cased, so the start is the STRING "A".
+//
+"-- 3. a graph word as a generator" println
+:roads [ [ :a :b 1.0 ] [ :b :c 1.0 ] ] [ :a :b :c :d ] graph! var
+:trips [
+  [ [ reaches A B ] ← [ in B { A :roads var? graph.reachable } ] ]
+] kb! var
+
+"what A reaches:            " print
+:trips var? [ reaches "A" B ] kb.query { :B get } map println
+"" println
+
+//
+// 4. Diagnosis, and a predicate as a word. `kb.word` makes `impaired` a
+//    word: it takes one argument per position, NODATA (∅) for an unbound
+//    one, and answers a LIST of every solution's arguments.
+//
+"-- 4. diagnosis, and a predicate as a word" println
+:ops [
+  [ depends web api ] [ depends api db ] [ depends api cache ]
+  [ down cache ]
+  [ [ needs S D ] ← [ depends S D ] ]
+  [ [ needs S D ] ← [ depends S M ] [ needs M D ] ]
+  [ [ impaired S D ] ← [ needs S D ] [ down D ] ]
+] kb! var
+
+:ops :impaired 2 kb.word
+"what impairs web:          " print
+:web ∅ impaired println
+"" println
+
+//
+// 5. An expert system. `has` and `says` are askable: a goal on them that
+//    no clause proves is put to the `ask` lambda, unless `known` already
+//    holds a reply. All five replies are seeded here, so `input` is never
+//    reached and nothing is read from the terminal.
+//
+"-- 5. an expert system" println
+:zoo [
+  [ [ animal dog ]  ← [ has fur ] [ says woof ] ]
+  [ [ animal cat ]  ← [ has fur ] [ says meow ] ]
+  [ [ animal duck ] ← [ has feathers ] [ says quack ] ]
+] kb! :has 1 kb.askable :says 1 kb.askable var
+
+:answers [ [ [ has fur ] true ] [ [ says woof ] false ] [ [ says meow ] true ]
+           [ [ has feathers ] false ] [ [ says quack ] false ] ] var
+query
+  :kb     :zoo var? set
+  :goal   [ animal A ] set
+  :known  :answers set
+  :ask    { "{0}? (y/n) " format input "y" == } set
+  :lambda { :A get "it is a {0}" format println } set
+!
+"" println
+
+//
+// 6. Tabling and saturation. `path` is left-recursive, which would loop
+//    without its table; tabled, it answers in the order the table found
+//    them. `kb.saturate` derives every fact the rules can, and appends them:
+//    the three edges and two rules gain nine path facts. `len` leaves its
+//    LIST beneath the count, which a `drop` or `swap drop` clears.
+//
+"-- 6. tabling and saturation" println
+:net [
+  [ edge a b ] [ edge b c ] [ edge c a ]
+  [ [ path X Y ] ← [ path X Z ] [ edge Z Y ] ]
+  [ [ path X Y ] ← [ edge X Y ] ]
+] kb! :path 2 kb.table var
+
+"what a reaches, in table order: " print
+:net var? [ path a Y ] kb.query { :Y get } map println
+"clauses before saturating: " print
+:net var? kb.clauses len println drop
+"clauses after saturating:  " print
+:net var? kb.saturate kb.clauses len println drop
+"path facts it derives:     " print
+:net var? kb.clauses len swap drop
+:net var? kb.saturate kb.clauses len swap drop - println
+"" println
+
+//
+// 7. SEND + MORE = MONEY, with CLP(FD). Every letter a digit, all of them
+//    different, no leading zero, and SEND = MONEY - MORE; `label` searches
+//    what propagation leaves open.
+//
+"-- 7. SEND + MORE = MONEY" println
+:puzzle [
+  [ [ solve [ S E N D M O R Y ] ] ←
+      [ ins [ S E N D M O R Y ] 0 9 ]
+      [ all_different [ S E N D M O R Y ] ]
+      [ #≠ S 0 ] [ #≠ M 0 ]
+      [ #= [ + [ + [ + [ * 1000 S ] [ * 100 E ] ] [ * 10 N ] ] D ]
+           [ - [ + [ + [ + [ * 10000 M ] [ * 1000 O ] ] [ * 100 N ] ] [ + [ * 10 E ] Y ] ]
+               [ + [ + [ + [ * 1000 M ] [ * 100 O ] ] [ * 10 R ] ] E ] ] ]
+      [ label [ S E N D M O R Y ] ] ]
+] kb! var
+
+"S E N D M O R Y:           " print
+:puzzle var? [ solve L ] kb.once :L get println
+"how many solutions:        " print
+:puzzle var? [ solve L ] kb.query len println drop
