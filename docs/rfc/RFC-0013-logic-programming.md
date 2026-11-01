@@ -22,6 +22,14 @@
   list are amended by the owner's rulings recorded as D229. Nothing else
   in the accepted text changed.
 
+  *Dated note, 2026-10-31:* all thirteen milestones are built (`f1d205a`).
+  The readings M7–M12 made where the text is silent are filed as D230–D235.
+  The worked examples have run (criterion 25), closing Q44's examples half.
+
+  *Dated note, 2026-11-01:* D230–D235 are RESOLVED, "all as recommended".
+  S15–S21 each gain a paragraph stating what was ruled where the text was
+  silent; nothing already in the accepted text changed.
+
   The history below is kept as it was.
 - *Before acceptance:* **Draft — revision 12 (2026-10-28).**
   - Revision 5 carried every correction from the pre-RFC review and three
@@ -1134,6 +1142,13 @@ Its second item is always `←`, so a proof is told from a goal by shape.
 **Storage.** Proof nodes live in the arena, or in the side store under
 `Collect`. They are kept only when proofs are asked for.
 
+**Where this section was silent (D230, ruled 2026-11-01).** `or`'s
+branches count from 1. `←` reads back as a CALL and every marker as a
+STRING. `once` over k goals is `[ goal ← p₁ … pₖ ]`; a LIST of goals
+reached through `call` is proved as a rule body; `true` and `in` over a
+LIST are `:builtin`. A zero-arity goal reads back as a STRING, `true` as a
+BOOL. `not` keeps no inner proofs.
+
 ### S16. Questions to the user, and remembered replies
 
 `kb.askable` names a predicate in `askable`, which defines it (S2).
@@ -1182,6 +1197,13 @@ Its second item is always `←`, so a proof is told from a goal by shape.
 - **Seeding.** `:answers [ [ [ has fur ] true ] ] var` answers `[ has fur ]`
   with `true`, so that question is never asked.
 
+**Where this section was silent (D231, ruled 2026-11-01).** The query
+words and `query` refuse a KB naming a predicate both tabled and askable
+with E59 before solving. A reply found stored, from `known` or earlier in
+the run, is `:known`; only a reply `ask` has just given is `:asked`. E58
+shows the `known` variable's whole value. A query writes back its own
+replies after each one, so a nested query's additions to the same `known`
+are overwritten.
 ### S17. `dif/2`
 
 - **Meaning.** `[ dif A B ]` holds iff A and B are different terms.
@@ -1203,6 +1225,11 @@ Its second item is always `←`, so a proof is told from a goal by shape.
 - **Purity.** `[ not [ = A B ] ]` remains, but it is sound on ground terms
   only. `dif` is the monotonic one (https://www.metalevel.at/prolog/purity).
 
+**Where this section was silent (D232, ruled 2026-11-01).** `dif`'s proof
+is `:builtin`. `kb.call` carries no residual. `findall`'s copies drop a
+`dif`. The residual lists every waiting `dif`, each posting once, sides as
+they now stand, a variable the query does not name as `_G<n>`. A wake-up
+counts no inference and polls no guard.
 ### S18. Tabling
 
 `kb.table` names a predicate in `tabled`.
@@ -1267,6 +1294,14 @@ undone on backtrack.
 - Tables last one activation.
 - A predicate with unbounded answers still runs forever, and S7 applies.
 
+**Where this section was silent (D233, ruled 2026-11-01).** A variant's
+attributes are the `dif`s waiting on its variables, for the call and each
+answer; an answer re-posts them when read. A completion pass ends when no
+answer was added anywhere in the query. A consumer reads its table as it
+grows. E54 names the table read under the construct. The root re-runs its
+clauses on the caller's goal, every other member on a renamed copy of its
+variant. Each clause a leader tries and each table answer read is one
+inference.
 ### S19. Forward chaining
 
 `kb.saturate` answers the input KB's clauses, plus every fact its rules
@@ -1293,6 +1328,17 @@ derive, run to a fixpoint.
 **Order.** Derived facts are appended per predicate: by round, then by
 rule, then in join order. So the same KB always saturates to the same
 value.
+
+**Where this section was silent (D234, ruled 2026-11-01).** A head
+variable is bound by a predicate's call (a literal `call` included), `=`,
+or `findall`'s result, and by nothing under `not` or in `findall`'s goal.
+A variable goal is E55's "call" reason, and `or`, `if` and `once` are E55
+anywhere in a body. E55 is checked before E56, in `preds` key order then
+clause order. Strata are the fewest possible. After round 1, a rule runs
+once per goal whose predicate grew, in goal order. `tabled` and `askable`
+are ignored; a predicate nothing defines has no facts; the solver's
+refusals pass through. The cap and W1 count across rounds. A `dif` still
+waiting when a body ends is dropped.
 
 ---
 
@@ -1368,6 +1414,28 @@ D202).
 - In an answer it is NODATA, plus `_residual` **[L15]**.
 - Reification and other global constraints are left to an amendment.
 
+**Where these sections were silent (D235, ruled 2026-11-01).**
+- The residual adds `[ in X lo hi ]`, or `[ fd_dom X … ]` for a domain
+  with holes, after the `dif`s, for the unbound variables reachable from
+  the query's in first-occurrence order; never an internal variable, a
+  full domain or a pending propagator, so re-posting a residual restores
+  domains, not relations.
+- E61 is a coefficient beyond `i64` or a constant beyond `i128`.
+- E63 also covers an item of `label`, `labeling` or `all_different` that
+  is neither a variable nor an INT, naming it, and a non-list option list;
+  in `fd_dom` a non-list is E63, a pair not two bounds E64, a pair upside
+  down E66.
+- E62 is checked against every unbound variable in the list at each
+  labeling step.
+- Backtracking out of a labeling step removes the value and selects again.
+- Every variable a constraint names is constrained, by
+  `[ in X inf sup ]` too; `in` on a bound non-integer fails.
+- W1 reached inside propagation is reported at the next goal; E30 and E40
+  at once.
+- Domains are dropped by tabled variants, `findall` copies and
+  `kb.saturate`.
+- A labeling run's proof is one `:builtin` node.
+
 ---
 
 ## Worked examples
@@ -1387,6 +1455,10 @@ The fourth review re-read each of these against Bund2, along with `input`
 (it pulls a prompt and trims the line) and the existence of `var?` and
 `list`. All hold. What Q44 leaves open is the run itself: the `kb.` words
 do not exist yet.
+
+*Dated note, 2026-10-31:* all seven have now run, as written, in
+`bund_examples/logic_demo/` (criterion 25), and each gives the answer its
+comment states. Q44's examples half is closed; its quotations half is not.
 
 ### 1. Facts, a rule, three ways to ask
 
@@ -1885,7 +1957,8 @@ column is the ruling (D226, RESOLVED).*
 These are entered in `docs/registers/open-questions.md`.
 
 - **Q44 [UNGROUNDED].** The quotations were read through a summarising
-  fetch, and no example has been executed.
+  fetch, and no example has been executed. *(2026-10-31: the examples have
+  run, criterion 25; the quotations remain.)*
 - **Q45.** Answers lose the aliasing between unbound variables.
 - **Q46.** A compiled-form cache keyed on the KB's payload.
 - **Q47.** Whether `kb.word` should put the arity in the word's name.

@@ -15911,3 +15911,209 @@ text leaves:
 - **Teaching the palette to vary `kb.word`'s name operand.** Changes a shared
   audit tool for one word that `REPORTS_MID_BODY` excludes from promotion
   anyway.
+
+## D230 — RFC-0013's readings from M7: proofs
+
+**Raised 2026-10-31** by RFC-0013 M7 (`4a6228b`). S15's table does not settle
+these; M7 built the first option of each, which is the recommendation.
+
+1. **`or`'s branch numbers.** *Recommended:* counted from 1, so `goal i get`
+   on `[ or b₁ b₂ … ]` is branch i. *Alternative:* from 0, as a LIST index
+   elsewhere in Bund counts, leaving `goal i 1 + get`.
+2. **What a proof reads back as.** *Recommended:* `←` as a CALL, as S15
+   says, and the markers (`:fact`, `:builtin`, `:branch`, …) as STRINGs, as
+   S1 reads every atom. *Alternative:* the markers as CALLs too, so they
+   compare unlike a user's atom of the same text.
+3. **Rows S15's table lacks.** *Recommended:* `once` over k goals is
+   `[ goal ← p₁ … pₖ ]`; a LIST of goals reached through `call` is proved as
+   a rule body is; `true` and `in` over a LIST are `:builtin`.
+   *Alternative:* a new marker for each (`:once`, `:conjunction`, `:true`,
+   `:member`), which S15 would then have to list.
+4. **A zero-arity goal** reads back as a STRING (`[ yes ]` as `"yes"`), and
+   `true` as a BOOL, by S1's read-back. *Alternative:* a one-item LIST, which
+   would make a proof's goal unlike the same term in an answer.
+5. **`not`'s inner proofs** are not kept, since `:no-proof` never shows
+   them. *Alternative:* keep and drop them, which costs a slot per inner goal
+   for nothing a program can read.
+
+- Blocks: nothing
+- Depends on: D226 (L14)
+- Status: **RESOLVED** by the repository owner, 2026-11-01, "all as
+  recommended", after being shown each alternative: every reading as built.
+  RFC-0013 is amended to match, with a dated note under its status.
+
+## D231 — RFC-0013's readings from M8: asking
+
+**Raised 2026-10-31** by RFC-0013 M8 (`2eaa5fd`). S16 does not settle these;
+M8 built the first option of each, which is the recommendation. M8's report
+also named two choices that are not language: `kb.table` left to M10, which
+M10 built, and `bridge::ask` repeating `run`'s steps so the audits name it.
+Neither is filed here.
+
+1. **E59 at a query's start.** S2 makes a predicate both tabled and askable
+   E59, and S9 lists it only for `kb.table` and `kb.askable`. *Recommended:*
+   the query words and `query` refuse such a KB with E59 before solving, since
+   a MAP built by hand can carry both. *Alternative:* leave it to the call,
+   which would then be both asked and tabled with no rule for the order.
+2. **`:known` or `:asked`.** *Recommended:* a reply found stored is
+   `:known`, whether it came from the `known` variable or earlier in the same
+   run; only a reply `ask` has just given is `:asked`. *Alternative:* a reply
+   given earlier in the run stays `:asked`, which needs a mark per reply.
+3. **E58's text** shows the `known` variable's whole value through
+   `summary`. *Alternative:* only the malformed pair, which is shorter and
+   loses where it was.
+4. **A nested query on the same `known`.** *Recommended:* the outer query
+   writes back its own list after each reply, so replies a nested query added
+   through `ask` are overwritten. *Alternative:* re-read `known` before each
+   write-back and merge, which makes the outer query's replies depend on what
+   its `ask` lambda did.
+
+- Blocks: nothing
+- Depends on: D226 (L14)
+- Status: **RESOLVED** by the repository owner, 2026-11-01, "all as
+  recommended", after being shown each alternative: every reading as built.
+  RFC-0013 is amended to match, with a dated note under its status.
+
+## D232 — RFC-0013's readings from M9: `dif`
+
+**Raised 2026-10-31** by RFC-0013 M9 (`56ed87c`). S17 does not settle these;
+M9 built the first option of each, which is the recommendation.
+
+1. **`dif`'s proof** is `[ goal ← :builtin ]`, as `=`'s is; S15 has no
+   `dif` row. *Alternative:* a `:dif` marker.
+2. **`kb.call` carries no residual.** Its answers are a LIST of arguments
+   with no key to add. *Alternative:* a trailing residual item, which changes
+   the answer's length whenever a `dif` waits.
+3. **`findall`'s copies drop a `dif`** on the variables they copy.
+   *Alternative:* copy it with them, so a collected term keeps its
+   constraint.
+4. **The residual** lists every waiting `dif`, those on variables the query
+   does not name included (as `_G<n>`); each posting appears once per
+   posting; its sides read back as they now stand. *Alternative:* only those
+   touching a query variable, de-duplicated, sides simplified to what
+   remains.
+5. **A wake-up counts no inference and does not poll the guard**, as S4's
+   list of inferences does not name it. *Alternative:* one inference per
+   wake-up, which M12 does count for a propagator run.
+
+- Blocks: nothing
+- Depends on: D226 (L14)
+- Status: **RESOLVED** by the repository owner, 2026-11-01, "all as
+  recommended", after being shown each alternative: every reading as built.
+  RFC-0013 is amended to match, with a dated note under its status.
+
+## D233 — RFC-0013's readings from M10: tabling
+
+**Raised 2026-10-31** by RFC-0013 M10 (`1c854d2`). S18 does not settle these;
+M10 built the first option of each, which is the recommendation.
+
+1. **A variant's attributes** are the `dif`s waiting on its variables, for
+   the call and for each answer; an answer re-posts its `dif`s when read.
+   *Alternative:* no attributes, so `[ dif Y b ] [ path a Y ]` shares
+   `path(a, Y)`'s table and filters afterwards.
+2. **A completion pass ends** when no answer was added anywhere in the
+   query, not only in that SCC's tables. It can cost a pass, never a stop
+   too early. *Alternative:* count per SCC, which needs a count per table.
+3. **A consumer reads its table as it grows**, seeing answers added while
+   it reads. *Alternative:* a snapshot at its start, leaving the rest to the
+   next pass.
+4. **E54 names the table read under the `not`, `if` or `findall`**; when a
+   table led under one of them joins an SCC later, its name.
+   *Alternative:* the SCC's root.
+5. **Re-running members.** *Recommended:* the root re-runs its clauses on
+   the caller's goal, every other member on a renamed copy of its variant
+   with its `dif`s re-posted. *Alternative:* every member on a copy, the root
+   included.
+6. **What counts as an inference:** each clause a leader tries and each
+   table answer read, for S4's "a tabling step". *Alternative:* the clauses
+   only.
+
+- Blocks: nothing
+- Depends on: D226 (L14), D232
+- Status: **RESOLVED** by the repository owner, 2026-11-01, "all as
+  recommended", after being shown each alternative: every reading as built.
+  RFC-0013 is amended to match, with a dated note under its status.
+
+## D234 — RFC-0013's readings from M11: saturation
+
+**Raised 2026-10-31** by RFC-0013 M11 (`a0646b0`). S19 does not settle these;
+M11 built the first option of each, which is the recommendation.
+
+1. **What binds a head variable (E55's range restriction).** *Recommended:*
+   a predicate's call (a literal `call` included), `=`, and `findall`'s
+   result; not a bridge, `dif`, or anything under `not` or in `findall`'s
+   goal. *Alternative:* predicate calls only, under which a `findall` list
+   can never reach a head.
+2. **A variable as a goal**, bare or under `not`, is E55's "call needs a
+   literal functor". *Alternative:* E10 at the round that meets it.
+3. **`or`, `if` and `once`** are E55 anywhere in a body, inside `not` and
+   `findall` too. *Alternative:* refuse them only at a body's top level.
+4. **Order of refusals:** E55 before E56, rules in `preds` key order then
+   clause order, a clause shown with its `←` through `summary`.
+   *Alternative:* the dependency check first.
+5. **Strata are the fewest possible**, so a program with no negation is one
+   stratum. *Alternative:* one stratum per SCC of the dependency graph,
+   which changes the order derived facts are appended in.
+6. **"Join order" after round 1:** each rule runs once per goal whose
+   predicate grew, in goal order. *Alternative:* each rule once per round
+   over all facts, which is naive evaluation and derives the same set.
+7. **What saturation ignores:** `tabled` and `askable` (nothing is asked);
+   a predicate a body names and nothing defines has no facts, not E12; the
+   solver's own refusals pass through. *Alternative:* E12 for an undefined
+   predicate, as a query gives.
+8. **The cap and W1** count across all rounds. *Alternative:* per round,
+   which lets a saturation run without bound.
+9. **A `dif` still waiting** when a body ends is dropped from the derived
+   fact. *Alternative:* refuse the rule (E55), since a fact cannot carry it.
+
+- Blocks: nothing
+- Depends on: D226 (L14)
+- Status: **RESOLVED** by the repository owner, 2026-11-01, "all as
+  recommended", after being shown each alternative: every reading as built.
+  RFC-0013 is amended to match, with a dated note under its status.
+
+## D235 — RFC-0013's readings from M12: CLP(FD)
+
+**Raised 2026-10-31** by RFC-0013 M12 (`fd242aa`). S20 and S21 do not settle
+these; M12 built the first option of each, which is the recommendation.
+
+1. **The residual's domains.** *Recommended:* `[ in X lo hi ]`, or
+   `[ fd_dom X … ]` for a domain with holes, after the `dif`s, for the
+   unbound variables reachable from the query's, in first-occurrence order;
+   internal variables and full domains never; pending propagators not at
+   all, as S8's forms cover domains only, so re-posting a residual restores
+   domains, not relations. *Alternative:* list the propagators too, which
+   needs a residual form per propagator that S8 does not define.
+2. **E61** is raised for a coefficient beyond `i64` or a constant beyond
+   `i128`. *Alternative:* E61 only for a constant beyond `i64`, refusing
+   linear forms S21's exact sum handles.
+3. **E63's reach.** *Recommended:* also an item of `label`, `labeling` or
+   `all_different` that is neither a variable nor an INT, naming the item,
+   and a non-list option list; in `fd_dom`, a non-list is E63, a pair not
+   two bounds E64, a pair upside down E66. *Alternative:* E60 for a bad
+   item.
+4. **E62 is checked against every unbound variable** in the list at each
+   labeling step. *Alternative:* the chosen variable only, which lets a
+   labeling with an unbounded variable succeed when it is never chosen.
+5. **Backtracking out of a labeling step** removes the value and selects
+   again, so under `:ff` another variable may be chosen. *Alternative:* stay
+   on the same variable until its domain is spent.
+6. **Every variable a constraint names is constrained**, by
+   `[ in X inf sup ]` too, so binding it to a non-integer fails.
+   *Alternative:* only a variable whose domain is narrower than full.
+7. **`in` on a bound non-integer fails**, as a domain test.
+   *Alternative:* E60.
+8. **W1 reached inside propagation** is reported at the next goal's
+   inference, as a unification cannot warn; E30 and E40 are raised at once.
+   *Alternative:* no W1 inside propagation.
+9. **Domains are dropped** by tabled variants, `findall` copies and
+   `kb.saturate`. A tabled variant keeps its `dif`s (D233), so the two
+   differ there. *Alternative:* domains as variant attributes too.
+10. **A labeling run's proof** is one `:builtin` node for the `label` goal.
+    *Alternative:* one node per value bound.
+
+- Blocks: nothing
+- Depends on: D226 (L10, L14), D232, D233
+- Status: **RESOLVED** by the repository owner, 2026-11-01, "all as
+  recommended", after being shown each alternative: every reading as built.
+  RFC-0013 is amended to match, with a dated note under its status.
