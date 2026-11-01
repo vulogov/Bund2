@@ -8,6 +8,13 @@
 //! contains it fails, so no unification builds a cycle and every walk over a
 //! term ends.
 //!
+//! **Except where it cannot find anything.** A clause variable that occurs
+//! once in its head is fresh from the renaming and stands nowhere else, so
+//! when head unification binds it, the term it is bound to cannot contain it
+//! (D237). [`unify_head`] skips the walk for those variables alone; every
+//! other binding is checked. Naive reverse binds exactly such variables to
+//! the long tails it walks, which made the check quadratic in the list.
+//!
 //! **Attributes and their wake-ups** are Phase 2's (`dif`, S17) and Phase
 //! 3's (domains, S21) **[L14]**. [`unify_waking`] runs the wake-ups once the
 //! pair worklist is empty, so a half-built compound is never judged; a
@@ -76,8 +83,15 @@ impl Trail {
 /// before it answers, so a caller that fails here owes no unwinding of its
 /// own for them.
 pub fn unify(arena: &mut Arena, trail: &mut Trail, a: Term, b: Term) -> bool {
+    unify_head(arena, trail, a, b, &[])
+}
+
+/// [`unify`] for a renamed clause head, `once` holding the instance's
+/// variables that occur once in it: binding one of those skips the occurs
+/// check, which cannot find it (D237). Every other binding is checked.
+pub fn unify_head(arena: &mut Arena, trail: &mut Trail, a: Term, b: Term, once: &[Term]) -> bool {
     let mark = trail.mark();
-    let ok = unify_pairs(arena, trail, a, b);
+    let ok = unify_pairs(arena, trail, a, b, once);
     if !ok {
         trail.undo_to(arena, mark);
     }
@@ -104,8 +118,20 @@ pub fn unify_waking(
     a: Term,
     b: Term,
 ) -> bool {
+    unify_head_waking(arena, trail, attrs, a, b, &[])
+}
+
+/// [`unify_waking`] for a renamed clause head, as [`unify_head`].
+pub fn unify_head_waking(
+    arena: &mut Arena,
+    trail: &mut Trail,
+    attrs: &mut dyn Wake,
+    a: Term,
+    b: Term,
+    once: &[Term],
+) -> bool {
     let mark = trail.mark();
-    if !unify(arena, trail, a, b) {
+    if !unify_head(arena, trail, a, b, once) {
         return false;
     }
     if trail.len() == mark || attrs.idle() {
@@ -119,7 +145,7 @@ pub fn unify_waking(
     false
 }
 
-fn unify_pairs(arena: &mut Arena, trail: &mut Trail, a: Term, b: Term) -> bool {
+fn unify_pairs(arena: &mut Arena, trail: &mut Trail, a: Term, b: Term, once: &[Term]) -> bool {
     let mut pairs = vec![(a, b)];
     while let Some((a, b)) = pairs.pop() {
         let (a, b) = (arena.deref(a), arena.deref(b));
@@ -134,13 +160,13 @@ fn unify_pairs(arena: &mut Arena, trail: &mut Trail, a: Term, b: Term) -> bool {
                 trail.bind(arena, young, old);
             }
             (Cell::Var(_), _) => {
-                if CHECKED && occurs(arena, a, b) {
+                if CHECKED && !once.contains(&a) && occurs(arena, a, b) {
                     return false;
                 }
                 trail.bind(arena, a, b);
             }
             (_, Cell::Var(_)) => {
-                if CHECKED && occurs(arena, b, a) {
+                if CHECKED && !once.contains(&b) && occurs(arena, b, a) {
                     return false;
                 }
                 trail.bind(arena, b, a);

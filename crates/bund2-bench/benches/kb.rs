@@ -5,6 +5,9 @@
 //!   query: `[ bench L ]` over a rule that runs `nrev` once per item of a
 //!   10,000-item list and then fails. The inferences it counts are printed
 //!   first, so the time divides into inferences a second.
+//! - `kb/nrev15x…`, `kb/nrev60x…`, `kb/nrev120x…` — the same at other
+//!   lengths, each repeated to about 5,000,000 inferences, so the occurs
+//!   check's share can be read against the length of the list it walks.
 //! - `kb/join10000` — every answer of `[ j X Z ]` over `[ p X Y ] [ q Y Z ]`,
 //!   10,000 facts each, one MAP per answer.
 //! - `kb/assert10000` — 10,000 `kb.assert`s, one by one, against the KB
@@ -133,6 +136,27 @@ fn engine(c: &mut Criterion) {
         g.bench_function("nrev30x10000", |b| {
             b.iter(|| solve_all(&kb, black_box(&goal)))
         });
+    }
+
+    // The occurs check's share by list length: about 5,000,000 inferences
+    // at each, so a share that grows with the length is the check walking
+    // the list, not the run growing.
+    for n in [15usize, 60, 120] {
+        let reps = 5_000_000 / ((n + 1) * (n + 2) / 2);
+        let driver = format!(
+            "[ {NREV} [ [ bench L ] ← [ in _ [ {} ] ] [ nrev L _ ] fail ] ]",
+            ints(reps, |_| "0".into())
+        );
+        let goal = top(&format!(
+            "[ bench [ {} ] ]",
+            ints(n, |i| (i + 1).to_string())
+        ));
+        if let (Some(kb), Some(goal)) = (kb(&driver, 0), goal) {
+            let (_, inferences) = solve_all(&kb, &goal);
+            let name = format!("nrev{n}x{reps}");
+            bund2_api::errln!("kb/{name}: {inferences} inferences a run");
+            g.bench_function(&name, |b| b.iter(|| solve_all(&kb, black_box(&goal))));
+        }
     }
 
     let facts = format!(

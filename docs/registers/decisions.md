@@ -16170,3 +16170,56 @@ names for its criterion 17.
   measurement file says so. A runtime test of `CHECKED` in unification's
   inner loop would also put a branch in the path being measured. Revisit if
   a share inside the drift ever needs a figure.
+
+## D237 — L7's occurs check skipped for a variable that occurs once in a clause head
+
+**Raised 2026-11-01** by the measurement of RFC-0013 criterion 16's finding
+(`docs/measurements/kb-2026-11-01.md`). The occurs check was 31% of naive
+reverse of 30 elements; by length it is 24% at 15 and 53% at 120, because it
+walks the tail each fresh head variable is bound to, a second quadratic term
+in a quadratic program. L7 (D226) rules the check always on.
+
+**Proposed.** When head unification binds a clause variable that occurs
+exactly once in that clause's head, skip the walk. Every other binding is
+checked as before.
+
+**Why it cannot miss a cycle.** The renaming makes the variable fresh, so
+before this unification no term holds it but the head instance. Within the
+unification, a pair holds the variable only at its one position in the head;
+a binding made earlier in it could reach that position only by binding some
+variable to a head subterm enclosing it, and then that position is bound
+whole and never reached on its own. So the term the variable is bound to
+cannot contain it, and the check, if run, would answer no. A variable that
+occurs twice, or a binding by `=` or in a body, is checked. The wake-ups of
+`dif` and domains run after the pairs and are unchanged.
+
+**What changes.** Nothing a program can observe: every unification succeeds
+or fails exactly as before, and no cycle can be built. Only the time: naive
+reverse of 30 elements 2.17 s → 1.72 s, of 120 elements 3.24 s → 1.74 s;
+what the check costs is now about 10% and flat in the length. L7's wording,
+"the occurs check is always on", stays true of every binding the check can
+matter to.
+
+**Tested.** `a_head_singleton_needs_no_occurs_check` unifies 625 pairings of
+heads and calls both ways, by a fact's head (skipping) and by `=` (full
+check), and requires the same outcome, with pairings where the check fails
+included. `singletons_are_the_variables_a_head_names_once` checks the scan on
+`app`'s head.
+
+- Blocks: nothing
+- Depends on: D226 (L7), D236
+- Status: **RESOLVED** by the repository owner, 2026-11-01 ("adopt
+  D237"), as recommended: the skip stands as built, and RFC-0013's S4
+  gains one paragraph saying which bindings skip the walk and why, with a
+  dated note under its status. L7 is unchanged.
+
+### Alternatives
+
+- **Leave the check on every binding.** Sound and simple; naive reverse
+  keeps its second quadratic term.
+- **WAM-style first occurrence**, skipping a variable's first occurrence in
+  the head in textual order, not only a singleton's. Covers more bindings
+  (a variable used twice skips its first), but its soundness depends on the
+  order the pairs are worked, which this skip's does not.
+- **Make the check cheaper** (a mark per cell, or a depth bound). Changes
+  every walk, and none of it is needed for the case measured.

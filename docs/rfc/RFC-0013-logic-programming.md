@@ -31,6 +31,11 @@
   S15–S21 each gain a paragraph stating what was ruled where the text was
   silent; nothing already in the accepted text changed.
 
+  *Dated note, 2026-11-01:* D237 is RESOLVED ("adopt D237"). S4's
+  unification gains a paragraph: head unification skips the occurs check's
+  walk for a clause variable occurring once in its head, which cannot
+  close a cycle. L7 and every other text are unchanged.
+
   The history below is kept as it was.
 - *Before acceptance:* **Draft — revision 12 (2026-10-28).**
   - Revision 5 carried every correction from the pre-RFC review and three
@@ -646,6 +651,15 @@ is left, the query is exhausted.
   argument. Lists unify through `Nil` and `Cons`.
 - **The occurs check [L7].** It always runs: binding a variable to a term
   that contains it fails. The check is a second worklist.
+- **Where the check cannot find anything (D237, ruled 2026-11-01).** Head
+  unification skips the walk when it binds a clause variable that occurs
+  exactly once in that clause's head. Renaming made the variable fresh, so
+  no term holds it but the head instance, and within the unification it is
+  reached only at its one position; the term it is bound to cannot contain
+  it. Every other binding is checked: a variable occurring twice in its
+  head, and every binding made by `=` or in a body. No unification
+  succeeds or fails differently, so L7 holds; only the time changes
+  (`docs/measurements/kb-2026-11-01.md`).
 - **Attributes** (Phase 2's `dif`, Phase 3's domains).
   - Binding a variable that has attributes queues a wake-up. Nothing runs
     yet.

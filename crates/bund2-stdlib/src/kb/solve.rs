@@ -44,7 +44,7 @@ use super::proof::Proofs;
 use super::store::{self, Kb, Refused};
 use super::table::{Instance, Neg, Status, Tables};
 use super::term::{Arena, Atom, Cell, Mark, Refusal, SHOWN, Scope, Term};
-use super::unify::{Trail, Wake as _, unify, unify_waking};
+use super::unify::{Trail, Wake as _, unify, unify_head, unify_head_waking};
 
 /// The inferences after which one activation warns, once (W1, D39).
 pub const WARN_AT: u64 = 10_000_000;
@@ -275,6 +275,9 @@ struct Clause {
     /// Its variables by name, kept only when its body holds a LAMBDA: an
     /// instance needs them only for a bridge to substitute from.
     names: Option<Names>,
+    /// Its variables that occur once in its head, whose binding there needs
+    /// no occurs check (D237).
+    once: Rc<[Term]>,
 }
 
 struct Pred {
@@ -343,6 +346,8 @@ pub struct Solver {
     scopes: Vec<Names>,
     scope: usize,
     vars: HashMap<Term, Term>,
+    /// A clause instance's head singletons, reused between clauses (D237).
+    once: Vec<Term>,
     /// Set when proofs are kept (`kb.prove`, `query`'s `prove`).
     proofs: Option<Proofs>,
     /// The remembered replies (§S16), each ground goal in the template
@@ -440,6 +445,7 @@ impl Solver {
             scopes: vec![scope.names().into()],
             scope: 0,
             vars: HashMap::new(),
+            once: Vec::new(),
             proofs: None,
             replies: Vec::new(),
             told: Vec::new(),
@@ -763,11 +769,17 @@ impl Solver {
     /// Every unification the search makes goes through here; a trial's does
     /// not. On failure nothing it did stays done.
     fn unify(&mut self, a: Term, b: Term) -> bool {
+        self.unify_head(a, b, &[])
+    }
+
+    /// [`Self::unify`] for a renamed clause head, skipping the occurs check
+    /// for the variables in `once` (D237).
+    fn unify_head(&mut self, a: Term, b: Term, once: &[Term]) -> bool {
         if self.fd.idle() {
-            return unify_waking(&mut self.arena, &mut self.trail, &mut self.difs, a, b);
+            return unify_head_waking(&mut self.arena, &mut self.trail, &mut self.difs, a, b, once);
         }
         let (mark, difs, fd) = (self.trail.mark(), self.difs.mark(), self.fd.mark());
-        if unify(&mut self.arena, &mut self.trail, a, b) && self.settle(mark) {
+        if unify_head(&mut self.arena, &mut self.trail, a, b, once) && self.settle(mark) {
             return true;
         }
         self.trail.undo_to(&mut self.arena, mark);
@@ -1839,11 +1851,13 @@ impl Solver {
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(Refused::from)?;
             let names = holds_lambda(goals_v).then(|| scope.names().into());
+            let once = singletons(&self.arena, head).into();
             clauses.push(Clause {
                 head,
                 body: body.into(),
                 key,
                 names,
+                once,
             });
         }
         let all: Rc<[usize]> = (0..clauses.len()).collect();
@@ -2081,9 +2095,15 @@ impl Solver {
             return false;
         };
         let (head, body, names) = (clause.head, clause.body.clone(), clause.names.clone());
+        let once_tpl = clause.once.clone();
         self.vars.clear();
         let h = self.arena.copy(head, &mut self.vars, false);
-        if !self.unify(call, h) {
+        let mut once = std::mem::take(&mut self.once);
+        once.clear();
+        once.extend(once_tpl.iter().filter_map(|v| self.vars.get(v).copied()));
+        let unified = self.unify_head(call, h, &once);
+        self.once = once;
+        if !unified {
             return false;
         }
         let mut goals: Vec<Slotted> = body
@@ -2176,6 +2196,27 @@ fn unbound_vars(arena: &Arena, roots: &[Term]) -> Vec<Term> {
         }
     }
     out
+}
+
+/// The variables of a head template that occur in it once (D237).
+fn singletons(arena: &Arena, head: Term) -> Vec<Term> {
+    let mut seen: Vec<(Term, bool)> = Vec::new();
+    let mut todo = vec![head];
+    while let Some(t) = todo.pop() {
+        match arena.cell(t) {
+            Cell::Var(_) => match seen.iter_mut().find(|(v, _)| *v == t) {
+                Some((_, again)) => *again = true,
+                None => seen.push((t, false)),
+            },
+            Cell::Struct { start, arity, .. } => todo.extend(arena.args(start, arity)),
+            Cell::Cons(head, tail) => todo.extend([head, tail]),
+            _ => {}
+        }
+    }
+    seen.into_iter()
+        .filter(|(_, again)| !again)
+        .map(|(v, _)| v)
+        .collect()
 }
 
 fn holds_lambda(values: &[BundValue]) -> bool {
@@ -2279,6 +2320,68 @@ mod tests {
 
     const FAMILY: &str = "[ [ parent tom bob ] [ parent bob ann ] [ parent bob pat ] \
                           [ [ grandparent X Z ] ← [ parent X Y ] [ parent Y Z ] ] ] kb!";
+
+    /// **D237: skipping the occurs check for a head singleton changes no
+    /// outcome.** A fact's head is unified with the call by `unify_head`,
+    /// which skips the check for a variable occurring once in the head; `=`
+    /// runs the full check. Over every pairing of these heads and calls,
+    /// the two agree, the occurs check's own failures included.
+    #[test]
+    fn a_head_singleton_needs_no_occurs_check() {
+        let heads = ["X", "[ f X ]", "[ X | Y ]", "[ g [ f X ] Y ]", "a"];
+        let calls = ["A", "[ f A ]", "[ A | B ]", "[ g A B ]", "[ f [ f A ] ]"];
+        let holds = |src: String| top(&src).display();
+        let (mut cases, mut cycles) = (0, 0);
+        for h1 in heads {
+            for h2 in heads {
+                for c1 in calls {
+                    for c2 in calls {
+                        let fact =
+                            holds(format!("[ [ p {h1} {h2} ] ] kb! [ p {c1} {c2} ] kb.holds"));
+                        let full = holds(format!(
+                            "[ [ go ] ] kb! [ = [ p {h1} {h2} ] [ p {c1} {c2} ] ] kb.holds"
+                        ));
+                        assert_eq!(fact, full, "p({h1}, {h2}) against p({c1}, {c2})");
+                        // The same pair with the head's variables shared
+                        // with the call's: a cycle, if the check misses one.
+                        let shared = holds(format!(
+                            "[ [ go ] ] kb! [ = [ p {h1} {h2} ] [ p {} {} ] ] kb.holds",
+                            c1.replace('A', "X").replace('B', "Y"),
+                            c2.replace('A', "X").replace('B', "Y")
+                        ));
+                        cycles += usize::from(shared == BundValue::boolean(false).display());
+                        cases += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(cases, 625);
+        assert!(cycles > 0, "no pairing exercised the occurs check");
+    }
+
+    /// The singletons of naive reverse's heads: the long tails it binds.
+    #[test]
+    fn singletons_are_the_variables_a_head_names_once() {
+        use super::super::term::{Arena, Scope};
+        let mut arena = Arena::default();
+        let mut scope = Scope::default();
+        let head = top("[ app [ H | T ] L [ H | R ] ]");
+        let t = arena.to_template(&head, &mut scope).unwrap();
+        let once = super::singletons(&arena, t);
+        let named = |n: &str| {
+            scope
+                .names()
+                .iter()
+                .find(|(k, _)| k == n)
+                .map(|(_, v)| *v)
+                .unwrap()
+        };
+        let mut want = vec![named("T"), named("L"), named("R")];
+        let mut got = once.clone();
+        want.sort_unstable();
+        got.sort_unstable();
+        assert_eq!(got, want);
+    }
 
     #[test]
     fn the_first_worked_example_answers() {
