@@ -24,8 +24,9 @@
 //! - the choicepoints;
 //! - the predicate table and its first-argument indexes;
 //! - the tables and the completion stack (§S18, `table.rs`), never undone;
-//! - the suspended `dif`s and their attributes (§S17), taken back to a
-//!   choicepoint's mark as the trail is.
+//! - the suspended `dif`s and their attributes (§S17), and the domains and
+//!   propagators (§S21, `fd/`), taken back to a choicepoint's mark as the
+//!   trail is.
 //!
 //! Nothing here uses the `Vm`.
 
@@ -36,11 +37,14 @@ use bund2_api::Error;
 use bund2_value::{BundValue, LAMBDA};
 
 use super::dif::{DifMark, Difs};
+use super::fd::dom::{Bound, INF, SUP};
+use super::fd::post::{self, Bad};
+use super::fd::{Fd, FdMark, Prop};
 use super::proof::Proofs;
 use super::store::{self, Kb, Refused};
 use super::table::{Instance, Neg, Status, Tables};
 use super::term::{Arena, Atom, Cell, Mark, Refusal, SHOWN, Scope, Term};
-use super::unify::{Trail, unify, unify_waking};
+use super::unify::{Trail, Wake as _, unify, unify_waking};
 
 /// The inferences after which one activation warns, once (W1, D39).
 pub const WARN_AT: u64 = 10_000_000;
@@ -222,6 +226,14 @@ enum Kind {
         cont: Option<usize>,
         proof: Option<Term>,
     },
+    /// A labeling step (§S20): `var` was bound to `value`. On backtrack,
+    /// remove `value` from its domain and label `goal` again.
+    Label {
+        goal: Term,
+        var: Term,
+        value: i64,
+        cont: Option<usize>,
+    },
     /// A tabled call reading `table`'s answers, the `next`th on.
     Consumer {
         call: Term,
@@ -236,6 +248,7 @@ struct Choicepoint {
     trail: usize,
     mark: Mark,
     difs: DifMark,
+    fd: FdMark,
     goals: usize,
     /// How many clause-instance scopes there were, and which was current.
     scopes: usize,
@@ -278,6 +291,8 @@ enum Known {
     Askable(Option<usize>),
     /// Named in `tabled`, with its clauses if `preds` has any (§S18).
     Tabled(Option<usize>),
+    /// A constraint goal of Phase 3 (§S20).
+    Fd,
     /// A later phase's: reserved by it.
     Unbuilt(u8),
     Unknown,
@@ -339,6 +354,11 @@ pub struct Solver {
     difs: Difs,
     /// The tables and the completion stack (§S18).
     tables: Tables,
+    /// The domains and propagators (§S21).
+    fd: Fd,
+    /// An error a unification's propagation met (E30, E40): raised when the
+    /// loop next looks, since a unification answers only whether it held.
+    halt: Option<Stop>,
     started: bool,
     done: bool,
 }
@@ -425,6 +445,8 @@ impl Solver {
             told: Vec::new(),
             difs: Difs::default(),
             tables: Tables::default(),
+            fd: Fd::default(),
+            halt: None,
             started: false,
             done: false,
         })
@@ -605,7 +627,7 @@ impl Solver {
                 .map_or_else(|| format!("_G{}", v.id()), |(n, _)| n.clone());
             BundValue::ptr(name)
         };
-        pending
+        let mut out: Vec<BundValue> = pending
             .into_iter()
             .map(|(a, b)| {
                 BundValue::list(vec![
@@ -614,7 +636,40 @@ impl Solver {
                     self.arena.to_value_with(b, &named),
                 ])
             })
-            .collect()
+            .collect();
+        // Then each domain the query's variables hold, by first occurrence:
+        // `in` for one interval, `fd_dom` for more.
+        if self.fd.idle() {
+            return out;
+        }
+        let bound = |b: Bound| match b {
+            INF => BundValue::str("inf"),
+            SUP => BundValue::str("sup"),
+            _ => BundValue::int(i64::try_from(b).unwrap_or_default()),
+        };
+        let roots: Vec<Term> = self.names.iter().map(|(_, t)| *t).collect();
+        for v in unbound_vars(&self.arena, &roots) {
+            let Some(d) = self.fd.held(v) else { continue };
+            out.push(match d.intervals() {
+                [(lo, hi)] => BundValue::list(vec![
+                    BundValue::call("in"),
+                    named(v),
+                    bound(*lo),
+                    bound(*hi),
+                ]),
+                parts => BundValue::list(vec![
+                    BundValue::call("fd_dom"),
+                    named(v),
+                    BundValue::list(
+                        parts
+                            .iter()
+                            .map(|(lo, hi)| BundValue::list(vec![bound(*lo), bound(*hi)]))
+                            .collect(),
+                    ),
+                ]),
+            });
+        }
+        out
     }
 
     /// Run until the goal list is empty (an answer, `true`) or nothing is
@@ -665,6 +720,9 @@ impl Solver {
                     self.call(t, node.proof, bridge)?
                 }
             };
+            if let Some(stop) = self.halt.take() {
+                return Err(stop);
+            }
             if !ok && !self.backtrack(bridge)? {
                 return Ok(false);
             }
@@ -674,15 +732,7 @@ impl Solver {
     /// Count one inference: poll the guard (E40), hold the cap (E30), and
     /// warn once past [`WARN_AT`] (W1).
     fn infer(&mut self, bridge: &mut dyn Bridge) -> Result<(), Stop> {
-        if POLLED && let Some(trip) = bund2_api::memguard::take() {
-            return Err(Stop::Raw(trip.error()));
-        }
-        self.count += 1;
-        if let Some(cap) = self.cap
-            && self.count > cap
-        {
-            return Err(Stop::Code(format!("inference cap of {cap} reached")));
-        }
+        self.tick()?;
         if !self.warned && self.count >= WARN_AT {
             self.warned = true;
             bridge.warn(format!(
@@ -693,10 +743,73 @@ impl Solver {
         Ok(())
     }
 
-    /// Unify, and run the wake-ups of what that bound (§S4, §S17). Every
-    /// unification the search makes goes through here; a trial's does not.
+    /// One inference without a bridge to warn through: the guard's poll
+    /// (E40) and the cap (E30). A propagator run counts here (§S21); W1 is
+    /// given at the next goal's inference.
+    fn tick(&mut self) -> Result<(), Stop> {
+        if POLLED && let Some(trip) = bund2_api::memguard::take() {
+            return Err(Stop::Raw(trip.error()));
+        }
+        self.count += 1;
+        if let Some(cap) = self.cap
+            && self.count > cap
+        {
+            return Err(Stop::Code(format!("inference cap of {cap} reached")));
+        }
+        Ok(())
+    }
+
+    /// Unify, and run the wake-ups of what that bound (§S4, §S17, §S21).
+    /// Every unification the search makes goes through here; a trial's does
+    /// not. On failure nothing it did stays done.
     fn unify(&mut self, a: Term, b: Term) -> bool {
-        unify_waking(&mut self.arena, &mut self.trail, &mut self.difs, a, b)
+        if self.fd.idle() {
+            return unify_waking(&mut self.arena, &mut self.trail, &mut self.difs, a, b);
+        }
+        let (mark, difs, fd) = (self.trail.mark(), self.difs.mark(), self.fd.mark());
+        if unify(&mut self.arena, &mut self.trail, a, b) && self.settle(mark) {
+            return true;
+        }
+        self.trail.undo_to(&mut self.arena, mark);
+        self.difs.undo_to(difs);
+        self.fd.undo_to(fd);
+        false
+    }
+
+    /// Run the wake-ups to a fixpoint: of each variable bound since `seen`,
+    /// its `dif`s and its domain; then the queued propagators, one inference
+    /// each, whose single values bind more. `false` fails the unification;
+    /// an error met on the way is kept in `halt`.
+    fn settle(&mut self, mut seen: usize) -> bool {
+        loop {
+            let bound = self.trail.since(seen).to_vec();
+            seen = self.trail.len();
+            if !bound.is_empty() {
+                if !self.difs.idle() && !self.difs.wake(&mut self.arena, &mut self.trail, &bound) {
+                    self.fd.clear();
+                    return false;
+                }
+                for v in bound {
+                    if !self.fd.bound(&mut self.arena, &mut self.trail, v) {
+                        self.fd.clear();
+                        return false;
+                    }
+                }
+                continue;
+            }
+            let Some(id) = self.fd.queued() else {
+                return true;
+            };
+            if let Err(stop) = self.tick() {
+                self.halt = Some(stop);
+                self.fd.clear();
+                return false;
+            }
+            if !self.fd.run(&mut self.arena, &mut self.trail, id) {
+                self.fd.clear();
+                return false;
+            }
+        }
     }
 
     fn push(&mut self, goal: Goal, proof: Option<Term>, next: Option<usize>) -> Option<usize> {
@@ -755,6 +868,7 @@ impl Solver {
             trail: self.trail.mark(),
             mark: self.arena.mark(),
             difs: self.difs.mark(),
+            fd: self.fd.mark(),
             goals: self.goals.len(),
             scopes: self.scopes.len(),
             scope: self.scope,
@@ -766,11 +880,15 @@ impl Solver {
     /// when none is left.
     fn backtrack(&mut self, bridge: &mut dyn Bridge) -> Result<bool, Stop> {
         loop {
+            if let Some(stop) = self.halt.take() {
+                return Err(stop);
+            }
             let Some(mut cp) = self.cps.pop() else {
                 return Ok(false);
             };
             self.trail.undo_to(&mut self.arena, cp.trail);
             self.difs.undo_to(cp.difs);
+            self.fd.undo_to(cp.fd);
             self.arena.reset(cp.mark);
             self.goals.truncate(cp.goals);
             self.scopes.truncate(cp.scopes);
@@ -879,6 +997,27 @@ impl Solver {
                         proof,
                     };
                     self.cps.push(cp);
+                }
+                Kind::Label {
+                    goal,
+                    var,
+                    value,
+                    cont,
+                } => {
+                    let (goal, var, value, cont) = (*goal, *var, *value, *cont);
+                    self.infer(bridge)?;
+                    let mark = self.trail.mark();
+                    let Some(d) = self.fd.dom(&self.arena, var) else {
+                        continue;
+                    };
+                    let d = d.remove(value.into());
+                    if self.fd.narrow(&mut self.arena, &mut self.trail, var, &d)
+                        && self.settle(mark)
+                    {
+                        self.cont = self.push(Goal::Call(goal), None, cont);
+                        return Ok(true);
+                    }
+                    self.fd.clear();
                 }
                 Kind::Consumer {
                     call,
@@ -1259,6 +1398,7 @@ impl Solver {
                         Ok(p.is_some_and(|p| self.resolve(d, p, proof, Some(Goal::Asked(h)))))
                     }
                     Known::Tabled(p) => self.tabled(d, f, n, p, proof),
+                    Known::Fd => self.constraint(f, &args, d, proof),
                     Known::Unbuilt(phase) => Err(Stop::Code(format!(
                         "{}/{n} belongs to Phase {phase}, which is not built",
                         self.arena.atoms.text(f)
@@ -1271,6 +1411,152 @@ impl Solver {
                 }
             }
         }
+    }
+
+    /// A constraint goal (§S20): post it, run its propagation to a
+    /// fixpoint, and justify it as a built-in.
+    fn constraint(
+        &mut self,
+        f: Atom,
+        args: &[Term],
+        goal: Term,
+        proof: Option<Term>,
+    ) -> Result<bool, Stop> {
+        let name = self.arena.atoms.text(f).to_string();
+        let mark = self.trail.mark();
+        let refused = |s: &Self, b: Bad| s.refusal(b, goal);
+        let ok = match (name.as_str(), args) {
+            ("in", [x, lo, hi]) => {
+                let d = post::interval(&self.arena, *lo, *hi).map_err(|b| refused(self, b))?;
+                self.fd.narrow(&mut self.arena, &mut self.trail, *x, &d)
+            }
+            ("ins", [l, lo, hi]) => {
+                let xs = post::items(&self.arena, *l).map_err(|b| refused(self, b))?;
+                let d = post::interval(&self.arena, *lo, *hi).map_err(|b| refused(self, b))?;
+                xs.iter()
+                    .all(|x| self.fd.narrow(&mut self.arena, &mut self.trail, *x, &d))
+            }
+            ("fd_dom", [x, l]) => {
+                let d = post::intervals(&self.arena, *l).map_err(|b| refused(self, b))?;
+                self.fd.narrow(&mut self.arena, &mut self.trail, *x, &d)
+            }
+            ("all_different", [l]) => {
+                let xs = post::variables(&self.arena, *l).map_err(|b| refused(self, b))?;
+                self.fd.post(&self.arena, Prop::Distinct(xs));
+                true
+            }
+            ("label", [l]) => return self.label(*l, false, false, goal, proof),
+            ("labeling", [o, l]) => {
+                let (ff, down) = post::options(&self.arena, *o).map_err(|b| refused(self, b))?;
+                return self.label(*l, ff, down, goal, proof);
+            }
+            (rel, [a, b]) if rel.starts_with('#') => {
+                post::relation(&mut self.arena, &mut self.fd, rel, *a, *b, goal)
+                    .map_err(|b| refused(self, b))?
+            }
+            _ => {
+                return Err(Stop::Raw(Error::internal(format!(
+                    "kb: {name}/{} is reserved by Phase 3 and has no constraint",
+                    args.len()
+                ))));
+            }
+        };
+        let ok = ok && self.settle(mark);
+        if let Some(stop) = self.halt.take() {
+            return Err(stop);
+        }
+        if !ok {
+            self.fd.clear();
+            return Ok(false);
+        }
+        let builtin: Vec<Term> = self.marker(|p| p.builtin).into_iter().collect();
+        self.justify(proof, goal, &builtin);
+        Ok(true)
+    }
+
+    /// One labeling step (§S20): pick the leftmost unbound variable, or with
+    /// `ff` the one with the smallest domain, bind it to its least value, or
+    /// with `down` its greatest, and label the rest after. Backtracking
+    /// removes the value and labels again (`Label`). An unbound variable with
+    /// an infinite domain is E62.
+    fn label(
+        &mut self,
+        l: Term,
+        ff: bool,
+        down: bool,
+        goal: Term,
+        proof: Option<Term>,
+    ) -> Result<bool, Stop> {
+        let xs = post::variables(&self.arena, l).map_err(|b| self.refusal(b, goal))?;
+        let mut pick: Option<(Term, u128)> = None;
+        for x in xs {
+            let x = self.arena.deref(x);
+            if !matches!(self.arena.cell(x), Cell::Var(_)) {
+                continue;
+            }
+            let Some(size) = self.fd.dom(&self.arena, x).and_then(|d| d.size()) else {
+                return Err(Stop::Code(format!(
+                    "label: {} has an infinite domain",
+                    self.var_name(x)
+                )));
+            };
+            match pick {
+                Some((_, s)) if !ff || size >= s => {}
+                _ => pick = Some((x, size)),
+            }
+        }
+        let builtin: Vec<Term> = self.marker(|p| p.builtin).into_iter().collect();
+        self.justify(proof, goal, &builtin);
+        let Some((var, _)) = pick else {
+            return Ok(true);
+        };
+        let Some(d) = self.fd.dom(&self.arena, var) else {
+            return Ok(false);
+        };
+        let Ok(value) = i64::try_from(if down { d.max() } else { d.min() }) else {
+            return Err(Stop::Raw(Error::internal(
+                "kb: a labeled domain of finite size had an infinite end",
+            )));
+        };
+        let rest = self.cont;
+        self.push_cp(Kind::Label {
+            goal,
+            var,
+            value,
+            cont: rest,
+        });
+        // The steps after this one have no slot: the first holds the proof.
+        self.cont = self.push(Goal::Call(goal), None, rest);
+        let n = self.arena.int(value);
+        Ok(self.unify(var, n))
+    }
+
+    /// A constraint goal's refusal, E60 to E66 (§S12).
+    fn refusal(&self, b: Bad, goal: Term) -> Stop {
+        Stop::Code(match b {
+            Bad::NotExpr(t) => format!(
+                "type error: integer expression expected, found {} in {}",
+                self.show(t),
+                self.show(goal)
+            ),
+            Bad::TooBig(t) => format!(
+                "{} cannot be represented as an INT in {}",
+                self.show(t),
+                self.show(goal)
+            ),
+            Bad::NotList(t) => format!(
+                "{}: expected a LIST of variables, found {}",
+                self.show(goal),
+                self.show(t)
+            ),
+            Bad::Bound(t) => format!("in: bounds must be INT, inf or sup, found {}", self.show(t)),
+            Bad::Option(t) => format!("labeling: unknown option {}", self.show(t)),
+            Bad::Above(lo, hi) => format!(
+                "in: the lower bound {} is above the upper bound {}",
+                self.show(lo),
+                self.show(hi)
+            ),
+        })
     }
 
     /// `[ in X L ]` over a LIST; over a λ, a bridge.
@@ -1510,6 +1796,7 @@ impl Solver {
         let text = self.arena.atoms.text(f).to_string();
         let key = format!("{text}/{n}");
         let k = match store::reserved(&text, n) {
+            Some(3) => Known::Fd,
             Some(phase) if phase > 1 => Known::Unbuilt(phase),
             _ if self.tabled.contains(&key) => Known::Tabled(if self.source.contains_key(&key) {
                 Some(self.compile(&key)?)
@@ -1873,6 +2160,24 @@ impl Solver {
 
 /// Whether any of `values` holds a LAMBDA, at any depth: a clause whose body
 /// does may run a bridge, and keeps its variables' names for it.
+/// The unbound variables `roots` hold, by first occurrence.
+fn unbound_vars(arena: &Arena, roots: &[Term]) -> Vec<Term> {
+    let mut out = Vec::new();
+    let mut todo: Vec<Term> = roots.iter().rev().copied().collect();
+    while let Some(t) = todo.pop() {
+        let t = arena.deref(t);
+        match arena.cell(t) {
+            Cell::Var(_) if !out.contains(&t) => out.push(t),
+            Cell::Struct { start, arity, .. } => {
+                todo.extend(arena.args(start, arity).iter().rev());
+            }
+            Cell::Cons(head, tail) => todo.extend([tail, head]),
+            _ => {}
+        }
+    }
+    out
+}
+
 fn holds_lambda(values: &[BundValue]) -> bool {
     let mut todo: Vec<&BundValue> = values.iter().collect();
     while let Some(v) = todo.pop() {
@@ -2243,12 +2548,18 @@ mod tests {
 
     #[test]
     fn e14_names_a_later_phase() {
-        assert_eq!(
-            err("kb.new [ label X ] kb.query"),
-            "KB.QUERY: label/1 belongs to Phase 3, which is not built"
-        );
-        // `dif/2`, Phase 2's one reserved pair, is M9's (`dif.rs`'s tests);
-        // `askable` is M8's (`query.rs`'s) and `tabled` M10's (`table.rs`'s).
+        // Every phase is built (M12): no reserved pair's goal is E14 now.
+        // Phase 3's, given variables, answers or refuses as §S20 says.
+        for (f, n, phase) in crate::kb::store::RESERVED {
+            let (Some(n), true) = (n, *phase > 1) else {
+                continue;
+            };
+            let args: Vec<String> = (0..*n).map(|i| format!("A{i}")).collect();
+            let goal = format!("kb.new [ {f} {} ] kb.query", args.join(" "));
+            if let Err(e) = run_on(&mut interp().0, Vec::new(), &goal) {
+                assert!(!e.contains("which is not built"), "{goal}: {e}");
+            }
+        }
     }
 
     #[test]

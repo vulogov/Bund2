@@ -6,7 +6,7 @@
 //! what checks the family is its unit tests rather than a golden.
 //!
 //! The engine is built in the RFC's milestones, in order. Phase 1, M1 to
-//! M6, is here, and Phase 2's M7 to M11:
+//! M6, is here, Phase 2's M7 to M11, and Phase 3's M12:
 //!
 //! - [`term`]: the arena, the atoms' interner, and conversion from a Bund
 //!   value and back (§S1);
@@ -26,6 +26,8 @@
 //!   `solve.rs`'s `Leader` and `Consumer` choicepoints drive (§S18, M10);
 //! - [`chain`]: forward chaining, semi-naive and stratum by stratum, each
 //!   round a [`solve`] activation over the facts (§S19, M11);
+//! - [`fd`]: CLP(FD), domains as attributes and the propagators over them,
+//!   run from the wake-up queue (§S20, §S21, M12);
 //! - [`bridge`]: running a bridge's λ, or the `ask` lambda, on a scratch
 //!   stack, and substituting into a λ (§S5, §S16);
 //! - [`query`]: the `query` conditional and its runner, with its `ask` and
@@ -39,6 +41,7 @@
 pub mod bridge;
 pub mod chain;
 pub mod dif;
+pub mod fd;
 pub mod proof;
 pub mod query;
 pub mod solve;
