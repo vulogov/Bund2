@@ -6,7 +6,7 @@
 //! what checks the family is its unit tests rather than a golden.
 //!
 //! The engine is built in the RFC's milestones, in order. Phase 1, M1 to
-//! M6, is here, and Phase 2's M7 to M10:
+//! M6, is here, and Phase 2's M7 to M11:
 //!
 //! - [`term`]: the arena, the atoms' interner, and conversion from a Bund
 //!   value and back (§S1);
@@ -16,14 +16,16 @@
 //! - [`solve`]: the loop, its choicepoints, control, indexing and caps
 //!   (§S4, §S6, §S7);
 //! - [`words`]: the building words and their `.` forms, `kb.askable` and
-//!   `kb.table` among them, and the asking words `kb.query`, `kb.once`, `kb.holds` and
-//!   `kb.prove` (§S9);
+//!   `kb.table` among them, and the asking words `kb.query`, `kb.once`,
+//!   `kb.holds`, `kb.prove` and `kb.saturate` (§S9);
 //! - [`proof`]: proof trees, kept only when asked for (§S15, M7);
 //! - [`dif`]: `dif/2`, a disequality suspended on the variables that could
 //!   still make its sides one term, and reported in `_residual` (§S17, §S8,
 //!   M9);
 //! - [`table`]: tabling's tables, variants and completion stack, which
 //!   `solve.rs`'s `Leader` and `Consumer` choicepoints drive (§S18, M10);
+//! - [`chain`]: forward chaining, semi-naive and stratum by stratum, each
+//!   round a [`solve`] activation over the facts (§S19, M11);
 //! - [`bridge`]: running a bridge's λ, or the `ask` lambda, on a scratch
 //!   stack, and substituting into a λ (§S5, §S16);
 //! - [`query`]: the `query` conditional and its runner, with its `ask` and
@@ -35,6 +37,7 @@
 //! walks subdirectories, criterion 25's among them since M1 (§S6).
 
 pub mod bridge;
+pub mod chain;
 pub mod dif;
 pub mod proof;
 pub mod query;

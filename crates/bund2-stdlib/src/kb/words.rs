@@ -7,9 +7,9 @@
 //! through `store.rs`, so what is here is operands and texts.
 //!
 //! The asking words (M3): `kb.query`, `kb.once` and `kb.holds`, each a
-//! `solve.rs` activation, and [`VmBridge`], the one implementation of
-//! `Bridge`. They are opaque: a bridge re-enters evaluation
-//! (`promotable.rs`).
+//! `solve.rs` activation, M11's `kb.saturate`, `chain.rs`'s rounds, and
+//! [`VmBridge`], the one implementation of `Bridge`. They are opaque: a
+//! bridge re-enters evaluation (`promotable.rs`).
 //!
 //! - **E00 is the house text, unprefixed** (`singles.rs`, `var`). Every
 //!   other refusal begins `<W>: `, the word's name in capitals (§S12).
@@ -386,6 +386,22 @@ fn kb_prove(vm: &mut dyn Vm) -> Result<(), Error> {
     ask(vm, "kb.prove", Asking::Prove)
 }
 
+/// `kb kb.saturate` — the KB's clauses, and every fact its rules derive
+/// appended to its predicate (§S19).
+fn kb_saturate(vm: &mut dyn Vm) -> Result<(), Error> {
+    let up = "KB.SATURATE";
+    let stop = |s: Stop| match s {
+        Stop::Code(text) => Error(format!("{up}: {text}")),
+        Stop::Raw(e) => e,
+    };
+    let kb = operand(vm, "kb.saturate")?;
+    let kb = Kb::read(&kb, 1).map_err(|r| refused("kb.saturate", &r))?;
+    let mut bridge = VmBridge::new(vm, up);
+    let saturated = super::chain::saturate(&kb, &mut bridge).map_err(stop)?;
+    bridge.vm.push(saturated.into_value());
+    Ok(())
+}
+
 fn eff(consumes: u8, produces: u8) -> StackEffect {
     StackEffect::fixed(consumes, produces)
 }
@@ -433,6 +449,12 @@ pub fn register(r: &mut Registry) {
     ] {
         r.register_native(name, f, StackEffect::opaque(2), WordKind::Sync);
     }
+    r.register_native(
+        "kb.saturate",
+        kb_saturate,
+        StackEffect::opaque(1),
+        WordKind::Sync,
+    );
     // Its depth is the arity it is handed.
     r.register_native("kb.call", kb_call, StackEffect::opaque(3), WordKind::Sync);
     // `register`'s shape: three operands in, a word bound, nothing left.

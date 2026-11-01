@@ -254,6 +254,18 @@ impl Kb {
         self.map.insert("preds".into(), BundValue::map(preds));
     }
 
+    /// The KB with `preds` replaced and every other key kept, each clause
+    /// already validated (`kb.saturate`, §S19).
+    pub(crate) fn with_preds(mut self, preds: BTreeMap<String, Vec<BundValue>>) -> Kb {
+        self.set_preds(
+            preds
+                .into_iter()
+                .map(|(k, v)| (k, BundValue::list(v)))
+                .collect(),
+        );
+        self
+    }
+
     /// One predicate's clauses; missing means none (E02 if not a LIST).
     pub fn clauses_of(
         preds: &BTreeMap<String, BundValue>,

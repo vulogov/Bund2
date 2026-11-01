@@ -1201,6 +1201,14 @@ impl<'a> Walker<'a> {
                 });
                 true
             }
+            // RFC-0013 §S9: `kb.saturate` answers a KB, its bridges on a
+            // scratch stack as the asking words' are.
+            "kb.saturate" => {
+                self.report.analysed += 1;
+                let _ = self.take(stack, 1, name, at, via);
+                stack.push(Abs::Tagged(MAP));
+                true
+            }
             // `<container> <key> <value> set`. On a CLASS with a literal key
             // the slot is recorded, which is how a program's class is read.
             "set" | "," => {

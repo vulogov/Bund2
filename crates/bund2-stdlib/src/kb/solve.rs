@@ -320,6 +320,9 @@ pub struct Solver {
     names: Vec<(String, Term)>,
     /// `kb.call`'s arguments, whose instances are its answers.
     args: Option<Vec<Term>>,
+    /// Name the unbound variables of an answer's arguments `_G`*k*, by first
+    /// occurrence, rather than NODATA (`kb.saturate`'s facts, §S19).
+    named: bool,
     /// Each clause instance's variables that a bridge may need, by name; the
     /// query's first. Cut back on backtrack with the choicepoint's count.
     scopes: Vec<Names>,
@@ -413,6 +416,7 @@ impl Solver {
             warned: false,
             names: scope.names().to_vec(),
             args,
+            named: false,
             scopes: vec![scope.names().into()],
             scope: 0,
             vars: HashMap::new(),
@@ -496,6 +500,24 @@ impl Solver {
         b
     }
 
+    /// Start counting from `n`, the inferences an earlier activation of the
+    /// same word spent, so the cap and W1 hold across them (`kb.saturate`'s
+    /// rounds). Called before the first [`Solver::next`].
+    pub fn spent(mut self, n: u64) -> Solver {
+        self.count = n;
+        self.warned = n >= WARN_AT;
+        self
+    }
+
+    /// Answer the arguments with their unbound variables named `_G`*k* by
+    /// first occurrence, so an answer read back as a clause keeps which
+    /// arguments share a variable (`kb.saturate`). Called before the first
+    /// [`Solver::next`].
+    pub fn naming(mut self) -> Solver {
+        self.named = true;
+        self
+    }
+
     /// Inferences so far.
     pub fn inferences(&self) -> u64 {
         self.count
@@ -528,6 +550,22 @@ impl Solver {
 
     fn answer(&mut self) -> BundValue {
         if let Some(args) = &self.args {
+            if self.named {
+                let seen = std::cell::RefCell::new(Vec::<Term>::new());
+                let named = |v: Term| {
+                    let mut seen = seen.borrow_mut();
+                    let k = seen.iter().position(|t| *t == v).unwrap_or_else(|| {
+                        seen.push(v);
+                        seen.len() - 1
+                    });
+                    BundValue::call(format!("_G{k}"))
+                };
+                return BundValue::list(
+                    args.iter()
+                        .map(|a| self.arena.to_value_with(*a, &named))
+                        .collect(),
+                );
+            }
             return BundValue::list(args.iter().map(|a| self.arena.to_value(*a)).collect());
         }
         let mut map: Vec<(String, BundValue)> = self
