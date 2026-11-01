@@ -25,6 +25,7 @@
   *Dated note, 2026-10-31:* all thirteen milestones are built (`f1d205a`).
   The readings M7–M12 made where the text is silent are filed as D230–D235.
   The worked examples have run (criterion 25), closing Q44's examples half.
+  *(2026-11-01: the quotations half is closed too; see Motivation.)*
 
   *Dated note, 2026-11-01:* D230–D235 are RESOLVED, "all as recommended".
   S15–S21 each gain a paragraph stating what was ruled where the text was
@@ -172,15 +173,17 @@ The language already holds most of what logic programming needs:
 Triska makes the case for the rest:
 
 - **Rules as data, read by an interpreter.** "Separating the knowledge base
-  from the way it is interpreted allowed us to add features while leaving
-  the inference rules unchanged"
+  from the way it is interpreted has allowed us to add features while
+  leaving the inference rules unchanged"
   (https://www.metalevel.at/prolog/expertsystems). Phase 2 is that.
 - **A pure, monotonic core.** "Adding a constraint can at most *reduce* the
   set of solutions" (https://www.metalevel.at/prolog/purity). So Phase 1
   has no cut, no assert inside a goal, and no `var/1`.
 
 Both quotations were read through a fetch tool that summarises pages
-(Q44).
+(Q44). *Dated note, 2026-11-01:* both pages were read directly, as raw
+HTML. The second quotation is exact. The first lacked "has" before
+"allowed", corrected above; the claim it supports is unchanged.
 
 ---
 
@@ -1958,7 +1961,8 @@ These are entered in `docs/registers/open-questions.md`.
 
 - **Q44 [UNGROUNDED].** The quotations were read through a summarising
   fetch, and no example has been executed. *(2026-10-31: the examples have
-  run, criterion 25; the quotations remain.)*
+  run, criterion 25. 2026-11-01: the quotations are checked against the
+  pages, one word corrected. Q44 is closed.)*
 - **Q45.** Answers lose the aliasing between unbound variables.
 - **Q46.** A compiled-form cache keyed on the KB's payload.
 - **Q47.** Whether `kb.word` should put the arity in the word's name.
