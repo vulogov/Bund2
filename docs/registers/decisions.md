@@ -16117,3 +16117,56 @@ these; M12 built the first option of each, which is the recommendation.
 - Status: **RESOLVED** by the repository owner, 2026-11-01, "all as
   recommended", after being shown each alternative: every reading as built.
   RFC-0013 is amended to match, with a dated note under its status.
+
+## D236 — `kb-unchecked-bench` and `kb-unpolled-bench`: measurement-only switches for RFC-0013 criterion 16
+
+**Raised 2026-10-30** by RFC-0013 M6, filed 2026-11-01. Criterion 16 asks
+for the occurs check's and the guard poll's share of naive reverse, and a
+share needs a build without each to measure against. M6 added two features
+to `bund2-stdlib`, off by default, each compiling one out:
+
+- **`kb-unchecked-bench`** sets `kb::unify::CHECKED` false, so unification
+  skips the occurs check. That suspends L7 (D226): `[ = X [ f X ] ]`
+  succeeds and builds a cycle, and a walk over it never ends.
+- **`kb-unpolled-bench`** sets `kb::solve::POLLED` false, so the solver
+  skips S4's guard poll, and a query that grows the arena outruns the
+  memory guard.
+
+`bund2-bench` forwards them as `kb-unchecked` and `kb-unpolled`, for its
+`kb` bench alone; the commands are in `crates/bund2-bench/Cargo.toml`'s note
+and the results in `docs/measurements/kb-2026-10-30.md`. RFC-0013 names
+neither. They follow RFC-0005's `unguarded-bench`, which RFC-0005's own text
+names for its criterion 17.
+
+**Recorded:**
+
+- **Measurement only.** Neither `default` nor any other feature enables
+  them, and no shipped build, bundle or CI job turns them on.
+- **L7 stands.** The occurs check is always on in every build Bund2 ships;
+  these features are how criterion 16 measures its cost, not a way to turn
+  it off.
+- **Enforced by a test.** `the_shipped_engine_checks_and_polls` in
+  `kb/solve.rs` fails in a build that lacks either check, so a workspace
+  test run with either feature on fails.
+- **A new switch of this kind** (one that suspends a ruled guarantee to
+  measure it) carries the `-bench` suffix, a note at its `Cargo.toml`
+  entry, and a test that the default build keeps the guarantee.
+
+- Blocks: nothing
+- Depends on: D226 (L7), RFC-0013 criterion 16
+- Status: **RESOLVED** by the repository owner, 2026-11-01 ("file item 2's
+  entry"), as recommended: recorded as measurement-only, L7 unaffected.
+
+### Rejected
+
+- **No entry.** The test enforces the guarantee, but a build flag that can
+  suspend a ruled decision is what the register exists to make visible, and
+  RFC-0013 does not mention the flags.
+- **A runtime switch inside the feature**, as RFC-0005's `unguarded-bench`
+  is (`Compiler::without_meaning_guards`), so both arms run in one process
+  and F138's cross-process drift drops out. Criterion 16 measured across
+  processes instead, and the drift shows: the guard poll's share read
+  −1.8%, +3.5% and −1.5%, inside the ±6% the baselines moved, and the
+  measurement file says so. A runtime test of `CHECKED` in unification's
+  inner loop would also put a branch in the path being measured. Revisit if
+  a share inside the drift ever needs a figure.
