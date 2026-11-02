@@ -47,6 +47,9 @@
   the index's keys are read off the stored clauses. S2, S4's renaming and
   S6's index are amended where they stand. The one change a program can
   see is when a hand-built KB's malformed clause is refused.
+  *Dated note, 2026-11-01:* D243 ("D243: (a)") amends S6 to the code: a
+  float first argument has no index key and takes every clause. No code
+  changed, and no answer a program gets.
 
   The history below is kept as it was.
 - *Before acceptance:* **Draft — revision 12 (2026-10-28).**
@@ -851,11 +854,12 @@ The engine lives in `crates/bund2-stdlib/src/kb/`. The existing
 
 - **The key.** A call's dereferenced first argument gives the key: an
   atom's text, an integer, a float's key bits, a compound's functor and
-  arity, `Nil`, or `Cons`.
+  arity, `Nil`, or `Cons`. *(2026-11-01, D243:)* a float has no key; the
+  code never gave it one, and the text is amended to the code.
 - **Candidates.** These are the clauses with that key, merged in clause
   order with those whose first argument is a variable or opaque.
 - **No key.** An unbound or opaque first argument, or arity 0, takes every
-  clause.
+  clause. *(2026-11-01, D243:)* so does a float.
 - **When it is built.** The index is built on a predicate's first call in
   an activation. *(2026-11-01, D242:)* the keys are read off the stored
   clauses when a call with a key first needs them, and each key's

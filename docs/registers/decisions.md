@@ -16410,3 +16410,32 @@ keyed call, the key scan.
 - Status: **RESOLVED** by the repository owner, 2026-11-01 ("Q46: (d),
   starting with (c)"). RFC-0013's S2, S4 and S6 are amended where they
   stand, with a dated note under its status; Q46 is answered.
+
+## D243 — A float first argument has no index key
+
+**Raised 2026-11-01**, noticed while building D242: RFC-0013 §S6 lists "a
+float's key bits" among the first-argument index's keys, but `Solver::key`
+has never given a float a key. It returns none for `Cell::Float`, as for a
+variable or an opaque value, and `Shape::Other` covers "A FLOAT or an
+opaque value". A call whose first argument is a float takes every clause.
+Answers and their order are the same either way, since a clause a key
+would have passed over fails to unify; what differs is speed and D240's
+retry count.
+
+**Options shown.** (a) Amend the RFC to the code: a float has no key.
+(b) Amend the code to the RFC: a `Key::Float` of the float's bits, which
+must partition floats exactly as unification compares them (L2's key
+equality); a disagreement drops a clause that would have unified, and
+answers are lost. (c) Leave it, as an open question.
+
+**Ruled: (a).** A float first argument takes every clause, as an unbound
+or opaque one does. The index exists for speed, floats are a rare first
+argument, and a key that must track L2's equality exactly risks answers
+for little gain. No code changes. *Rejected:* (b), for that risk; (c),
+which leaves the RFC wrong.
+
+- Blocks: nothing
+- Depends on: L2, D242
+- Status: **RESOLVED** by the repository owner, 2026-11-01 ("D243: (a)").
+  RFC-0013's S6 is amended where it stands, with a dated note under its
+  status.
