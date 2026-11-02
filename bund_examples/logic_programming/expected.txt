@@ -1,0 +1,16 @@
+-- the street, found by search
+house 1: the norwegian lives in the yellow house, keeps the fox, drinks water, smokes Kools
+house 2: the russian lives in the blue house, keeps the horse, drinks tea, smokes Chesterfield
+house 3: the englishman lives in the red house, keeps the snails, drinks milk, smokes Old Gold
+house 4: the spaniard lives in the ivory house, keeps the dog, drinks orange juice, smokes Lucky Strike
+house 5: the japanese lives in the green house, keeps the zebra, drinks coffee, smokes Parliament
+streets that fit every clue: 1
+owns_zebra as a word:        [ [ japanese :: ] :: ]
+
+-- the same, by constraint propagation
+house numbers:               { Nations=[ 3 ::  4 ::  2 ::  1 ::  5 :: ] ::  Water=1 ::  Zebra=5 :: }
+solutions:                   1
+
+-- the answers, compared on the @answers stack
+the japanese owns the zebra, the norwegian drinks water
+both methods agree:          true

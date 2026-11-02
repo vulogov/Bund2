@@ -1,0 +1,219 @@
+//
+// The Zebra Puzzle (https://en.wikipedia.org/wiki/Zebra_Puzzle), solved
+// twice with Bund2's logic programming, RFC-0013's `kb.` words: once by
+// search over lists of houses, as a Prolog program would, and once by
+// constraint propagation with CLP(FD). Run it:
+//
+//   bund2 zebra.bund
+//
+// Each part of the program lives in its own namespace, a named stack.
+// `@name` switches to a stack, creating it on first use, and everything
+// after it runs there until the next `@name`:
+//
+//   @lists        list predicates the search uses: member, next_to, nth
+//   @search       the puzzle as a search, merged with @lists
+//   @constraints  the puzzle as constraints over house numbers
+//   @answers      what each method answers, moved there to be compared
+//   @main         where the output is printed
+//
+// The puzzle's fifteen clues, as this program states them:
+//
+//    1. There are five houses.
+//    2. The Englishman lives in the red house.
+//    3. The Spaniard owns the dog.
+//    4. Coffee is drunk in the green house.
+//    5. The Russian drinks tea.
+//    6. The green house is immediately to the right of the ivory house.
+//    7. The Old Gold smoker owns snails.
+//    8. Kools are smoked in the yellow house.
+//    9. Milk is drunk in the middle house.
+//   10. The Norwegian lives in the first house.
+//   11. The man who smokes Chesterfields lives in the house next to the
+//       man with the fox.
+//   12. Kools are smoked in the house next to the house where the horse
+//       is kept.
+//   13. The Lucky Strike smoker drinks orange juice.
+//   14. The Japanese smokes Parliaments.
+//   15. The Norwegian lives next to the blue house.
+//
+//   Who drinks water? Who owns the zebra?
+//
+// A capitalised name in a clause is a variable, `_` a fresh one each time
+// it is written; any other name is an atom, and a STRING is an atom too.
+//
+
+//
+// 1. A library of list predicates, in its own namespace. The clauses are
+//    pushed onto @lists one by one, and `kb.consult*` takes every clause
+//    on the stack, oldest first, and answers the KB, which `var` keeps.
+//    `[ X | T ]` is a list whose first item is X and rest is T.
+//
+@lists
+  // X is a member of a list.
+  [ member X [ X | _ ] ]
+  [ [ member X [ _ | T ] ] ← [ member X T ] ]
+  // L comes immediately before R in a list.
+  [ left_right L R [ L R | _ ] ]
+  [ [ left_right L R [ _ | T ] ] ← [ left_right L R T ] ]
+  // A and B are side by side, in either order.
+  [ [ next_to A B L ] ← [ left_right A B L ] ]
+  [ [ next_to A B L ] ← [ left_right B A L ] ]
+  // X is the Nth item of a list, counting from 1. `is` binds N to what
+  // the Bund lambda answers, run with M bound.
+  [ nth 1 [ X | _ ] X ]
+  [ [ nth N [ _ | T ] X ] ← [ nth M T X ] [ is N { M 1 + } ] ]
+kb.consult* :lists swap var
+
+//
+// 2. The puzzle as a search, in its own namespace. The street is a list
+//    of five houses, each `[ h Nation Colour Pet Drink Smoke ]`, and every
+//    clue is a goal about that list. Clues 9 and 10 fix where they are, so
+//    they go first, into the shape of the street itself; the others search
+//    with member and next_to. The two questions are the last two goals:
+//    some house keeps the zebra, and some house drinks water.
+//
+//    `kb.merge` joins this KB with the @lists library, which is fetched
+//    from its variable; the clauses of both are now one program.
+//
+@search
+  [ [ street Hs ] ←
+      [ = Hs [ [ h norwegian _ _ _ _ ] _ [ h _ _ _ milk _ ] _ _ ] ]   // 1, 9, 10
+      [ member [ h englishman red _ _ _ ] Hs ]                        // 2
+      [ member [ h spaniard _ dog _ _ ] Hs ]                          // 3
+      [ member [ h _ green _ coffee _ ] Hs ]                          // 4
+      [ member [ h russian _ _ tea _ ] Hs ]                           // 5
+      [ left_right [ h _ ivory _ _ _ ] [ h _ green _ _ _ ] Hs ]       // 6
+      [ member [ h _ _ snails _ "Old Gold" ] Hs ]                     // 7
+      [ member [ h _ yellow _ _ "Kools" ] Hs ]                        // 8
+      [ next_to [ h _ _ _ _ "Chesterfield" ] [ h _ _ fox _ _ ] Hs ]   // 11
+      [ next_to [ h _ _ _ _ "Kools" ] [ h _ _ horse _ _ ] Hs ]        // 12
+      [ member [ h _ _ _ "orange juice" "Lucky Strike" ] Hs ]         // 13
+      [ member [ h japanese _ _ _ "Parliament" ] Hs ]                 // 14
+      [ next_to [ h norwegian _ _ _ _ ] [ h _ blue _ _ _ ] Hs ]       // 15
+      [ member [ h _ _ zebra _ _ ] Hs ]
+      [ member [ h _ _ _ water _ ] Hs ] ]
+  // The Nth house of the street, one answer for each house.
+  [ [ house N Nation Colour Pet Drink Smoke ] ←
+      [ street Hs ] [ nth N Hs [ h Nation Colour Pet Drink Smoke ] ] ]
+  // The two questions.
+  [ [ answer ZebraOwner WaterDrinker ] ←
+      [ street Hs ]
+      [ member [ h ZebraOwner _ zebra _ _ ] Hs ]
+      [ member [ h WaterDrinker _ _ water _ ] Hs ] ]
+  [ [ owns_zebra Who ] ← [ street Hs ] [ member [ h Who _ zebra _ _ ] Hs ] ]
+kb.consult* :lists var? kb.merge :search swap var
+
+//
+// 3. The puzzle as constraints, in its own namespace. Here every one of
+//    the 25 names stands for the number, 1 to 5, of the house it belongs
+//    to: English is the Englishman's house, Red the red house's place in
+//    the street. Each group of five takes the numbers 1 to 5 once each
+//    (`ins` and `all_different`), and each clue is an equation between
+//    house numbers: "lives in the red house" is English = Red, "next to"
+//    is |A - B| = 1. Propagation narrows the domains as the clues are
+//    posted, and `label` searches what is left.
+//
+//    `who` turns a house number back into the nationality living there,
+//    by its place in the list of nations.
+//
+@constraints
+  [ [ houses Nations Zebra Water ] ←
+      [ = Nations [ English Spaniard Russian Norwegian Japanese ] ]
+      [ = Colours [ Red Green Ivory Yellow Blue ] ]
+      [ = Pets    [ Dog Snails Fox Horse Zebra ] ]
+      [ = Drinks  [ Coffee Tea Milk OrangeJuice Water ] ]
+      [ = Smokes  [ OldGold Kools Chesterfield LuckyStrike Parliament ] ]
+      [ ins Nations 1 5 ] [ all_different Nations ]                   // 1
+      [ ins Colours 1 5 ] [ all_different Colours ]
+      [ ins Pets 1 5 ]    [ all_different Pets ]
+      [ ins Drinks 1 5 ]  [ all_different Drinks ]
+      [ ins Smokes 1 5 ]  [ all_different Smokes ]
+      [ #= English Red ]                                              // 2
+      [ #= Spaniard Dog ]                                             // 3
+      [ #= Coffee Green ]                                             // 4
+      [ #= Russian Tea ]                                              // 5
+      [ #= Green [ + Ivory 1 ] ]                                      // 6
+      [ #= OldGold Snails ]                                           // 7
+      [ #= Kools Yellow ]                                             // 8
+      [ #= Milk 3 ]                                                   // 9
+      [ #= Norwegian 1 ]                                              // 10
+      [ #= [ abs [ - Chesterfield Fox ] ] 1 ]                         // 11
+      [ #= [ abs [ - Kools Horse ] ] 1 ]                              // 12
+      [ #= LuckyStrike OrangeJuice ]                                  // 13
+      [ #= Japanese Parliament ]                                      // 14
+      [ #= [ abs [ - Norwegian Blue ] ] 1 ]                           // 15
+      [ label Nations ] [ label Colours ] [ label Pets ]
+      [ label Drinks ] [ label Smokes ] ]
+  [ who H [ H _ _ _ _ ] englishman ]
+  [ who H [ _ H _ _ _ ] spaniard ]
+  [ who H [ _ _ H _ _ ] russian ]
+  [ who H [ _ _ _ H _ ] norwegian ]
+  [ who H [ _ _ _ _ H ] japanese ]
+  // The same two questions as @search asks.
+  [ [ answer ZebraOwner WaterDrinker ] ←
+      [ houses Nations Z W ]
+      [ who Z Nations ZebraOwner ] [ who W Nations WaterDrinker ] ]
+kb.consult* :constraints swap var
+
+//
+// 4. Solving by search. `kb.query` answers every solution; there is one
+//    street. The `query` conditional runs its lambda once for each house,
+//    with that answer's bindings, a MAP, on top: `get` takes the MAP and
+//    answers one binding, so each but the last is taken from a `dup`.
+//
+@main
+"-- the street, found by search" println
+query
+  :kb     :search var? set
+  :goal   [ house N Nation Colour Pet Drink Smoke ] set
+  :lambda {
+    dup :Smoke get swap dup :Drink get swap dup :Pet get swap
+    dup :Colour get swap dup :Nation get swap :N get
+    "house {0}: the {1} lives in the {2} house, keeps the {3}, drinks {4}, smokes {5}"
+    format println
+  } set
+!
+"streets that fit every clue: " print
+:search var? [ street Hs ] kb.query len println drop
+
+// `kb.word` makes a predicate a word: NODATA (∅) asks for that argument,
+// and the word answers a LIST of every solution's arguments.
+:search :owns_zebra 1 kb.word
+"owns_zebra as a word:        " print
+∅ owns_zebra println
+
+// Search's answer, as one sentence, goes to the @answers namespace.
+:search var? [ answer Z W ] kb.once
+dup :W get swap :Z get "the {0} owns the zebra, the {1} drinks water" format
+:answers move
+"" println
+
+//
+// 5. Solving by constraints. `houses` answers the nations' house numbers,
+//    in the order English, Spaniard, Russian, Norwegian, Japanese, and the
+//    zebra's and the water's; again there is one solution.
+//
+"-- the same, by constraint propagation" println
+"house numbers:               " print
+:constraints var? [ houses Nations Zebra Water ] kb.once println
+"solutions:                   " print
+:constraints var? [ houses Nations Zebra Water ] kb.query len println drop
+
+// Its answer goes to @answers as well.
+:constraints var? [ answer Z W ] kb.once
+dup :W get swap :Z get "the {0} owns the zebra, the {1} drinks water" format
+:answers move
+"" println
+
+//
+// 6. The answers. @answers now holds two sentences, one from each
+//    namespace that solved the puzzle. The top one is printed, `==`
+//    compares the two where they are, and the result moves back to @main
+//    to be printed there. @answers is left empty.
+//
+"-- the answers, compared on the @answers stack" println
+@answers
+dup println
+== :main move
+@main
+"both methods agree:          " print println
