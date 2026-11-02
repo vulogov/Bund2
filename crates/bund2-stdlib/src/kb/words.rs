@@ -214,13 +214,26 @@ impl Bridge for VmBridge<'_> {
         )));
     }
 
-    fn run(&mut self, body: Vec<BundValue>) -> Result<Option<BundValue>, Error> {
-        super::bridge::run(self.vm, body)
+    fn run(
+        &mut self,
+        body: Vec<BundValue>,
+        written: &BundValue,
+        by: &dyn Fn() -> String,
+    ) -> Result<Option<BundValue>, Error> {
+        super::bridge::run(self.vm, body, written, by)
     }
 
     fn ask(&mut self, goal: BundValue) -> Option<Result<Option<BundValue>, Error>> {
         let body = self.ask.as_ref()?.as_lambda().unwrap_or(&[]);
         Some(super::bridge::ask(self.vm, body, goal))
+    }
+
+    fn counting(&self) -> bool {
+        self.vm.counting_predicates()
+    }
+
+    fn counted(&mut self, counts: &[(String, u64, u64)]) {
+        self.vm.count_predicates(counts);
     }
 
     /// Written through with `register_var`, so a reply survives a later
@@ -366,8 +379,39 @@ fn kb_word(vm: &mut dyn Vm) -> Result<(), Error> {
             crate::values::ENDCONTEXT_SHADOWED,
         ));
     }
+    if let Some(was) = vm
+        .get_lambda(&functor)
+        .and_then(|b| word_arity(&b, &functor))
+        .filter(|m| *m != n)
+    {
+        vm.report(bund2_api::diag::Diagnostic::warning(format!(
+            "kb.word: {functor}/{n} replaces {functor}/{was}, which kb.word registered; \
+             a word has one arity, so a call written for {functor}/{was} now asks {functor}/{n} (D239)"
+        )));
+    }
     vm.register_lambda(&functor, body);
     Ok(())
+}
+
+/// The arity of `body` if it is the body `kb.word` registers for `functor`,
+/// `"var" var? "functor" n kb.call` (§S10); `None` for any other body, so a
+/// word the program registered itself is replaced without a warning, as
+/// `register` replaces it (D239).
+fn word_arity(body: &BundValue, functor: &str) -> Option<usize> {
+    match body.as_lambda()? {
+        [var, get, f, n, call]
+            if var.dt() == bund2_value::STRING
+                && get.dt() == bund2_value::CALL
+                && get.str_ref() == Some("var?")
+                && f.dt() == bund2_value::STRING
+                && f.str_ref() == Some(functor)
+                && call.dt() == bund2_value::CALL
+                && call.str_ref() == Some("kb.call") =>
+        {
+            n.as_int().and_then(|n| usize::try_from(n).ok())
+        }
+        _ => None,
+    }
 }
 
 fn kb_query(vm: &mut dyn Vm) -> Result<(), Error> {

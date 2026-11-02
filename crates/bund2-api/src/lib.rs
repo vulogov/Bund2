@@ -608,6 +608,25 @@ pub trait Vm {
     /// unwinder runs it on the way past.
     fn scoped_call(&mut self, stack: &str, body: Vec<BundValue>) -> Result<(), Error>;
 
+    /// [`Vm::scoped_call`] for a body made from `written` item for item —
+    /// RFC-0013 §S5's substituted λ (D241). Where `written`'s items were
+    /// written is where `body`'s were, and so for each lambda inside both at
+    /// the same index, so a traceback, a backtrace and a stop inside the body
+    /// say a line. `by` says what is running the body, `a bridge solving …`
+    /// (D240), and is asked only by a `Vm` that names frames. Defaulted to a
+    /// plain `scoped_call`: a `Vm` that keeps no positions and names no
+    /// frames has nothing to do with either.
+    fn scoped_call_from(
+        &mut self,
+        stack: &str,
+        body: Vec<BundValue>,
+        written: &BundValue,
+        by: &dyn Fn() -> String,
+    ) -> Result<(), Error> {
+        let _ = (written, by);
+        self.scoped_call(stack, body)
+    }
+
     // --- the word table ----------------------------------------------------
     /// Bind a name to a lambda, as `register` does
     /// (`reference/rust_multistackvm/src/stdlib/lambdas/registry.rs:5-38`).
@@ -694,6 +713,18 @@ pub trait Vm {
         _bodies: &[(BundValue, Vec<(usize, usize)>)],
     ) {
     }
+
+    /// **Whether a profile is being kept**, so a knowledge base's solver
+    /// counts its predicates for [`Vm::count_predicates`] (D240). Defaulted
+    /// to `false`: nothing is counted for a `Vm` with nowhere to put it.
+    fn counting_predicates(&self) -> bool {
+        false
+    }
+
+    /// **Add these to the profile's per-predicate counts** — D240. Each is
+    /// `(functor/arity, calls, retries)`; see the profile's `predicates`.
+    /// Defaulted to nothing.
+    fn count_predicates(&mut self, _counts: &[(String, u64, u64)]) {}
 
     /// **A string's own top level, placed** — RFC-0003 §S5 for the stream
     /// `use` and `bund.eval-file` run, beside [`Vm::note_positions`]'s bodies.

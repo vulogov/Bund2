@@ -96,6 +96,93 @@ fn the_profile_names_call_sites_and_where_words_were_registered() {
     assert!(md.contains(&format!("| {} | 1 |", at("8:3"))), "{md}");
 }
 
+/// **D240 (Q48): the profile counts a knowledge base's predicates**, calls
+/// and retries, and a program that asks no KB has no such section.
+#[test]
+fn the_profile_counts_inferences_per_predicate() {
+    let p = program(
+        "preds.bund",
+        "[ [ n 1 ] [ n 2 ] [ n 3 ] [ [ big X ] ← [ n X ] [ test { X 1 > } ] ] ] kb!\n\
+         [ big X ] kb.query drop\n",
+    );
+    let base = p.with_extension("");
+    let r = bund2(
+        &[
+            "script",
+            "--file",
+            p.to_str().unwrap(),
+            "--profile",
+            base.to_str().unwrap(),
+        ],
+        &[],
+    );
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    let md = std::fs::read_to_string(base.with_extension("profile.md")).expect("the report");
+    assert!(md.contains("## Predicates, by inferences"), "{md}");
+    // `big` is called once, `n` once and retried twice, `test` once per `n`.
+    assert!(md.contains("| `n/1` | 1 | 2 | 3 |"), "{md}");
+    assert!(md.contains("| `test/1` | 3 | 0 | 3 |"), "{md}");
+    assert!(md.contains("| `big/1` | 1 | 0 | 1 |"), "{md}");
+
+    let q = program("nokb.bund", "1 2 + drop\n");
+    let base = q.with_extension("");
+    let r = bund2(
+        &[
+            "script",
+            "--file",
+            q.to_str().unwrap(),
+            "--profile",
+            base.to_str().unwrap(),
+        ],
+        &[],
+    );
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    let md = std::fs::read_to_string(base.with_extension("profile.md")).expect("the report");
+    assert!(!md.contains("## Predicates"), "{md}");
+}
+
+/// **D241 and D240 (Q49, Q48): a failure inside a bridge is placed** at
+/// the line λ was written on, and its frame names the goal being solved.
+#[test]
+fn a_bridge_failure_is_placed_and_names_its_goal() {
+    let p = program(
+        "bridge.bund",
+        "[ [ p 1 ] ] kb!\n[ [ p X ] [ test {\n    X\n    no_such_word_here } ] ] kb.holds\n",
+    );
+    let r = bund2(
+        &["script", "--report", "trace", "--file", p.to_str().unwrap()],
+        &[],
+    );
+    assert_eq!(r.code, Some(0));
+    assert!(r.out.contains("the value that failed, inside"), "{}", r.out);
+    assert!(
+        r.out
+            .contains("#0  a body assembled at run time at 2, run by a bridge solving "),
+        "{}",
+        r.out
+    );
+    assert!(
+        r.out.contains(&format!("({}:4:5)", p.display())),
+        "{}",
+        r.out
+    );
+    // A lambda inside λ is substituted into a new one, placed as λ's was.
+    let q = program(
+        "nested.bund",
+        "[ [ p 1 ] ] kb!\n[ [ p X ] [ test {\n    X { 2 *\n      no_such_word_here } execute } ] ] kb.holds\n",
+    );
+    let r = bund2(
+        &["script", "--report", "trace", "--file", q.to_str().unwrap()],
+        &[],
+    );
+    assert!(
+        r.out
+            .contains(&format!("#0  a lambda at 3  ({}:4:7)", q.display())),
+        "{}",
+        r.out
+    );
+}
+
 /// D194: a program that does not parse exits 1, and one that fails while
 /// running still exits 0, as the reference's does.
 #[test]

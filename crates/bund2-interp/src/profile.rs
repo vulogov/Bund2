@@ -342,6 +342,12 @@ pub struct Profile {
     /// `file:line:col` of the `register` that bound it, the last one for a
     /// name bound twice — RFC-0011 §S8's "say where a word came from".
     pub defined: HashMap<String, String>,
+    /// **Per predicate a knowledge base was asked, `[calls, retries]`** —
+    /// D240, for RFC-0013's queries: a call is a goal of that predicate
+    /// solved, one inference; a retry is a further clause tried for one, one
+    /// more. Keyed `functor/arity`. Counts, not times: with backtracking a
+    /// predicate's time is spread over many visits, and counts are exact.
+    pub predicates: HashMap<String, [u64; 2]>,
     /// The native that filed the tail request whose body is about to be
     /// pushed, if one did.
     filed_by: Option<usize>,
@@ -384,6 +390,7 @@ impl Profile {
             sites: HashMap::new(),
             site_labels: HashMap::new(),
             defined: HashMap::new(),
+            predicates: HashMap::new(),
             filed_by: None,
             failed_in: None,
             writer: None,

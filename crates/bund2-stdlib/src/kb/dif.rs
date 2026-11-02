@@ -276,7 +276,10 @@ mod tests {
             ("[ = X b ]", vec!["{X=:b}"]),
             ("[ = X 1 ]", vec!["{X=1}"]),
             ("[ = X [ f a ] ]", vec!["{X=[ f :a ]}"]),
-            ("[ = X Y ]", vec!["{X=_, Y=_, _residual=[ [ dif *X :a ] ]}"]),
+            (
+                "[ = X Y ]",
+                vec!["{X=_, Y=_, _aliases=[ [ = *X *Y ] ], _residual=[ [ dif *X :a ] ]}"],
+            ),
             ("[ = X [ f Y ] ]", vec!["{X=[ f _ ], Y=_}"]),
             (
                 "[ = Y a ]",
@@ -284,7 +287,7 @@ mod tests {
             ),
             (
                 "[ = [ X ] [ Y ] ]",
-                vec!["{X=_, Y=_, _residual=[ [ dif *X :a ] ]}"],
+                vec!["{X=_, Y=_, _aliases=[ [ = *X *Y ] ], _residual=[ [ dif *X :a ] ]}"],
             ),
             ("[ = [ X b ] [ a b ] ]", vec![]),
         ];

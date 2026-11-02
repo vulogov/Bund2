@@ -574,7 +574,7 @@ mod tests {
         assert!(answers("[ [ in X 0 9 ] [ = X a ] ]").is_empty());
         assert_eq!(
             answers("[ [ in X 0 5 ] [ in Y 3 9 ] [ = X Y ] ]"),
-            ["{X=_, Y=_, _residual=[ [ in *X 3 5 ] ]}"]
+            ["{X=_, Y=_, _aliases=[ [ = *X *Y ] ], _residual=[ [ in *X 3 5 ] ]}"]
         );
         // The propagators wake: X + 1 = Y, then Y bound.
         assert_eq!(answers("[ [ #= [ + X 1 ] Y ] [ = Y 7 ] ]"), ["{X=6, Y=7}"]);

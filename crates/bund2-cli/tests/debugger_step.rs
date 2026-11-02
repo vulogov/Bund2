@@ -490,6 +490,24 @@ fn session(src: &str, script: &str) -> (String, String, Option<i32>) {
     )
 }
 
+/// **D240 and D241 (Q48, Q49): a stop inside a bridge names the goal being
+/// solved and the line λ was written on**, at the stop and in `bt`.
+#[test]
+fn a_stop_inside_a_bridge_names_its_goal_and_its_line() {
+    let src = ":w { 7 } register\n[ [ p 1 ] ] kb!\n[ [ p X ] [ test {\n    w\n    X == } ] ] kb.holds\nprintln\n";
+    let (out, err, code) = session(src, "break w\nc\nbt\nc\n");
+    assert!(err.contains("breakpoint: w"), "{err}");
+    let frames: Vec<&str> = err
+        .lines()
+        .filter(|l| l.contains("run by a bridge solving "))
+        .collect();
+    assert_eq!(frames.len(), 2, "the stop and bt both name it:\n{err}");
+    assert!(frames[0].contains("s.bund:5:5)"), "{err}");
+    assert!(frames[1].contains("s.bund:4:5)"), "{err}");
+    assert_eq!(out, "false\n");
+    assert_eq!(code, Some(0));
+}
+
 const TWO_CALLS: &str = ":w { 7 8 + } register\n1 w 2 w\ndebug.display_stack\n";
 
 /// **Criterion 7 at process level: a breakpoint on a word stops before its

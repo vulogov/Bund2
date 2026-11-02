@@ -718,6 +718,39 @@ pub fn render_markdown(p: &Profile, reg: &Registry, meta: &Meta<'_>) -> String {
         out.push('\n');
     }
 
+    // --- predicates (D240) ----------------------------------------------------
+    if !p.predicates.is_empty() {
+        let mut preds: Vec<(&String, &[u64; 2])> = p.predicates.iter().collect();
+        preds.sort_by(|a, b| (b.1[0] + b.1[1]).cmp(&(a.1[0] + a.1[1])).then(a.0.cmp(b.0)));
+        let total: u64 = preds.iter().map(|(_, c)| c[0] + c[1]).sum();
+        let _ = writeln!(out, "## Predicates, by inferences\n");
+        let _ = writeln!(
+            out,
+            "Knowledge-base queries, counted per predicate: a call is a goal of the \
+             predicate solved, a retry a further clause tried for one, and each is one \
+             inference. Built-in goals (`=`, `is`, `test`, …) are counted under their own \
+             names. Inferences that are no goal's — a labeling step, a propagator run, \
+             an answer taken from a table, the engine's own `$` goals — are not here, \
+             so `%` is of the inferences in this table. Counts, not times: a \
+             predicate's time is spread over every visit backtracking makes, and is \
+             inside the time of the word that asked (D240).\n"
+        );
+        let _ = writeln!(out, "| predicate | calls | retries | inferences | % |");
+        let _ = writeln!(out, "|---|---|---|---|---|");
+        for (name, [calls, retries]) in preds.into_iter().take(HOTTEST_ROWS) {
+            let _ = writeln!(
+                out,
+                "| `{}` | {} | {} | {} | {} |",
+                cell(name),
+                thousands(*calls),
+                thousands(*retries),
+                thousands(calls + retries),
+                pct_n(calls + retries, total),
+            );
+        }
+        out.push('\n');
+    }
+
     // --- anomalies ------------------------------------------------------------
     let _ = writeln!(out, "## Anomalies\n");
     let mut any = false;

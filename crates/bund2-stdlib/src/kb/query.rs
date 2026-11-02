@@ -421,6 +421,51 @@ mod tests {
         assert_eq!(top(ops).display(), rows(&[&["web", "cache"]]));
     }
 
+    /// **D239 (Q47).** `kb.word` warns when it replaces a word `kb.word`
+    /// registered for the same name at another arity, and only then: not at
+    /// the same arity, and not over a word the program registered itself,
+    /// which it replaces as `register` does. The second word replaces the
+    /// first all the same.
+    #[test]
+    fn kb_word_warns_when_it_changes_a_word_s_arity() {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        use bund2_api::diag::{Diagnostic, Reporter, Severity};
+
+        struct Kept(Rc<RefCell<Vec<(Severity, String)>>>);
+        impl Reporter for Kept {
+            fn report(&mut self, d: &Diagnostic) {
+                self.0.borrow_mut().push((d.severity, d.reason.clone()));
+            }
+        }
+        let said = |src: &str| {
+            let kept = Rc::new(RefCell::new(Vec::new()));
+            let mut i = interp();
+            i.reporter = Box::new(Kept(Rc::clone(&kept)));
+            run_in(&mut i, src).unwrap_or_else(|e| panic!("{src} failed: {e}"));
+            let said = kept.borrow().clone();
+            (i, said)
+        };
+        let kb = ":k [ [ p a ] [ p a b ] ] kb! var";
+        let (mut i, w) = said(&format!("{kb} :k :p 1 kb.word :k :p 2 kb.word"));
+        assert_eq!(
+            w,
+            [(
+                Severity::Warning,
+                "kb.word: p/2 replaces p/1, which kb.word registered; a word has one \
+                 arity, so a call written for p/1 now asks p/2 (D239)"
+                    .to_string()
+            )]
+        );
+        run_in(&mut i, ":a ∅ p").unwrap();
+        assert_eq!(i.peek().unwrap().display(), rows(&[&["a", "b"]]));
+        let (_, w) = said(&format!("{kb} :k :p 1 kb.word :k :p 1 kb.word"));
+        assert!(w.is_empty(), "{w:?}");
+        let (_, w) = said(&format!("{kb} :p {{ 1 }} register :k :p 2 kb.word"));
+        assert!(w.is_empty(), "{w:?}");
+    }
+
     /// The interned-name table's size, measured by interning a fresh probe.
     fn names_now() -> usize {
         let sym = bund2_value::intern_stack_name(&bund2_value::fresh_name());

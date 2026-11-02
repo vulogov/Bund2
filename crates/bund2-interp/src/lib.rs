@@ -2192,6 +2192,84 @@ impl Interp {
         });
     }
 
+    /// [`Vm::scoped_call`]'s work, for a body already wrapped as a LIST.
+    fn scoped_frame(&mut self, stack: &str, body: BundValue) -> Result<(), Error> {
+        if !self.stack_ok() {
+            return Err(Error::stack_exhausted());
+        }
+        let prev = self.stacks.current_name().to_string();
+        let floor = self.frames.len();
+        self.to_stack(stack);
+        // The exit action is carried by the frame, so the unwinder runs it on a
+        // failure just as the loop runs it on success. F57. The body is
+        // assembled per call, so it is wrapped as a LIST value: there is no
+        // key worth keeping (D42).
+        // Carries an exit action, so the tier is never offered it — see
+        // `push_frame`. The LIST does have a key, a new one on every call.
+        // A `( … )` context is nobody's word, so the frame carries no symbol.
+        //
+        // **F231.** The frame can be refused before it exists — D171's poll is
+        // `push_frame_once`'s first act — and then no exit action runs. Unwind
+        // whatever was pushed, and come back by hand if nothing did.
+        let pushed = self.push_frame(body, Some(ExitAction::ToStack(prev.clone())), None);
+        if let Err(e) = pushed {
+            self.unwind_to(floor);
+            if self.stacks.current_name() != prev {
+                self.to_stack(&prev);
+            }
+            return Err(e);
+        }
+        self.run_to(floor)?;
+        // F112, as in `Interp::apply`.
+        self.exit_gate()
+    }
+    /// **Copy where `from`'s items were written onto `to`** — D241, for
+    /// [`Vm::scoped_call_from`]. Each pair of bodies of the same length gets
+    /// `from`'s places, and each pair of lambdas at the same index in both is
+    /// visited in turn. A body `from` has no place for, or one whose length
+    /// differs, gets none, and nothing inside it is visited. A worklist, so
+    /// a deep λ costs heap and not Rust stack (D39).
+    fn inherit_positions(&mut self, from: &BundValue, to: &BundValue) {
+        if self.positions.len() >= self.positions_sweep {
+            self.positions.retain(|_, p| p.body.strong_count() > 0);
+            self.positions_sweep = (self.positions.len() * 2).max(Self::POSITIONS_SWEEP);
+        }
+        let mut pairs = vec![(from.clone(), to.clone())];
+        while let Some((from, to)) = pairs.pop() {
+            let (Some(a), Some(b)) = (frame_items(&from), frame_items(&to)) else {
+                continue;
+            };
+            if a.len() != b.len() {
+                continue;
+            }
+            let Some(placed) = from
+                .payload_key()
+                .and_then(|k| self.positions.get(&k))
+                .filter(|p| p.body.strong_count() > 0)
+            else {
+                continue;
+            };
+            let (file, at) = (Rc::clone(&placed.file), placed.at.clone());
+            let (Some(key), Some(weak)) = (to.payload_key(), to.payload_weak()) else {
+                continue;
+            };
+            self.positions.insert(
+                key,
+                Placed {
+                    body: weak,
+                    file,
+                    at,
+                },
+            );
+            pairs.extend(
+                a.iter()
+                    .zip(b)
+                    .filter(|(x, y)| x.dt() == bund2_value::LAMBDA && y.dt() == bund2_value::LAMBDA)
+                    .map(|(x, y)| (x.clone(), y.clone())),
+            );
+        }
+    }
+
     /// Where the item at `i` of `body` was written, if anywhere.
     fn place_of(&self, body: &BundValue, i: usize) -> Option<bund2_api::diag::Location> {
         let p = self.positions.get(&body.payload_key()?)?;
@@ -2293,6 +2371,7 @@ impl Interp {
                 .conditional_maker(ty)
                 .unwrap_or_else(|| format!("the {ty} conditional")),
             Runner::Method(m) => format!("method {m}"),
+            Runner::Named(n) => n.clone(),
         })
     }
 
@@ -2331,6 +2410,8 @@ enum Runner {
     Word(Symbol),
     Conditional(String),
     Method(String),
+    /// Said by whoever handed the body over: `a bridge solving …` (D240).
+    Named(String),
 }
 
 /// The traceback taken for one failure — D173.
@@ -2715,38 +2796,28 @@ impl Vm for Interp {
     }
 
     fn scoped_call(&mut self, stack: &str, body: Vec<BundValue>) -> Result<(), Error> {
-        if !self.stack_ok() {
-            return Err(Error::stack_exhausted());
+        self.scoped_frame(stack, BundValue::list(body))
+    }
+
+    /// The body is placed where `written` was (D241) and, while naming,
+    /// its frame is run by `by` (D240), as `eval_lambda`'s is by the native
+    /// that handed it over (D173).
+    fn scoped_call_from(
+        &mut self,
+        stack: &str,
+        body: Vec<BundValue>,
+        written: &BundValue,
+        by: &dyn Fn() -> String,
+    ) -> Result<(), Error> {
+        let body = BundValue::list(body);
+        self.inherit_positions(written, &body);
+        if !self.naming {
+            return self.scoped_frame(stack, body);
         }
-        let prev = self.stacks.current_name().to_string();
-        let floor = self.frames.len();
-        self.to_stack(stack);
-        // The exit action is carried by the frame, so the unwinder runs it on a
-        // failure just as the loop runs it on success. F57. The body is
-        // assembled per call, so it is wrapped as a LIST value: there is no
-        // key worth keeping (D42).
-        // Carries an exit action, so the tier is never offered it — see
-        // `push_frame`. The LIST does have a key, a new one on every call.
-        // A `( … )` context is nobody's word, so the frame carries no symbol.
-        //
-        // **F231.** The frame can be refused before it exists — D171's poll is
-        // `push_frame_once`'s first act — and then no exit action runs. Unwind
-        // whatever was pushed, and come back by hand if nothing did.
-        let pushed = self.push_frame(
-            BundValue::list(body),
-            Some(ExitAction::ToStack(prev.clone())),
-            None,
-        );
-        if let Err(e) = pushed {
-            self.unwind_to(floor);
-            if self.stacks.current_name() != prev {
-                self.to_stack(&prev);
-            }
-            return Err(e);
-        }
-        self.run_to(floor)?;
-        // F112, as in `Interp::apply`.
-        self.exit_gate()
+        self.runners.push((self.frames.len(), Runner::Named(by())));
+        let done = self.scoped_frame(stack, body);
+        self.runners.pop();
+        done
     }
 
     fn eval_lambda(&mut self, lambda: &BundValue) -> Result<(), Error> {
@@ -3082,6 +3153,21 @@ impl Vm for Interp {
 
     fn place_top(&mut self, label: &str, src: &str, spans: &[(usize, usize)]) -> Option<usize> {
         Some(self.stream_place_key(label, src, spans))
+    }
+
+    fn counting_predicates(&self) -> bool {
+        self.profile.is_some()
+    }
+
+    fn count_predicates(&mut self, counts: &[(String, u64, u64)]) {
+        let Some(p) = self.profile.as_mut() else {
+            return;
+        };
+        for (pred, calls, retries) in counts {
+            let c = p.predicates.entry(pred.clone()).or_default();
+            c[0] += calls;
+            c[1] += retries;
+        }
     }
 
     /// The included stream's value runs as the program's would: its place is

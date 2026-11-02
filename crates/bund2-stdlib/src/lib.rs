@@ -1596,16 +1596,19 @@ mod honesty_tests {
             "kb/query.rs: run_query",
         ];
         const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
-        // `.apply_placed(` is `.apply(` for an included file's top level.
-        const CALLS: [&str; 8] = [
+        // `.apply_placed(` is `.apply(` for an included file's top level, and
+        // `.scoped_call_from(` is `.scoped_call(` for a placed body (D241).
+        const CALLS: [&str; 10] = [
             ".eval_lambda(",
             ".apply(",
             ".apply_placed(",
             "::apply_placed(",
             ".scoped_call(",
+            ".scoped_call_from(",
             "::eval_lambda(",
             "::apply(",
             "::scoped_call(",
+            "::scoped_call_from(",
         ];
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut found = std::collections::BTreeSet::new();

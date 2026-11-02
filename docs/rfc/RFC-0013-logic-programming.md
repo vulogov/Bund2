@@ -36,6 +36,18 @@
   walk for a clause variable occurring once in its head, which cannot
   close a cycle. L7 and every other text are unchanged.
 
+  *Dated note, 2026-11-01:* Q45 and Q47–Q49 are answered by the owner's
+  rulings, recorded as D238–D241: S8 gains `_aliases`, S10 a warning, S5's
+  and S14's bullets on positions, the debugger and the profiler are amended
+  where they stand. No ruling changes a word's effect or an answer that
+  has no aliasing.
+
+  *Dated note, 2026-11-01:* Q46 is answered by D242, the owner's "(d),
+  starting with (c)": a clause is compiled when a call first tries it, and
+  the index's keys are read off the stored clauses. S2, S4's renaming and
+  S6's index are amended where they stand. The one change a program can
+  see is when a hand-built KB's malformed clause is refused.
+
   The history below is kept as it was.
 - *Before acceptance:* **Draft — revision 12 (2026-10-28).**
   - Revision 5 carried every correction from the pre-RFC review and three
@@ -521,7 +533,11 @@ identities (D88), so they no longer unify with their originals **[L13]**.
   clauses one by one costs O(*n*²) `Rc` copies. `kb!` and `kb.consult*`
   cost O(*n*).
 - A compiled-form cache keyed on the payload could never go stale (D5,
-  D35). None is proposed (Q46).
+  D35). None is proposed (Q46). *(2026-11-01, D242:)* none is built
+  either; instead a clause is compiled only when a call tries it, which
+  removed most of what a cache would save
+  (`docs/measurements/kb-compile-2026-11-01.md`). A cache stays a later
+  step for a measurement to ask for.
 
 **Wire depth.** Depth is counted as `to_binary` counts it, leaf included.
 `save.model` and `send` refuse anything deeper (F118).
@@ -673,6 +689,10 @@ is left, the query is exhausted.
 
 - **Renaming.** A clause is compiled once per activation into a template in
   the activation store. Renaming copies the template into the arena.
+  *(2026-11-01, D242:)* it is compiled when a call first tries it, not at
+  its predicate's first call. A malformed clause in a KB built by hand is
+  therefore refused by the first call that tries it, and not by one that
+  passes it over.
 - **Inferences and the memory guard.** One inference is any of these: a
   resolution attempt, a built-in goal, a bridge, an `ask`, a tabling step,
   a saturation join attempt, a propagator run, or a labeling step.
@@ -771,8 +791,13 @@ after it, and the scratch stack exists only during it.
 - **Rust depth.** A bridge costs one native frame. A λ that runs another
   solving word nests, and `stack_ok` refuses deep nesting (its check at
   the head of `scoped_call`, `crates/bund2-interp/src/lib.rs`).
-- **Source positions.** The substituted body has none (Q49), so E24 names
-  the goal.
+- **Source positions.** *(Amended 2026-11-01, D241, answering Q49.)*
+  Substitution replaces item for item, so the substituted body is placed
+  where λ was written: the bridge runs it with `Vm::scoped_call_from`,
+  which copies λ's places onto it, and onto each lambda inside it at the
+  same index. A traceback, a backtrace and a stop inside a bridge say a
+  line of λ; E24's text still names the goal. (`stack_ok`'s check now heads
+  `scoped_frame`, which `scoped_call` and `scoped_call_from` both reach.)
 
 ### S6. The engine's organisation
 
@@ -832,7 +857,9 @@ The engine lives in `crates/bund2-stdlib/src/kb/`. The existing
 - **No key.** An unbound or opaque first argument, or arity 0, takes every
   clause.
 - **When it is built.** The index is built on a predicate's first call in
-  an activation.
+  an activation. *(2026-11-01, D242:)* the keys are read off the stored
+  clauses when a call with a key first needs them, and each key's
+  candidates on its first use; a call with no key reads none.
 
 **Build [L9].** The family is in the default build. It adds no dependency,
 so D28 does not apply.
@@ -860,6 +887,13 @@ so D28 does not apply.
   - `[ fd_dom X [ [ 1 3 ] [ 5 9 ] ] ]`, for a domain with holes.
 - **Variables inside `_residual`.** A query variable reads as a PTR of its
   name. Any other variable reads as a PTR `_G`*n*.
+- **Aliasing [D238, 2026-11-01, answering Q45].** Shown variables that are
+  one unbound variable still read as NODATA each, and the answer gains
+  `_aliases`: a LIST of `[ = X Y ]`, each later variable paired with the
+  first in the order the goal names them, as PTRs of their names, so that
+  re-posted they restore the aliasing. Names beginning with `_` are left
+  out, and aliasing inside a bound value is not reported. An answer with
+  none has no key.
 
 ### S9. The words
 
@@ -960,7 +994,10 @@ is.
 - **An unbound argument is NODATA**, written `∅` or `|`. At a call site, `_`
   would be an unknown word.
 - **One word per functor name.** `p/1` and `p/2` both register `p`, and the
-  second replaces the first (Q47).
+  second replaces the first (Q47). *(2026-11-01, D239:)* when the word
+  replaced is one `kb.word` registered at another arity, `kb.word` reports
+  a `Warning` saying so; the same arity, or a word the program registered
+  itself, is replaced silently.
 - **It behaves like `register`:**
   - it fires `watch redefine`;
   - it records its definition site;
@@ -1112,10 +1149,16 @@ E55's `<reason>` is one of:
     scratch name.
 - **The debugger (RFC-0008).** Breakpoints fire inside bridges. A stop
   shows the bridge's frame, without a source position (Q48, Q49).
+  *(2026-11-01, D240 and D241:)* the frame now reads `… run by a bridge
+  solving <goal>` and carries λ's place, at a stop, in `bt` and in a
+  traceback.
 - **The profiler (RFC-0011).**
   - It profiles the solving words, the `query` runner (through
     `run_conditional`'s hook), and bridge bodies.
-  - It does not report per-predicate time (Q48).
+  - It does not report per-predicate time (Q48). *(2026-11-01, D240:)* it
+    counts instead, per `functor/arity`, calls and clause retries, each one
+    inference, in a report section *Predicates, by inferences*. Nothing is
+    counted when no profile is kept.
 - **The world file.** `save.model` stores a KB. `load.model` pushes every
   model in the file (F110), with fresh identities (D88).
 - **Classes (RFC-0010, D225).** Class names are Title-cased words, so in
@@ -1978,11 +2021,18 @@ These are entered in `docs/registers/open-questions.md`.
   run, criterion 25. 2026-11-01: the quotations are checked against the
   pages, one word corrected. Q44 is closed.)*
 - **Q45.** Answers lose the aliasing between unbound variables.
-- **Q46.** A compiled-form cache keyed on the KB's payload.
+  *(2026-11-01: answered by D238, `_aliases`.)*
+- **Q46.** A compiled-form cache keyed on the KB's payload. *(2026-11-01:
+  measured, `docs/measurements/kb-compile-2026-11-01.md`, and answered by
+  D242: clauses compiled when tried; a cache only if a later measurement
+  asks.)*
 - **Q47.** Whether `kb.word` should put the arity in the word's name.
+  *(2026-11-01: answered by D239, a warning.)*
 - **Q48.** Whether the debugger should name the goal being solved, and
-  whether the profiler should report time per predicate.
+  whether the profiler should report time per predicate. *(2026-11-01:
+  answered by D240, the goal named and inferences counted.)*
 - **Q49.** Whether a bridge body should inherit λ's source positions.
+  *(2026-11-01: answered by D241, yes.)*
 
 ---
 

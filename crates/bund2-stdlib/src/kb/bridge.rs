@@ -62,22 +62,29 @@ fn scratch_name(vm: &dyn Vm, d: usize) -> String {
     })
 }
 
-/// Run `body` on a scratch stack and answer the value it left on top, or
-/// `None` (§S5 step 3).
+/// Run `body`, made by [`substitute`] from the lambda `written`, on a
+/// scratch stack and answer the value it left on top, or `None` (§S5 step 3).
 ///
 /// 1. Take the scratch name for this depth.
-/// 2. `scoped_call` creates the stack and runs the body on it.
+/// 2. `scoped_call_from` creates the stack and runs the body on it, placed
+///    where `written`'s items were written (D241): substitution replaces
+///    item for item, so the two line up. `by` names the frame (D240).
 /// 3. Read the top of the scratch stack with `pull_from`.
 /// 4. If the scratch stack is still current, switch back to the caller's.
 ///    Since F231's fix `scoped_call` never returns that way; this guards
 ///    against a `Vm` that breaks the contract (criterion 7).
 /// 5. Drop the scratch stack. It is not current, so the ring is untouched;
 ///    if λ dropped it already, this changes nothing.
-pub fn run(vm: &mut dyn Vm, body: Vec<BundValue>) -> Result<Option<BundValue>, Error> {
+pub fn run(
+    vm: &mut dyn Vm,
+    body: Vec<BundValue>,
+    written: &BundValue,
+    by: &dyn Fn() -> String,
+) -> Result<Option<BundValue>, Error> {
     let depth = Depth::enter();
     let name = scratch_name(vm, depth.0);
     let prev = vm.current_name();
-    let ran = vm.scoped_call(&name, body);
+    let ran = vm.scoped_call_from(&name, body, written, by);
     let left = vm.pull_from(&name);
     if vm.current_name() == name {
         vm.to_stack(&prev);
@@ -639,7 +646,8 @@ mod tests {
         let mut vm = Broken { inner: interp() };
         let home = vm.current_name();
         let stacks = vm.stack_names();
-        let r = super::run(&mut vm, vec![BundValue::int(1)]);
+        let written = BundValue::lambda(vec![BundValue::int(1)]);
+        let r = super::run(&mut vm, vec![BundValue::int(1)], &written, &String::new);
         assert!(r.is_err());
         assert_eq!(vm.current_name(), home);
         assert_eq!(vm.stack_names(), stacks);

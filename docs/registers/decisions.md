@@ -16223,3 +16223,190 @@ included. `singletons_are_the_variables_a_head_names_once` checks the scan on
   order the pairs are worked, which this skip's does not.
 - **Make the check cheaper** (a mark per cell, or a depth bound). Changes
   every walk, and none of it is needed for the case measured.
+
+## D238 — Answers report aliased unbound variables as `_aliases` (Q45)
+
+**Raised 2026-10-28** as Q45 by RFC-0013 §S1: two query variables bound to
+each other and to nothing else read back as two NODATAs, so an answer
+cannot say they are one variable.
+
+**Options shown.** (a) Leave it. (b) Read shared unbound variables back as
+one named marker, such as `_G1`, which changes NODATA's role in an answer
+and breaks passing an answer straight back to `kb.assert`. (c) An
+`_aliases` key, in `_residual`'s style.
+
+**Ruled: (c).** An answer whose shown variables include two or more that
+are one unbound variable gains `_aliases`, a LIST of goals `[ = X Y ]`
+that, re-posted, restore the aliasing: each later variable paired with the
+first, in the order the goal names them, each a PTR of its name as in
+`_residual`. The variables still read as NODATA. Names beginning with `_`
+are left out, as they are from the answer; aliasing inside a bound value
+(`X = [ f A ]`, `Y = A`) is not reported. An answer with no aliasing is
+unchanged, and so is `kb.call`'s, a LIST of its arguments, which has no
+keys; `kb.saturate`'s facts already name shared variables `_G`*k*.
+
+**Built.** `Solver::aliases`, after `_residual`. Tested by
+`variables_left_as_one_answer_their_aliasing`; the `dif` and domain
+tests whose goals alias two variables gain the key.
+
+- Blocks: nothing
+- Depends on: D226 (L5, L15)
+- Status: **RESOLVED** by the repository owner, 2026-11-01 ("Q45: c").
+  RFC-0013's S8 gains a paragraph, with a dated note under its status.
+
+## D239 — `kb.word` warns when it changes a word's arity (Q47)
+
+**Raised 2026-10-28** as Q47 by RFC-0013 §S10: `kb.word` registers one word
+per functor name, so `p/1` and `p/2` both register `p`, and the second
+replaces the first without a word.
+
+**Options shown.** (a) Leave it, as `register` behaves. (b) Always register
+`p/2`, awkward at a call site and with `/` in a word name untested. (c) Keep
+`p` and warn when the word replaced was a `kb.word` of another arity.
+
+**Ruled: (c).** When `kb.word` binds a name whose current body is the body
+`kb.word` registers (`"var" var? "functor" n kb.call`, same functor) with
+another arity, it reports a `Warning`:
+
+    kb.word: p/2 replaces p/1, which kb.word registered; a word has one
+    arity, so a call written for p/1 now asks p/2 (D239)
+
+and registers the word as before. The same arity, or a word the program
+registered itself, is replaced silently, as `register` replaces it.
+`kb.word` is already in `REPORTS_MID_BODY`.
+
+**Built.** `kb_word` and `word_arity` in `kb/words.rs`; tested by
+`kb_word_warns_when_it_changes_a_word_s_arity`.
+
+- Blocks: nothing
+- Depends on: D36
+- Status: **RESOLVED** by the repository owner, 2026-11-01 ("Q47: c").
+  RFC-0013's S10 is amended, with a dated note under its status.
+
+## D240 — A bridge's frame names its goal; the profiler counts inferences per predicate (Q48)
+
+**Raised 2026-10-28** as Q48 by RFC-0013 §S14: a stop inside a bridge shows
+the bridge's frame and not the goal being solved, and the profiler reports
+the solving words, the `query` runner and bridge bodies, never predicates.
+
+**Options shown.** (a) Leave it. (b) The debugger shows the goal at a stop
+inside a bridge. (c) The profiler reports time per predicate, which
+backtracking makes hard to define: a predicate's time is spread over many
+visits. (d) The profiler reports inference counts per predicate, well
+defined and cheap.
+
+**Ruled: (b) and (d).**
+
+- **(b).** `Vm::scoped_call_from` takes `by`, a closure naming what runs
+  the body, asked only while the interpreter names frames (a debugger
+  attached, or a reporter that draws frames). A bridge passes
+  `a bridge solving <goal>`, the goal as E24 shows it, and the frame reads
+  `#0  a body assembled at run time at 2, run by a bridge solving …` at a
+  stop, in `bt` and in a traceback, as `eval_lambda`'s frames read
+  `run by <word>` (D173). The goal is formatted only when asked.
+- **(d).** While a profile is kept (`Vm::counting_predicates`), each
+  activation counts, per `functor/arity`, its calls (a goal of that
+  predicate solved, one inference) and retries (a further clause tried for
+  one, one inference), and hands them over at each answer through
+  `Vm::count_predicates`. The profile keeps them in `Profile::predicates`,
+  and the Markdown report gains a section, *Predicates, by inferences*,
+  only when it is not empty. Built-in goals count under their own names;
+  the engine's own `$` goals, labeling steps, propagator runs and answers
+  taken from a table are not counted. Nothing is counted when no profile
+  is kept.
+
+**Built.** `Runner::Named` and `scoped_call_from` in `bund2-interp`;
+`Bridge::run`'s `by`, `Bridge::counting` and `Bridge::counted` in
+`kb/solve.rs`; the section in `bund2-cli`'s profile renderer. Tested by
+`a_stop_inside_a_bridge_names_its_goal_and_its_line`,
+`a_bridge_failure_is_placed_and_names_its_goal` and
+`the_profile_counts_inferences_per_predicate`.
+
+- Blocks: nothing
+- Depends on: D173, D241
+- Status: **RESOLVED** by the repository owner, 2026-11-01 ("Q48: (b) and
+  (d)"). RFC-0013's S14 is amended, with a dated note under its status.
+
+## D241 — A bridge body is placed where its λ was written (Q49)
+
+**Raised 2026-10-28** as Q49 by RFC-0013 §S5: a bridge substitutes the
+goal's bindings into λ and runs the result, which has no source positions,
+so a failure inside it is placed at the asking word, not at a line of λ.
+
+**Options shown.** (a) Leave it. (b) Carry λ's positions over to the
+substituted body.
+
+**Ruled: (b).** Substitution replaces item for item and never changes a
+body's length, so λ's places line up with the new body's items. A new
+`Vm` method, `scoped_call_from`, runs the body as `scoped_call` does after
+copying `written`'s places onto it (`Interp::inherit_positions`), and onto
+each lambda inside it at the same index as one in λ; a body of another
+length, or one λ has no place for, gets none. A traceback, a backtrace
+and a stop inside a bridge then say a line. The default method is a plain
+`scoped_call`, so a `Vm` that keeps no positions is unchanged.
+`.scoped_call_from(` joins the call-site scan of criterion 11's
+re-entering functions.
+
+**Built.** In `bund2-api`, `bund2-interp` and `kb/bridge.rs`; tested at
+process level by `a_bridge_failure_is_placed_and_names_its_goal`, for λ and
+a lambda inside it, and by `a_stop_inside_a_bridge_names_its_goal_and_its_line`.
+
+- Blocks: nothing
+- Depends on: RFC-0003 §S5
+- Status: **RESOLVED** by the repository owner, 2026-11-01 ("Q49: b").
+  RFC-0013's S5 and S14 are amended, with a dated note under its status.
+
+## D242 — A clause is compiled when a call first tries it (Q46)
+
+**Raised 2026-10-28** as Q46 by RFC-0013 §S2: a compiled-form cache keyed
+on the KB's payload could never go stale, and none was proposed until a
+measurement asked for one. The owner ruled "measure first", and
+`docs/measurements/kb-compile-2026-11-01.md` measured it: every
+activation compiled each predicate it called whole, about 100 ns a clause,
+so a one-inference query of a predicate of 10,000 clauses took 1.0 ms
+against 1.2 µs for one clause.
+
+**Options shown.** (a) Leave it, and record the cost. (b) A cache of the
+compiled form keyed on the KB's payload, through a `Weak` as D35's:
+shared templates between activations, a refactor of the arena, memory
+held per KB. (c) No cache: compile only the clauses a call tries, picking
+candidates from the stored values. (d) (c) now, and (b) later only if a
+measurement still asks for it.
+
+**Ruled: (d), starting with (c).**
+
+- **A predicate's first call compiles nothing.** Its clauses are taken as
+  stored values; each is compiled into the template store when a call
+  first tries it (`Solver::clause`), once per activation as before.
+- **The index's keys are read off the values**, by `Arena::shape`, which
+  says what `to_term` would build at the top of a value without building
+  it, and only when a call with a key first needs them. A call with no key
+  reads none. `shape_agrees_with_to_term` holds the two together.
+- **Reading, where the text was silent: a malformed clause is refused when
+  tried.** A KB built by `kb!`, `kb.assert` or `kb.consult*` holds no
+  malformed clause, since each is refused on entry (E03–E06, E26). A KB is
+  a MAP, and `Kb::read` checks only its `type`, so one built by hand can
+  hold one. It was refused at its predicate's first call; it is now
+  refused by the first call that tries it, with the same text, and never
+  by a query whose index passes it over or that stops first. A clause
+  whose first argument cannot be read is a candidate for every call, so
+  it is refused rather than skipped. *Alternative:* validate every clause
+  at the first call, which is the O(n) this removes.
+- **Nothing else a program can observe changes**: the same candidates in
+  the same order, the same answers, inferences and errors for every KB the
+  words build.
+
+**Measured** (the same file, "After"): the query of 10,000 clauses from
+1.0 ms to 168 µs with a key and 78 µs without, 17 and 8 ns a clause; a
+predicate of one clause and an activation unchanged. Naive reverse is
+unchanged, paired against `71aa577` over two rounds (1.73–1.76 s both).
+
+**(b) stays a later step**, taken only if a measurement asks for it: what
+remains is linear in the predicate's size, the values' copy and, for a
+keyed call, the key scan.
+
+- Blocks: nothing
+- Depends on: D5, D35, D237
+- Status: **RESOLVED** by the repository owner, 2026-11-01 ("Q46: (d),
+  starting with (c)"). RFC-0013's S2, S4 and S6 are amended where they
+  stand, with a dated note under its status; Q46 is answered.

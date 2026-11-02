@@ -525,6 +525,87 @@ impl Arena {
         }
     }
 
+    /// **What `v` reads as, without reading it** — its outermost cell as
+    /// [`Arena::to_term`] would build it, and the refusal it would meet
+    /// there, with no cell pushed (D242). A compound's arguments are not
+    /// looked at. Only atoms are interned, which nothing cuts. The index
+    /// scans a predicate's clauses with this, so that a clause is compiled
+    /// only when a call tries it; `shape_agrees_with_to_term` holds it to
+    /// `read_one`.
+    pub fn shape(&mut self, v: &BundValue) -> Result<Shape, Refusal> {
+        match v.unboxed() {
+            BundValue::Int(i, _) => return Ok(Shape::Int(*i)),
+            BundValue::Float(..) => return Ok(Shape::Other),
+            BundValue::Bool(b, _) => {
+                return Ok(Shape::Atom(self.atoms.intern(if *b {
+                    "true"
+                } else {
+                    "false"
+                })));
+            }
+            BundValue::Nodata(_) => return Ok(Shape::Var),
+            _ => {}
+        }
+        let dt = v.dt();
+        if dt == NODATA {
+            return Ok(Shape::Var);
+        }
+        if dt == CONTEXT {
+            return Err(Refusal::Context(v.clone()));
+        }
+        if dt == bund2_value::CALL {
+            let name = v.str_ref().unwrap_or_default();
+            if name == "nil" {
+                return Ok(Shape::Nil);
+            }
+            if !is_variable_name(name) {
+                return Ok(Shape::Atom(self.atoms.intern(name)));
+            }
+            if name.contains('|') {
+                return Err(Refusal::BarInVariable(name.to_string()));
+            }
+            return Ok(Shape::Var);
+        }
+        if dt == bund2_value::STRING || dt == bund2_value::PTR {
+            return Ok(Shape::Atom(
+                self.atoms.intern(v.str_ref().unwrap_or_default()),
+            ));
+        }
+        if dt != LIST {
+            return Ok(Shape::Other);
+        }
+        let items = v.as_list().unwrap_or(&[]);
+        let Some(first) = items.first() else {
+            return Ok(Shape::Nil);
+        };
+        if let Some(functor) = atom_call(first) {
+            let functor = self.atoms.intern(functor);
+            return Ok(match items.len() - 1 {
+                0 => Shape::Atom(functor),
+                n => Shape::Struct(functor, n),
+            });
+        }
+        let bars: Vec<usize> = items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, item)| is_bar(item).then_some(i))
+            .collect();
+        match bars.as_slice() {
+            [] => Ok(Shape::Cons),
+            [i] if *i > 0 && *i + 2 == items.len() => Ok(Shape::Cons),
+            _ => Err(Refusal::MisplacedBar(v.clone())),
+        }
+    }
+
+    /// The [`shape`](Arena::shape) of a clause head's first argument, when
+    /// the head is a compound with one; `None` for an atom head, a head that
+    /// is no term, and a first argument `to_term` would refuse (D242).
+    pub fn first_arg_shape(&mut self, head: &BundValue) -> Option<Shape> {
+        let items = head.as_list().filter(|_| head.dt() == LIST)?;
+        atom_call(items.first()?)?;
+        self.shape(items.get(1)?).ok()
+    }
+
     fn read_call(&mut self, name: &str, scope: &mut Scope) -> Result<Term, Refusal> {
         if name == "nil" {
             return Ok(self.nil());
@@ -666,6 +747,20 @@ impl Arena {
 }
 
 /// What one level of a value reads as, before its parts are read.
+/// A value's outermost cell, as [`Arena::shape`] reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shape {
+    Var,
+    Atom(Atom),
+    Int(i64),
+    Nil,
+    Cons,
+    /// A compound: its functor and arity, never 0.
+    Struct(Atom, usize),
+    /// A FLOAT or an opaque value: no index key.
+    Other,
+}
+
 enum Read<'a> {
     Term(Term),
     Struct(Atom, &'a [BundValue]),
@@ -722,6 +817,57 @@ mod tests {
         let mut scope = Scope::default();
         let t = arena.to_term(v, &mut scope).expect("a term");
         (arena, t, scope)
+    }
+
+    /// **D242.** `shape` says what `to_term` builds, cell for cell at the
+    /// top, and refuses what it refuses, over every kind of value a term
+    /// is read from.
+    #[test]
+    fn shape_agrees_with_to_term() {
+        let values = [
+            BundValue::int(7),
+            BundValue::float(1.5),
+            BundValue::boolean(true),
+            BundValue::nodata(),
+            c("nil"),
+            c("abc"),
+            c("X"),
+            c("_"),
+            c("X|Y"),
+            s("text"),
+            BundValue::ptr("p"),
+            l(vec![]),
+            l(vec![c("f")]),
+            l(vec![c("f"), c("X"), BundValue::int(1)]),
+            l(vec![BundValue::int(1), BundValue::int(2)]),
+            l(vec![c("H"), c("|"), c("T")]),
+            l(vec![c("|"), c("T")]),
+            l(vec![c("H"), c("|")]),
+            l(vec![c("X"), c("f")]),
+            BundValue::lambda(vec![BundValue::int(1)]),
+            BundValue::context(),
+        ];
+        for v in &values {
+            let mut arena = Arena::default();
+            let shape = arena.shape(v);
+            let term = arena.to_term(v, &mut Scope::default());
+            match (shape, term) {
+                (Err(a), Err(b)) => assert_eq!(a.text(), b.text(), "{}", v.display()),
+                (Ok(sh), Ok(t)) => {
+                    let want = match arena.cell(arena.deref(t)) {
+                        Cell::Var(_) => Shape::Var,
+                        Cell::Atom(a) => Shape::Atom(a),
+                        Cell::Int(i) => Shape::Int(i),
+                        Cell::Nil => Shape::Nil,
+                        Cell::Cons(..) => Shape::Cons,
+                        Cell::Struct { functor, arity, .. } => Shape::Struct(functor, arity),
+                        Cell::Float(_) | Cell::Opaque(_) => Shape::Other,
+                    };
+                    assert_eq!(sh, want, "{}", v.display());
+                }
+                (sh, t) => panic!("{}: shape {sh:?}, to_term {:?}", v.display(), t.is_ok()),
+            }
+        }
     }
 
     fn kind(arena: &Arena, t: Term) -> &'static str {

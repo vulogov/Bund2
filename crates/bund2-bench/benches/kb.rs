@@ -16,6 +16,15 @@
 //!   criterion 4 runs it.
 //! - `kb/loop20000000` — criterion 5's query, to its cap of 20,000,000. The
 //!   arena's two stores are printed first.
+//! - **Q46: a small query over a large KB**, which a cache of the compiled
+//!   form would serve. For `n` of 100, 1,000 and 10,000 facts of `p/1`
+//!   beside one fact `r/1`: `kb/new{n}`, an activation made and nothing
+//!   solved; `kb/hit{n}`, `[ p 5 ]`'s first answer, from a predicate of
+//!   `n` clauses, which compiles them and builds an index entry; `kb/any{n}`,
+//!   `[ p X ]`'s, which compiles them and needs no index; `kb/other{n}`,
+//!   `[ r 1 ]`'s, from a predicate of one
+//!   clause in the same KB. Each is one activation from the start, as
+//!   every asking word makes one.
 //! - **The occurs check's share and the guard poll's** are `kb/nrev30x10000`
 //!   A/B across the `kb-unchecked` and `kb-unpolled` features, against a
 //!   baseline saved without either (`Cargo.toml` gives the commands). Each
@@ -40,7 +49,12 @@ struct Quiet;
 
 impl Bridge for Quiet {
     fn warn(&mut self, _: String) {}
-    fn run(&mut self, _: Vec<BundValue>) -> Result<Option<BundValue>, Error> {
+    fn run(
+        &mut self,
+        _: Vec<BundValue>,
+        _: &BundValue,
+        _: &dyn Fn() -> String,
+    ) -> Result<Option<BundValue>, Error> {
         Ok(None)
     }
 }
@@ -168,6 +182,31 @@ fn engine(c: &mut Criterion) {
         let (answers, inferences) = solve_all(&kb, &goal);
         bund2_api::errln!("kb/join10000: {answers} answers, {inferences} inferences a run");
         g.bench_function("join10000", |b| b.iter(|| solve_all(&kb, black_box(&goal))));
+    }
+
+    // Q46: what one small query costs as the KB around it grows.
+    for n in [100usize, 1_000, 10_000] {
+        let facts = format!("[ {} [ r 1 ] ]", ints(n, |i| format!("[ p {i} ]")));
+        let (Some(kb), Some(hit), Some(any), Some(other)) = (
+            kb(&facts, 0),
+            top("[ p 5 ]"),
+            top("[ p X ]"),
+            top("[ r 1 ]"),
+        ) else {
+            continue;
+        };
+        g.bench_function(format!("new{n}"), |b| {
+            b.iter(|| Solver::new(&kb, black_box(&hit)).is_ok())
+        });
+        for (name, goal) in [("hit", &hit), ("any", &any), ("other", &other)] {
+            g.bench_function(format!("{name}{n}"), |b| {
+                b.iter(|| {
+                    Solver::new(&kb, black_box(goal))
+                        .map(|mut s| matches!(s.next(&mut Quiet), Ok(Some(_))))
+                        .ok()
+                })
+            });
+        }
     }
 
     if let (Some(kb), Some(goal)) = (

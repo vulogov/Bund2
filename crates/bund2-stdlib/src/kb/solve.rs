@@ -43,7 +43,7 @@ use super::fd::{Fd, FdMark, Prop};
 use super::proof::Proofs;
 use super::store::{self, Kb, Refused};
 use super::table::{Instance, Neg, Status, Tables};
-use super::term::{Arena, Atom, Cell, Mark, Refusal, SHOWN, Scope, Term};
+use super::term::{Arena, Atom, Cell, Mark, Refusal, SHOWN, Scope, Shape, Term};
 use super::unify::{Trail, Wake as _, unify, unify_head, unify_head_waking};
 
 /// The inferences after which one activation warns, once (W1, D39).
@@ -58,9 +58,15 @@ pub const POLLED: bool = !cfg!(feature = "kb-unpolled-bench");
 pub trait Bridge {
     /// Report W1, a `Warning`: the run goes on (D36).
     fn warn(&mut self, reason: String);
-    /// Run a bridge's λ, already substituted, on a scratch stack, and answer
-    /// what it left on top (§S5 step 3, `bridge.rs: run`).
-    fn run(&mut self, body: Vec<BundValue>) -> Result<Option<BundValue>, Error>;
+    /// Run a bridge's λ, already substituted from `written`, on a scratch
+    /// stack, and answer what it left on top (§S5 step 3, `bridge.rs: run`).
+    /// `by` names the goal, for a debugger's stop and a traceback (D240).
+    fn run(
+        &mut self,
+        body: Vec<BundValue>,
+        written: &BundValue,
+        by: &dyn Fn() -> String,
+    ) -> Result<Option<BundValue>, Error>;
     /// Run the `ask` lambda on `goal`, read back, and answer what it left on
     /// top (§S16 step 4, `bridge.rs: ask`). `None` when the query has no
     /// `ask` lambda (E50), as no asking word but `query` has.
@@ -72,6 +78,15 @@ pub trait Bridge {
     /// query names one (§S16). Each is a `[ goal reply ]` pair.
     fn remember(&mut self, replies: &[BundValue]) {
         let _ = replies;
+    }
+    /// Whether to count calls and retries per predicate (D240): asked once,
+    /// at an activation's first answer.
+    fn counting(&self) -> bool {
+        false
+    }
+    /// The counts since the last, each `(functor/arity, calls, retries)`.
+    fn counted(&mut self, counts: &[(String, u64, u64)]) {
+        let _ = counts;
     }
 }
 
@@ -270,8 +285,6 @@ enum Key {
 struct Clause {
     head: Term,
     body: Rc<[Term]>,
-    /// Its first argument's key; `None` matches every call.
-    key: Option<Key>,
     /// Its variables by name, kept only when its body holds a LAMBDA: an
     /// instance needs them only for a bridge to substitute from.
     names: Option<Names>,
@@ -280,8 +293,16 @@ struct Clause {
     once: Rc<[Term]>,
 }
 
+/// A predicate's clauses, each compiled when a call first tries it (D242):
+/// the index is built from `keys`, read off the stored values, so a call
+/// compiles only its candidates, and only as far as it tries them.
 struct Pred {
-    clauses: Vec<Clause>,
+    values: Vec<BundValue>,
+    clauses: Vec<Option<Clause>>,
+    /// Each clause's first argument's key, read when a call with a key
+    /// first needs the index; `None` matches every call, as does a clause
+    /// whose key cannot be read, which is then refused when tried.
+    keys: Option<Vec<Option<Key>>>,
     all: Rc<[usize]>,
     index: HashMap<Key, Rc<[usize]>>,
 }
@@ -348,6 +369,8 @@ pub struct Solver {
     vars: HashMap<Term, Term>,
     /// A clause instance's head singletons, reused between clauses (D237).
     once: Vec<Term>,
+    /// Calls and retries per predicate, while a profile is kept (D240).
+    counts: Option<HashMap<(Atom, usize), [u64; 2]>>,
     /// Set when proofs are kept (`kb.prove`, `query`'s `prove`).
     proofs: Option<Proofs>,
     /// The remembered replies (§S16), each ground goal in the template
@@ -446,6 +469,7 @@ impl Solver {
             scope: 0,
             vars: HashMap::new(),
             once: Vec::new(),
+            counts: None,
             proofs: None,
             replies: Vec::new(),
             told: Vec::new(),
@@ -560,6 +584,44 @@ impl Solver {
     /// The next answer, as a MAP from each named variable of the goal to its
     /// value (§S8); `None` when there are no more.
     pub fn next(&mut self, bridge: &mut dyn Bridge) -> Result<Option<BundValue>, Stop> {
+        if !self.started && !self.done && bridge.counting() {
+            self.counts = Some(HashMap::new());
+        }
+        let answer = self.next_answer(bridge);
+        if let Some(counts) = self.counts.as_mut().filter(|c| !c.is_empty()) {
+            let atoms = &self.arena.atoms;
+            let counted: Vec<(String, u64, u64)> = counts
+                .drain()
+                .map(|((f, n), [calls, retries])| {
+                    (format!("{}/{n}", atoms.text(f)), calls, retries)
+                })
+                .collect();
+            bridge.counted(&counted);
+        }
+        answer
+    }
+
+    /// Count a call (`0`) or a retry (`1`) of `t`'s predicate, while
+    /// counting (D240). The engine's own `$` goals are not counted: they are
+    /// no predicate a program wrote.
+    fn count(&mut self, t: Term, which: usize) {
+        let Some(counts) = self.counts.as_mut() else {
+            return;
+        };
+        let key = match self.arena.cell(self.arena.deref(t)) {
+            Cell::Atom(a) => (a, 0),
+            Cell::Struct { functor, arity, .. } => (functor, arity),
+            _ => return,
+        };
+        if self.arena.atoms.text(key.0).starts_with('$') {
+            return;
+        }
+        if let Some(c) = counts.entry(key).or_default().get_mut(which) {
+            *c += 1;
+        }
+    }
+
+    fn next_answer(&mut self, bridge: &mut dyn Bridge) -> Result<Option<BundValue>, Stop> {
         if self.done {
             return Ok(None);
         }
@@ -606,6 +668,10 @@ impl Solver {
         if !residual.is_empty() {
             map.push(("_residual".to_string(), BundValue::list(residual)));
         }
+        let aliases = self.aliases();
+        if !aliases.is_empty() {
+            map.push(("_aliases".to_string(), BundValue::list(aliases)));
+        }
         let answer = BundValue::map(map.into_iter().collect());
         match self.proofs {
             None => answer,
@@ -618,6 +684,31 @@ impl Solver {
                 .collect(),
             ),
         }
+    }
+
+    /// The answer's variables that are one unbound variable, each as the goal
+    /// `[ = X Y ]` that re-posted restores it (D238): every later one paired
+    /// with the first, in the order the goal names them. Names beginning
+    /// with `_` are left out, as they are from the answer; aliasing inside a
+    /// bound value is not reported.
+    fn aliases(&self) -> Vec<BundValue> {
+        let mut first: Vec<(Term, &str)> = Vec::new();
+        let mut out = Vec::new();
+        for (n, t) in self.names.iter().filter(|(n, _)| !n.starts_with('_')) {
+            let v = self.arena.deref(*t);
+            if !matches!(self.arena.cell(v), Cell::Var(_)) {
+                continue;
+            }
+            match first.iter().find(|(u, _)| *u == v) {
+                Some((_, m)) => out.push(BundValue::list(vec![
+                    BundValue::call("="),
+                    BundValue::ptr(*m),
+                    BundValue::ptr(n.as_str()),
+                ])),
+                None => first.push((v, n)),
+            }
+        }
+        out
     }
 
     /// The suspended `dif`s, each as the goal `[ dif A B ]` that re-posted
@@ -723,6 +814,7 @@ impl Solver {
                 }
                 Goal::Call(t) => {
                     self.infer(bridge)?;
+                    self.count(t, 0);
                     self.call(t, node.proof, bridge)?
                 }
             };
@@ -923,7 +1015,8 @@ impl Solver {
                     }
                     let Some(ci) = ci else { continue };
                     self.infer(bridge)?;
-                    if self.try_clause(call, pred, ci, cont, proof, after) {
+                    self.count(call, 1);
+                    if self.try_clause(call, pred, ci, cont, proof, after)? {
                         return Ok(true);
                     }
                 }
@@ -964,7 +1057,7 @@ impl Solver {
                             call: term,
                         };
                         // The body runs, and its `$answer` fails back here.
-                        if self.try_clause(term, p, ci, None, None, Some(answer)) {
+                        if self.try_clause(term, p, ci, None, None, Some(answer))? {
                             return Ok(true);
                         }
                         continue;
@@ -1396,7 +1489,7 @@ impl Solver {
             (f, _) => {
                 let n = args.len();
                 match self.lookup(f, n)? {
-                    Known::User(p) => Ok(self.resolve(d, p, proof, None)),
+                    Known::User(p) => self.resolve(d, p, proof, None),
                     Known::Askable(p) => {
                         // `Ask` first, then `Clauses` above it: the question
                         // comes only once every clause has been tried.
@@ -1407,7 +1500,10 @@ impl Solver {
                             cont: rest,
                             proof,
                         });
-                        Ok(p.is_some_and(|p| self.resolve(d, p, proof, Some(Goal::Asked(h)))))
+                        match p {
+                            Some(p) => self.resolve(d, p, proof, Some(Goal::Asked(h))),
+                            None => Ok(false),
+                        }
                     }
                     Known::Tabled(p) => self.tabled(d, f, n, p, proof),
                     Known::Fd => self.constraint(f, &args, d, proof),
@@ -1630,21 +1726,22 @@ impl Solver {
         bridge: &mut dyn Bridge,
     ) -> Result<bool, Stop> {
         let lambda = self.arena.deref(lambda);
-        let body = match self.arena.cell(lambda) {
+        let written = match self.arena.cell(lambda) {
             Cell::Var(_) => return Err(self.unbound(lambda, goal)),
             Cell::Opaque(i) => match self.arena.opaque_value(i) {
-                Some(v) if v.dt() == LAMBDA => v.as_lambda().unwrap_or(&[]).to_vec(),
+                Some(v) if v.dt() == LAMBDA => v.clone(),
                 _ => return Err(self.not_callable(lambda)),
             },
             _ => return Err(self.not_callable(lambda)),
         };
+        let body = written.as_lambda().unwrap_or(&[]);
         let scope = self
             .scopes
             .get(self.scope)
             .cloned()
             .unwrap_or_else(|| Rc::from([]));
         let arena = &self.arena;
-        let body = super::bridge::substitute(&body, &|name| {
+        let body = super::bridge::substitute(body, &|name| {
             scope.iter().find(|(n, _)| n == name).map(|(_, v)| {
                 let v = arena.deref(*v);
                 match arena.cell(v) {
@@ -1661,7 +1758,8 @@ impl Solver {
         })?;
         // λ′, the substituted λ, which re-run reproduces the binding.
         let shown = proof.map(|_| BundValue::lambda(body.clone()));
-        let left = bridge.run(body).map_err(|e| {
+        let by = || format!("a bridge solving {}", self.show(goal));
+        let left = bridge.run(body, &written, &by).map_err(|e| {
             Stop::Code(format!(
                 "bridge lambda in {} returns: {}",
                 self.show(goal),
@@ -1827,24 +1925,43 @@ impl Solver {
         Ok(k)
     }
 
-    /// Compile a predicate's clauses into the template store, on its first
-    /// call (§S4's renaming, §S6's index).
+    /// Take a predicate's clauses on its first call (§S4's renaming, §S6's
+    /// index). Nothing is compiled here: each clause is compiled when a call
+    /// first tries it ([`Self::clause`]), and the index's keys are read when
+    /// a call with a key first needs them (D242).
     fn compile(&mut self, key: &str) -> Result<usize, Stop> {
         let values = Kb::clauses_of(&self.source, key)?;
-        let mut clauses = Vec::with_capacity(values.len());
-        for v in &values {
-            let (head_v, goals_v) = store::split(v);
+        let all: Rc<[usize]> = (0..values.len()).collect();
+        self.preds.push(Pred {
+            clauses: values.iter().map(|_| None).collect(),
+            values,
+            keys: None,
+            all,
+            index: HashMap::new(),
+        });
+        Ok(self.preds.len() - 1)
+    }
+
+    /// Clause `ci` of `p`, compiled into the template store on its first
+    /// use (D242); `None` past the end.
+    fn clause(&mut self, p: usize, ci: usize) -> Result<Option<&Clause>, Stop> {
+        let compiled = self
+            .preds
+            .get(p)
+            .is_some_and(|pr| pr.clauses.get(ci).is_some_and(Option::is_some));
+        if !compiled {
+            let Some(v) = self.preds.get(p).and_then(|pr| pr.values.get(ci)).cloned() else {
+                return Ok(None);
+            };
+            let (head_v, goals_v) = store::split(&v);
             let mut scope = Scope::default();
             let head = self
                 .arena
                 .to_template(head_v, &mut scope)
                 .map_err(Refused::from)?;
-            let first = match self.arena.cell(head) {
-                Cell::Atom(_) => None,
-                Cell::Struct { start, arity, .. } => self.arena.args(start, arity).first().copied(),
-                _ => return Err(Refused::BadHead(head_v.clone()).into()),
-            };
-            let key = first.and_then(|a| self.key(a));
+            if !matches!(self.arena.cell(head), Cell::Atom(_) | Cell::Struct { .. }) {
+                return Err(Refused::BadHead(head_v.clone()).into());
+            }
             let body = goals_v
                 .iter()
                 .map(|g| self.arena.to_template(g, &mut scope))
@@ -1852,21 +1969,20 @@ impl Solver {
                 .map_err(Refused::from)?;
             let names = holds_lambda(goals_v).then(|| scope.names().into());
             let once = singletons(&self.arena, head).into();
-            clauses.push(Clause {
-                head,
-                body: body.into(),
-                key,
-                names,
-                once,
-            });
+            if let Some(slot) = self.preds.get_mut(p).and_then(|pr| pr.clauses.get_mut(ci)) {
+                *slot = Some(Clause {
+                    head,
+                    body: body.into(),
+                    names,
+                    once,
+                });
+            }
         }
-        let all: Rc<[usize]> = (0..clauses.len()).collect();
-        self.preds.push(Pred {
-            clauses,
-            all,
-            index: HashMap::new(),
-        });
-        Ok(self.preds.len() - 1)
+        Ok(self
+            .preds
+            .get(p)
+            .and_then(|pr| pr.clauses.get(ci))
+            .and_then(Option::as_ref))
     }
 
     /// A first argument's index key. `None` for an unbound variable, an
@@ -1897,14 +2013,26 @@ impl Solver {
         match key {
             None => pred.all.clone(),
             Some(k) => {
-                let clauses = &pred.clauses;
+                let arena = &mut self.arena;
+                let keys = pred.keys.get_or_insert_with(|| {
+                    pred.values
+                        .iter()
+                        .map(|v| match arena.first_arg_shape(store::split(v).0)? {
+                            Shape::Atom(a) => Some(Key::Atom(a)),
+                            Shape::Int(i) => Some(Key::Int(i)),
+                            Shape::Struct(f, n) => Some(Key::Struct(f, n)),
+                            Shape::Nil => Some(Key::Nil),
+                            Shape::Cons => Some(Key::Cons),
+                            Shape::Var | Shape::Other => None,
+                        })
+                        .collect()
+                });
                 pred.index
                     .entry(k)
                     .or_insert_with(|| {
-                        clauses
-                            .iter()
+                        keys.iter()
                             .enumerate()
-                            .filter(|(_, c)| c.key.is_none_or(|ck| ck == k))
+                            .filter(|(_, ck)| ck.is_none_or(|ck| ck == k))
                             .map(|(i, _)| i)
                             .collect()
                     })
@@ -1916,10 +2044,16 @@ impl Solver {
     /// A user predicate's call: compute the candidates, push `Clauses` when
     /// two or more remain, and try the first. `after` follows each clause
     /// body: an askable call's `$asked`, which marks its `Ask` answered.
-    fn resolve(&mut self, call: Term, p: usize, proof: Option<Term>, after: Option<Goal>) -> bool {
+    fn resolve(
+        &mut self,
+        call: Term,
+        p: usize,
+        proof: Option<Term>,
+        after: Option<Goal>,
+    ) -> Result<bool, Stop> {
         let cands = self.candidates(p, call);
         let Some(&first) = cands.first() else {
-            return false;
+            return Ok(false);
         };
         let rest = self.cont;
         if cands.len() > 1 {
@@ -2090,9 +2224,9 @@ impl Solver {
         rest: Option<usize>,
         proof: Option<Term>,
         after: Option<Goal>,
-    ) -> bool {
-        let Some(clause) = self.preds.get(p).and_then(|pr| pr.clauses.get(ci)) else {
-            return false;
+    ) -> Result<bool, Stop> {
+        let Some(clause) = self.clause(p, ci)? else {
+            return Ok(false);
         };
         let (head, body, names) = (clause.head, clause.body.clone(), clause.names.clone());
         let once_tpl = clause.once.clone();
@@ -2104,7 +2238,7 @@ impl Solver {
         let unified = self.unify_head(call, h, &once);
         self.once = once;
         if !unified {
-            return false;
+            return Ok(false);
         }
         let mut goals: Vec<Slotted> = body
             .iter()
@@ -2130,7 +2264,7 @@ impl Solver {
             self.scope = self.scopes.len() - 1;
         }
         self.cont = self.prepend(&goals, rest);
-        true
+        Ok(true)
     }
 
     // The refusals' texts (§S12).
@@ -2423,6 +2557,85 @@ mod tests {
         assert!(answers(&format!("{FAMILY} [ parent tom ann ] kb.query")).is_empty());
         let a = answers("[ [ p _ ] ] kb! [ p X ] kb.query");
         assert_eq!(a, [format!("X={}", BundValue::nodata().display())]);
+    }
+
+    /// **D242.** A clause is compiled when a call first tries it, so a
+    /// malformed clause in a KB built by hand, which `kb!` would have
+    /// refused, is refused by the first query that tries it, and not by
+    /// one whose index passes it over.
+    #[test]
+    fn a_clause_is_compiled_and_refused_only_when_tried() {
+        let c = BundValue::call;
+        let l = BundValue::list;
+        let bad = l(vec![
+            l(vec![c("p"), BundValue::int(2)]),
+            l(vec![c("q"), l(vec![c("|")])]),
+        ]);
+        let fact = l(vec![c("p"), BundValue::int(1)]);
+        let kb = || {
+            BundValue::map(
+                [
+                    ("type".to_string(), BundValue::str("kb")),
+                    (
+                        "preds".to_string(),
+                        BundValue::map(
+                            [("p/1".to_string(), l(vec![fact.clone(), bad.clone()]))]
+                                .into_iter()
+                                .collect(),
+                        ),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            )
+        };
+        assert_eq!(answers_on(vec![kb()], "[ p 1 ] kb.query"), [""]);
+        let e = err_on(vec![kb()], "[ p X ] kb.query");
+        assert!(e.contains("|"), "{e}");
+        assert!(e.starts_with("KB.QUERY: "), "{e}");
+    }
+
+    /// **D238 (Q45).** Answer variables left as one unbound variable read
+    /// back as NODATA each, and `_aliases` says which are the same: each
+    /// later one paired with the first, in the order the goal names them.
+    /// Names beginning with `_` are left out, as from the answer, and so is
+    /// aliasing inside a bound value; an answer with none has no key.
+    #[test]
+    fn variables_left_as_one_answer_their_aliasing() {
+        let n = BundValue::nodata().display();
+        let eq = |a: &str, b: &str| {
+            BundValue::list(vec![
+                BundValue::call("="),
+                BundValue::ptr(a),
+                BundValue::ptr(b),
+            ])
+        };
+        let aliases = |pairs: &[(&str, &str)]| {
+            BundValue::list(pairs.iter().map(|(a, b)| eq(a, b)).collect()).display()
+        };
+        assert_eq!(
+            answers("kb.new [ = X Y ] kb.query"),
+            [format!("X={n},Y={n},_aliases={}", aliases(&[("X", "Y")]))]
+        );
+        assert_eq!(
+            answers("kb.new [ [ = X Y ] [ = Z Y ] [ = W 1 ] [ = V U ] ] kb.query"),
+            [format!(
+                "U={n},V={n},W=1,X={n},Y={n},Z={n},_aliases={}",
+                aliases(&[("X", "Y"), ("X", "Z"), ("V", "U")])
+            )]
+        );
+        assert_eq!(answers("kb.new [ = X _Y ] kb.query"), [format!("X={n}")]);
+        assert_eq!(
+            answers("kb.new [ = X [ f Y ] ] kb.query"),
+            [format!(
+                "X={},Y={n}",
+                BundValue::list(vec![BundValue::call("f"), BundValue::nodata()]).display()
+            )]
+        );
+        assert_eq!(
+            answers("kb.new [ [ = X Y ] [ = Y 1 ] ] kb.query"),
+            ["X=1,Y=1"]
+        );
     }
 
     /// A query that is a LIST of goals is their conjunction, and each
@@ -2734,7 +2947,12 @@ mod tests {
         struct Quiet;
         impl super::Bridge for Quiet {
             fn warn(&mut self, _: String) {}
-            fn run(&mut self, _: Vec<BundValue>) -> Result<Option<BundValue>, bund2_api::Error> {
+            fn run(
+                &mut self,
+                _: Vec<BundValue>,
+                _: &BundValue,
+                _: &dyn Fn() -> String,
+            ) -> Result<Option<BundValue>, bund2_api::Error> {
                 Ok(None)
             }
         }
