@@ -16726,3 +16726,17 @@ RFC-0014 revision 9. Both rulings stay A; what they say is corrected:
   stamp's length), since an append cuts a torn tail first and a length
   alone cannot see what replaced it; otherwise they are dropped. The intent, that the locks stay exactly when part of a batch
   may be on disk, is unchanged.
+
+*Amended again 2026-11-03,* on the owner's "A" to the eighth review's S2
+(`docs/rfc/reviews/RFC-0014-review-2026-11-03.md`), in RFC-0014 revision
+10. **R25** stays A. The torn-tail clause above compared totals, so it
+could not tell which log was torn: over a library with a torn tail
+anywhere, a refusal that wrote nothing kept every lock, and "exactly" did
+not hold. Now Bund2 takes a snapshot once per acquisition of the locks,
+before its first call: each log `shards::list` names, by length; for each
+log that is torn, the bytes past what `from_cbor_seq` decodes; and the
+`LIBRARY` marker's contents. After a failure it compares a second
+snapshot. The locks are kept when any of these changed, or when a
+snapshot cannot be taken after the failure, and dropped otherwise. That
+makes "exactly" true outside R22's hazard, where an unlocked writer's own
+changes can only keep the locks.
