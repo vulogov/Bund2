@@ -5,12 +5,11 @@
   into Bund. The idea: use SMYSL ability to form, research and query SMYSL
   corpus/database of data. Before writing RFC, assess if this idea is
   reachable/worthy." The assessment is §A, before the design. The rulings
-  are **D244, OPEN**, points R1–R21, with R14 re-decided by revision 6.
-  **R1 A and R2 A were ruled by the owner on 2026-11-02**; R3–R21 are
-  open.
-  D244's heading still reads "R1–R12",
-  because it predates the amendments that added the rest. Nothing in this
-  RFC takes the default of any of them.
+  are **D244**, points R1–R21, with R14 re-decided by revision 6.
+  **D244 is RESOLVED (2026-11-02):** the owner ruled R1 A and R2 A, then
+  R3–R21 "as recommended", so every point is A, as the design assumes.
+  D244's heading still reads "R1–R12", because it predates the
+  amendments that added the rest.
   - *Revision 2 (2026-11-02)* answers the first review
     (`docs/rfc/reviews/RFC-0014-review-2026-11-02.md`): B1–B4, S1–S12 and
     N1–N12. The answer to each finding is listed at the end, in
@@ -1672,25 +1671,25 @@ Each is in `docs/registers/open-questions.md`.
 |---|---|---|---|
 | R1 | Scope | **A** Phase 1 as designed; Phase 2 a later amendment. **B** the bridge alone (§S7). **C** no integration. **D** Phases 1 and 2 together | **A** — **ruled A** 2026-11-02 |
 | R2 | Dependency source | **A** git at `rev = "4f5ecb9"`, with an `allow-git` entry ruled here (D38's mechanism, not its reason), moving to crates.io when U6 lands. **B** crates.io `=1.11.0`, with this RFC re-grounded against it. **C** wait for U6 | **A** — **ruled A** 2026-11-02 |
-| R3 | Handle | **A** a MAP of `type = "smysl"` with a canonical root and an agent. **B** a STRING path. **C** a new native value type | **A** |
-| R4 | Opening | **A** per call, no cache, until Q54 asks for one. **B** per call, with a process-wide cache | **A** |
-| R5 | Writes | **A** each word appends, and `smysl.append` appends a LIST under one acquisition of the locks. **B** single-record words only | **A** |
-| R6 | Queries | **A** `sq/1` text as written. **B** queries built from Bund values | **A** |
-| R7 | The fact schema | **A** §S7's table. **B** one fact per unit, with every field as an argument | **A** |
-| R8 | Exported proofs | **A** §S7: provenance by shape and library; the node table; `derived` capped by declared statuses; `else`, `not` and `tabled` capping at `inferred`; no grounds meaning `speculative`; gists fitted by `fit_gist_with` to every profile of the library's views, SM12 when none fits, and the full goal in the detail; §S7.1's rendering; solve, then write. **B** refuse any proof that holds a program fact or a capping node | **A** |
-| R9 | Names | **A** the `smysl.` prefix and the conditional `smysl`. **B** a `corpus.` prefix | **A** |
-| R10 | Upstream | **A** U1–U5, U7 and U8 do not block Phase 1. **B** Phase 1 waits for U1 and U2 | **A** |
-| R11 | `--noio` | **A** every word that touches disk is stubbed; `smysl.parse` and `smysl.agent` are not. **B** reads allowed, writes stubbed | **A** |
-| R12 | Readers | **A** `txt/1` and `md/1`. **B** every reader SMYSL has. **C** `txt/1` alone | **A** |
-| R13 | Writers in one process | **A** serialised by a process-wide table of mutexes keyed by canonical root, a poisoned mutex recovered. **B** SM07, as between processes | **A** |
-| R14 | A stale lock | *Re-decided by revision 6: SMYSL has no `--break-lock`.* **A** SM07 until an operator breaks it with a `bund2 smysl-unlock <root>` subcommand (lists the holders; `--yes` breaks every lock through `Lock::break_lock`), with U8 asked of SMYSL. **B** SM07 until an operator deletes the lock files by hand, which the RFC names. **C** a `smysl.unlock` word | **A** |
-| R15 | Attestation | **A** the handle's `agent` (default `"tool:bund2"`), `Authored`, rung `Document` for `cited` and `Computed` otherwise, hop 0, parents empty except a proof's conclusions, whose parents are their grounds, and a clock that is `Hlc::now` from this agent's newest clock in the library. Each is written as its own record; `measured` is refused; no attestation is written where this agent has already attested the uid; the retraction edge is unattested, as SMYSL writes it. **B** no attestation | **A** |
-| R16 | `.` forms | **A** none in Phase 1. **B** a form for `smysl.parse` | **A** |
-| R17 | Dossiers and measures | **A** answered, not saved; saving is an amendment. **B** saved by default. **C** a `save` key | **A** |
-| R18 | No C compiler | **A** the feature must build without one (criterion 3), a rule this RFC sets. **B** no such rule; the feature may compile C, as `grok` does | **A** |
-| R19 | `smysl.check`'s profile | **A** `CheckOptions::default()`: the profile SMYSL derives from the library's views, or the `default` preset without one. **B** always the `default` preset | **A** |
-| R20 | A panic or a failed append in a write | **A** SMYSL's locks are left in place (forgotten, not dropped), so the library refuses writes with SM07 until an operator breaks them; a batch `check_loggable` refuses keeps no lock. **B** the locks are released and the next write proceeds | **A** |
-| R21 | Agent ids | **A** any agent SMYSL's grammar allows; `Origin` authority stated as advisory, since ids are self-asserted. **B** `smysl.agent` and handles restricted to the `tool:` kind | **A** |
+| R3 | Handle | **A** a MAP of `type = "smysl"` with a canonical root and an agent. **B** a STRING path. **C** a new native value type | **A** — **ruled A** 2026-11-02 |
+| R4 | Opening | **A** per call, no cache, until Q54 asks for one. **B** per call, with a process-wide cache | **A** — **ruled A** 2026-11-02 |
+| R5 | Writes | **A** each word appends, and `smysl.append` appends a LIST under one acquisition of the locks. **B** single-record words only | **A** — **ruled A** 2026-11-02 |
+| R6 | Queries | **A** `sq/1` text as written. **B** queries built from Bund values | **A** — **ruled A** 2026-11-02 |
+| R7 | The fact schema | **A** §S7's table. **B** one fact per unit, with every field as an argument | **A** — **ruled A** 2026-11-02 |
+| R8 | Exported proofs | **A** §S7: provenance by shape and library; the node table; `derived` capped by declared statuses; `else`, `not` and `tabled` capping at `inferred`; no grounds meaning `speculative`; gists fitted by `fit_gist_with` to every profile of the library's views, SM12 when none fits, and the full goal in the detail; §S7.1's rendering; solve, then write. **B** refuse any proof that holds a program fact or a capping node | **A** — **ruled A** 2026-11-02 |
+| R9 | Names | **A** the `smysl.` prefix and the conditional `smysl`. **B** a `corpus.` prefix | **A** — **ruled A** 2026-11-02 |
+| R10 | Upstream | **A** U1–U5, U7 and U8 do not block Phase 1. **B** Phase 1 waits for U1 and U2 | **A** — **ruled A** 2026-11-02 |
+| R11 | `--noio` | **A** every word that touches disk is stubbed; `smysl.parse` and `smysl.agent` are not. **B** reads allowed, writes stubbed | **A** — **ruled A** 2026-11-02 |
+| R12 | Readers | **A** `txt/1` and `md/1`. **B** every reader SMYSL has. **C** `txt/1` alone | **A** — **ruled A** 2026-11-02 |
+| R13 | Writers in one process | **A** serialised by a process-wide table of mutexes keyed by canonical root, a poisoned mutex recovered. **B** SM07, as between processes | **A** — **ruled A** 2026-11-02 |
+| R14 | A stale lock | *Re-decided by revision 6: SMYSL has no `--break-lock`.* **A** SM07 until an operator breaks it with a `bund2 smysl-unlock <root>` subcommand (lists the holders; `--yes` breaks every lock through `Lock::break_lock`), with U8 asked of SMYSL. **B** SM07 until an operator deletes the lock files by hand, which the RFC names. **C** a `smysl.unlock` word | **A** — **ruled A** 2026-11-02 |
+| R15 | Attestation | **A** the handle's `agent` (default `"tool:bund2"`), `Authored`, rung `Document` for `cited` and `Computed` otherwise, hop 0, parents empty except a proof's conclusions, whose parents are their grounds, and a clock that is `Hlc::now` from this agent's newest clock in the library. Each is written as its own record; `measured` is refused; no attestation is written where this agent has already attested the uid; the retraction edge is unattested, as SMYSL writes it. **B** no attestation | **A** — **ruled A** 2026-11-02 |
+| R16 | `.` forms | **A** none in Phase 1. **B** a form for `smysl.parse` | **A** — **ruled A** 2026-11-02 |
+| R17 | Dossiers and measures | **A** answered, not saved; saving is an amendment. **B** saved by default. **C** a `save` key | **A** — **ruled A** 2026-11-02 |
+| R18 | No C compiler | **A** the feature must build without one (criterion 3), a rule this RFC sets. **B** no such rule; the feature may compile C, as `grok` does | **A** — **ruled A** 2026-11-02 |
+| R19 | `smysl.check`'s profile | **A** `CheckOptions::default()`: the profile SMYSL derives from the library's views, or the `default` preset without one. **B** always the `default` preset | **A** — **ruled A** 2026-11-02 |
+| R20 | A panic or a failed append in a write | **A** SMYSL's locks are left in place (forgotten, not dropped), so the library refuses writes with SM07 until an operator breaks them; a batch `check_loggable` refuses keeps no lock. **B** the locks are released and the next write proceeds | **A** — **ruled A** 2026-11-02 |
+| R21 | Agent ids | **A** any agent SMYSL's grammar allows; `Origin` authority stated as advisory, since ids are self-asserted. **B** `smysl.agent` and handles restricted to the `tool:` kind | **A** — **ruled A** 2026-11-02 |
 
 ---
 

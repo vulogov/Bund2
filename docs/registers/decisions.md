@@ -16452,10 +16452,9 @@ compiled only under a feature. SMYSL is read at commit 4f5ecb9 (v1.14.0).
 
 - Blocks: RFC-0014
 - Depends on: D26, D27, D28, D32, D36, D37, D49, D51, D72, D226 (L11)
-- Status: **OPEN, R1 and R2 ruled.** The owner ruled R1 A and R2 A on
-  2026-11-02 (below, after the fifth amendment). R3–R21 are open. The RFC
-  is written against each recommended option, and none of R3–R21 is
-  adopted until ruled.
+- Status: **RESOLVED 2026-11-02.** The owner ruled R1 A and R2 A, then
+  R3–R21 "as recommended", which is A for every point. Both rulings are
+  recorded below, after the fifth amendment.
 
 | | Question | Options | Recommended |
 |---|---|---|---|
@@ -16620,3 +16619,42 @@ becomes **OPEN, R1 and R2 ruled**.
   re-runs RFC-0014's SMYSL criteria.
 - **Still open: R3–R21.** Phase 1's work items wait on them, because the
   RFC's design rests on their recommended options.
+
+*Resolved 2026-11-02 by the owner:* "proceed as recommended", for
+R3–R21. Every point is ruled **A**, as RFC-0014 revision 6 recommends,
+and the status becomes **RESOLVED**:
+
+- **R3 A:** a handle is a MAP `{type:"smysl", root, agent}` with a
+  canonical root.
+- **R4 A:** the library is opened per call, with no cache until Q54's
+  measurement asks for one.
+- **R5 A:** each word appends, and `smysl.append` appends a list under
+  one acquisition of the locks.
+- **R6 A:** queries are `sq/1` text as written.
+- **R7 A:** §S7's fact table.
+- **R8 A:** exported proofs as §S7 gives them, gists fitted to every
+  profile of the library's views.
+- **R9 A:** the `smysl.` prefix and the conditional `smysl`.
+- **R10 A:** U1–U5, U7 and U8 do not block Phase 1.
+- **R11 A:** every word that touches disk is stubbed under `--noio`,
+  except `smysl.parse` and `smysl.agent`.
+- **R12 A:** the readers `txt/1` and `md/1`.
+- **R13 A:** writers in one process are serialised by a process-wide
+  table of mutexes keyed by canonical root, a poisoned mutex recovered.
+- **R14 A:** a stale lock is SM07 until an operator breaks it with the
+  `bund2 smysl-unlock <root>` subcommand of the `smysl` build; U8 is
+  asked of SMYSL.
+- **R15 A:** attestations as §S4 gives them.
+- **R16 A:** no `.` forms in Phase 1.
+- **R17 A:** dossiers and measures are answered, not saved.
+- **R18 A:** the feature builds with no C compiler (criterion 3). Q52 is
+  still the open fact this rests on.
+- **R19 A:** `smysl.check` uses `CheckOptions::default()`.
+- **R20 A:** a panic, or an append that fails part way, leaves SMYSL's
+  locks in place.
+- **R21 A:** any agent SMYSL's grammar allows, with retraction authority
+  stated as advisory.
+
+RFC-0014's Phase 1 is unblocked by this decision. Its open questions
+Q51, Q52, Q54, Q55, Q56 and Q57 remain, each with the answer route the
+RFC names (Q52 and Q55 before or at M1).
