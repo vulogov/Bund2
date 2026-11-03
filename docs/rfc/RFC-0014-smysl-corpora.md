@@ -143,9 +143,10 @@ Nothing here blocks Phase 1. Three things are still unknown, and they are
 recorded as questions rather than blockers:
 
 - what a library holds after an append interrupted part way (Q51);
-- whether the pure `blake3` build invokes a C compiler (Q52);
+- whether the pure `blake3` build invokes a C compiler (Q52, answered
+  since: it does not);
 - whether every type the words need can be built from outside SMYSL's
-  crates (Q55);
+  crates (Q55, answered since: they can);
 - what a dossier loses without stemming, and which template sets this
   build carries (Q56).
 
@@ -653,21 +654,22 @@ The owner wrote both projects. This RFC joins them.
   - `--features smysl` in the `feature matrix` step's `cargo check`, and
     the same build with `CC` and `CXX` set to `false` (criterion 3);
   - a second `cargo deny` run with `--features smysl` in the `deny` job.
-- **Pins that must agree.** In the crates Phase 1 links, SMYSL pins four
+- **Pins that must agree.** In the crates Phase 1 links, SMYSL pins five
   crates exactly:
   - `unicode-segmentation = "=1.13.3"` (`smysl:Cargo.toml:68`);
   - `caseless = "=0.2.2"` (`smysl:Cargo.toml:73`, a `smysl-text`
     dependency at `smysl-text/Cargo.toml:116`);
   - `pulldown-cmark = "=0.13.4"` (`smysl:Cargo.toml:80`), which
     `reader-md` turns on;
-  - `libm = "=0.2.16"` (`smysl-measure/Cargo.toml:42`).
+  - `libm = "=0.2.16"` (`smysl-measure/Cargo.toml:42`);
+  - `brotli = "=8.0.4"` (`smysl-measure/Cargo.toml:54`), which is pure
+    Rust.
 
   `rand_chacha` is `"0.9"`, which is not an exact pin
   (`smysl-measure/Cargo.toml:45`).
 
   Bund2's `Cargo.lock` has `unicode-segmentation` 1.13.3 and `libm`
-  0.2.16 today,
-  and neither `caseless` nor `pulldown-cmark`. A Bund2 bump of the first
+  0.2.16 today, and none of `caseless`, `pulldown-cmark` or `brotli`. A Bund2 bump of the first
   two, or a later Bund2 dependency on the last two, must keep the feature
   building, which the `feature matrix` step checks.
 
@@ -1608,9 +1610,27 @@ Each is in `docs/registers/open-questions.md`.
     text's objects without its manifest.
   - If that can leave a library half-written, a repair step is an
     amendment.
-- **Q52 [UNGROUNDED].** Does `blake3` with `pure` and no default features
-  invoke a C compiler at build time? `cc` appears beneath it in SMYSL's
-  lock file. Criterion 3 tests it, under R18.
+- **Q52.** Does `blake3` with `pure` and no default features invoke a C
+  compiler at build time? **Answered 2026-11-02, after D244: no.**
+  - **Read.** `blake3` 1.8.5, the version SMYSL's lock file holds, is read
+    from the crates.io source.
+    - With `pure`, its build script compiles no C on any target. On x86
+      it takes Rust intrinsics and skips AVX-512 (`blake3` 1.8.5
+      `build.rs:346-356`). On aarch64, `pure` turns off the NEON C path
+      (`:367-371`).
+    - On x86 it still probes for a compiler (`:161-194`), and a failing
+      one is caught as "no compiler", with a cargo warning (`:186-192`).
+    - `cc` is only its build-dependency, and the only other user of `cc`
+      in SMYSL's lock is `ring`, which comes through `rustls` to the
+      model layer (Phase 2).
+  - **Built.** A scratch crate depending on the eight Phase 1 crates at
+    4f5ecb9, with `default-features = false` and `smysl-text`'s
+    `reader-txt` and `reader-md`, was built on aarch64 macOS with Rust
+    1.95.0 and `CC=false CXX=false`.
+    - It succeeded.
+    - `blake3`'s build script set no C-path configuration.
+    - The tree held no `tokio`, `ureq`, `ring`, `lingua` or `redb`.
+  - x86_64 is left to criterion 3's CI step, which builds the same way.
 - **Q53. Answered by revision 2.** A dossier and a measure write nothing.
 - **Q54.** How long does `Library::open` take at the sizes a Bund program
   is likely to hold?
@@ -1628,7 +1648,25 @@ Each is in `docs/registers/open-questions.md`.
   - The attestation is settled too: `Attestation::new` and `Hlc::new` are
     public (`smysl-core/src/types/provenance.rs:33,269`), and so is
     `AddSpec`, whose fields are all public (`smysl-text/src/library.rs:86-116`).
-  - The question is answered by a spike before M1, or by U2.
+  - **Answered 2026-11-02, after D244: yes, at 4f5ecb9, by reading.**
+    Every remaining value has a public constructor:
+    - `Env::new` (`smysl-query/src/plan.rs:70`), with `with_times` and
+      `with_entities_of`, over `Library::store()`
+      (`smysl-text/src/library.rs:757`);
+    - `LibraryScope::new` (`smysl-text/src/scope.rs:122`);
+    - `AskOptions::new` (`smysl-query/src/dossier/mod.rs:133`);
+    - `Recipe::new` (`smysl-measure/src/recipe.rs:193`);
+    - `measure::Input::new`, `with_library` and `with_text`
+      (`smysl-measure/src/lib.rs:146,170,176`);
+    - `scope::resolve` (`smysl-measure/src/scope.rs:100`);
+    - `Corpus::from_docs`, and a builder over a library
+      (`smysl-measure/src/text/mod.rs:351,436-440`).
+  - `Env` holds an `Rc`, so it is not `Send`. Phase 1 builds one per call
+    and never shares it.
+  - Whether the pieces compose is left to M1's first step, a spike that
+    builds each value against a fixture library and runs one query, one
+    dossier, one measure and one attested append. U2 would keep the
+    answer true across revisions.
 - **Q56.** What does a dossier lose without stemming, and which template
   sets does this build carry?
   - Rule 26 finds a topic's other forms by stem
