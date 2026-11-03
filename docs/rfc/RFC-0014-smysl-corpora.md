@@ -1,11 +1,12 @@
 # RFC-0014: SMYSL corpora — forming, researching and querying them from Bund
 
-- Status: **Draft — revision 5** (2026-11-02). Written on the owner's
+- Status: **Draft — revision 6** (2026-11-02). Written on the owner's
   request: "Create RFC for SMYSL project that will make it integrateable
   into Bund. The idea: use SMYSL ability to form, research and query SMYSL
   corpus/database of data. Before writing RFC, assess if this idea is
   reachable/worthy." The assessment is §A, before the design. The rulings
-  are **D244, OPEN**, points R1–R21. D244's heading still reads "R1–R12",
+  are **D244, OPEN**, points R1–R21, with R14 re-decided by revision 6.
+  D244's heading still reads "R1–R12",
   because it predates the amendments that added the rest. Nothing in this
   RFC takes the default of any of them.
   - *Revision 2 (2026-11-02)* answers the first review
@@ -36,6 +37,18 @@
       (R20);
     - retraction authority is stated as advisory, since agent ids are
       self-asserted (R21).
+  - *Revision 6 (2026-11-02)* answers the fifth review
+    (`docs/rfc/reviews/RFC-0014-review-2026-11-02-5.md`): B1, S1–S4, N1–N9
+    and its assumptions, in "Revision 6: the fifth review answered". The
+    largest changes:
+    - **SMYSL has no `--break-lock` command.** Earlier revisions said it
+      had. R14 is re-decided: a `bund2 smysl-unlock` subcommand, run by
+      an operator, breaks a library's locks through `Lock::break_lock`.
+      SMYSL is asked for its own command as U8.
+    - Every write re-opens the library after taking its locks, and
+      decides everything from that second open.
+    - Gists are NFC-normalised before they are fitted.
+    - R20 also keeps the locks after an append that fails part way.
 - Depends on: RFC-0001 (values), RFC-0002 (words), RFC-0004 (effects),
   RFC-0005 (promotion), RFC-0007 (threads and the bus), RFC-0013
   (knowledge bases, proof trees)
@@ -365,6 +378,14 @@ The owner wrote both projects. This RFC joins them.
     `Attestation::new` is public and leaves the hop at 0 and the parents
     empty (`:269-282`). `trace`'s `parents` kind follows attestation
     parents (`smysl-graph/src/lineage.rs:30`).
+  - Salience reads the parents too.
+    - It groups a unit's attestations by agent and recipe, collecting
+      each group's parents as its ancestry.
+    - It counts as independent corroboration only the groups "whose
+      ancestry is disjoint from everything kept so far"
+      (`smysl-graph/src/salience.rs:353-367`).
+  - "A unit's hop is the earliest any agent attested it", and `hop_diff`
+    partitions units by it (`smysl-graph/src/lineage.rs:718-736`).
   - The clock is a hybrid logical clock. `Hlc::now(prev, agent)` advances
     from a previous clock (`provenance.rs:55-57`): to the wall time if that
     is later, and otherwise to `prev`'s time with its counter plus one
@@ -395,7 +416,7 @@ The owner wrote both projects. This RFC joins them.
     2. Otherwise it refuses an unauthorised plan.
     3. Otherwise it writes the self-edge, **with no attestation**.
 
-    (`smysl:src/main.rs:4486-4505`.)
+    (`smysl:src/main.rs:4484-4505`.)
 - **Lineage.** `trace` takes a `TraceKind`:
   - `parents` (attestation parents and `supersedes`);
   - `grounds` (`grounds` and `deps`);
@@ -419,6 +440,10 @@ The owner wrote both projects. This RFC joins them.
     (`smysl-core/src/surface/payload.rs:177-179`).
   - `UnitCore::new` NFC-normalises the gist, body and detail, and drops a
     body or detail that is empty (`smysl-core/src/types/unit.rs:147-152`).
+    Its `normalise` is `pub(crate)`, built on `unicode-normalization`
+    (`smysl-core/src/types/mod.rs:274-281`; `smysl-core/Cargo.toml:20`).
+    NFC can lengthen a string: a composition exclusion such as U+0958
+    becomes two code points.
   - A source's `observed` is a `u64` of milliseconds
     (`smysl-core/src/types/epistemics.rs:349`). `SourceRef::in_part`
     answers `None` for an empty or reversed span (`:514-517`).
@@ -454,7 +479,10 @@ The owner wrote both projects. This RFC joins them.
       (`estimate.rs:50-58`).
   - `GranularityProfile::fit_gist_with(text, suffix)` gives the longest
     prefix of `text` that fits `l0_max` under the profile's own estimator,
-    with room for `suffix`. It answers `None` for an estimator the build
+    with room for `suffix`. That prefix is 0 bytes when no character fits,
+    and also when the suffix alone exceeds the bound
+    (`smysl-core/src/types/estimate.rs:189-203`). It answers `None` for an
+    estimator the build
     does not have, which leaves the bound unevaluable (`SMY-W025`)
     (`smysl-core/src/types/view.rs:189-212`).
   - A gist over the bound is the error `SMY-E022`
@@ -498,6 +526,8 @@ The owner wrote both projects. This RFC joins them.
     - A reader takes bytes, never a path: "a reader that could open a
       path would be a reader the purity gate cannot describe"
       (`smysl-text/src/readers/mod.rs:45-53`).
+  - `Library::open` reads every shard's log into the in-memory store
+    (`:327-350`), and nothing reloads it afterwards.
   - `append_records` appends records (`:1341`). It appends to each shard's
     log in a loop, then to the in-memory store (`:1364-1379`). Its doc
     comment names no lock, but SMYSL's commands take the locks around
@@ -515,8 +545,23 @@ The owner wrote both projects. This RFC joins them.
   - So a panic that unwinds past a held lock removes it, which a kill does
     not. That erases the notice SMYSL keeps for the case it calls
     interesting (`:21-23`).
-  - `break_lock` exists, but "breaking a lock is an operator's decision"
-    (`smysl-graph/src/lock.rs:188-193`).
+  - `Lock::break_lock` exists, but "breaking a lock is an operator's
+    decision", and "Nothing in this crate calls it"
+    (`smysl-graph/src/lock.rs:188-193`). Its doc comment names a
+    `--break-lock` option, but **SMYSL's CLI does not implement one** at
+    4f5ecb9.
+    - `src/main.rs` uses the lock module only for `acquire_all`
+      (`smysl:src/main.rs:8628,12656,12790,12914,13033,13104`).
+    - A search of the tree finds `break_lock` only in `lock.rs`, its
+      tests and `smysl-graph/tests/redb_crash.rs:276`. `--break-lock`
+      appears only in prose, for example `smysl:CHANGELOG.md:4101`.
+    - An operator facing a stale lock at 4f5ecb9 can only delete the lock
+      files by hand.
+  - The files are the library lock `<root>/lock` and one lock per shard,
+    `<root>/log/<stem>.lock` (`smysl-text/src/lock.rs:30-41`). Each holds
+    its holder's pid, host and command, which `Lock::holder` reads
+    (`smysl-graph/src/lock.rs:38-41,182-185`). A `Lock` holds a path, a
+    name and a flag, not an open file (`:126-130`).
 - **Queries.**
   - `Env` borrows a store and a scope immutably
     (`smysl-query/src/plan.rs:51-53`).
@@ -619,7 +664,8 @@ The owner wrote both projects. This RFC joins them.
   `rand_chacha` is `"0.9"`, which is not an exact pin
   (`smysl-measure/Cargo.toml:45`).
 
-  Bund2's lock has `unicode-segmentation` 1.13.3 and `libm` 0.2.16 today,
+  Bund2's `Cargo.lock` has `unicode-segmentation` 1.13.3 and `libm`
+  0.2.16 today,
   and neither `caseless` nor `pulldown-cmark`. A Bund2 bump of the first
   two, or a later Bund2 dependency on the last two, must keep the feature
   building, which the `feature matrix` step checks.
@@ -671,7 +717,7 @@ The owner wrote both projects. This RFC joins them.
 | a uid | STRING, its full text form `b3:…` |
 | a status | STRING, `"unfounded"` … `"measured"` |
 | a unit | MAP: `uid`, `schema` and `gist`, and, where present, `body`, `detail`, `status`, `grounds` (LIST of uid), `deps` (LIST of uid), `source`, `lang`, `labels` (LIST of STRING), `payload` (the decoded tree) and `opaque` (BOOL, see below) |
-| a source | MAP: `kind`, `reference`, and, where present, `captured` (STRING, the date as SMYSL writes it), `observed` (INT of milliseconds; a value above `i64::MAX` reads back as a STRING of its decimal digits), `published`, `span` (LIST of two INTs) and `manifest` |
+| a source | MAP: `kind`, `reference`, and, where present, `captured` (STRING, the date as SMYSL writes it), `observed` (INT of milliseconds; a value above `i64::MAX` reads back as a STRING of its decimal digits, and is written from one, so the two forms round-trip; any other STRING is SM03), `published`, `span` (LIST of two INTs) and `manifest` |
 | a relation | MAP: `rid`, `kind`, `from` and `to`, and, where present, `weight` (FLOAT) and `note` |
 | a diagnostic | MAP: `code` (SMYSL's own, such as `"SMY-E030"`), `severity`, `subject` and `message`, and, where present, `suggestion` |
 | a subject | MAP `{ kind, value }`: `"unit"` with a uid; `"record"` with the hash in hex; `"span"` with LIST `[ start end ]` of byte offsets; or `"store"` with NODATA |
@@ -754,11 +800,11 @@ the spec or has a default named here:
 | `lang` | no | the reader's own answer |
 | `title` | no | none |
 | `carry` | no: `"none"`, `"ref"` or `"text"` | `"none"`, SMYSL's `Carry` default |
-| `policy` | no | SMYSL's default: the reader's top level as the boundary (`library.rs:1176-1179`) |
 
-- `params` is SMYSL's empty `Params`; the pseudonym key and the
-  versification scheme are absent. None of the three is offered in
-  Phase 1.
+- `params` is SMYSL's empty `Params`; the part policy, the pseudonym
+  key and the versification scheme are absent. None of the four is
+  offered in Phase 1. An absent policy is SMYSL's default: the reader's
+  top level as the part boundary (`library.rs:1176-1179`).
 - `Caps` is `Caps::default()`.
 - **A `path` is read by Bund2,** since a reader takes bytes. Bund2 checks
   the file's length against `Caps::default().input_bytes` first, and
@@ -777,10 +823,16 @@ edge is the exception (below). The attestation has these fields:
 - its parents are empty, except for a unit `smysl.prove` writes, whose
   parents are its grounds. So `smysl.trace … "parents"` walks a proof's
   conclusions back to their premises.
+  - Salience reads the same parents. Bund2's attestation of a conclusion
+    therefore counts as corroboration independent of another agent's
+    only when their ancestries are disjoint, which is the intended
+    reading, since a proof rests on its premises.
+- with hop 0, every unit Bund2 writes sits at hop 0 in `hop_diff`'s
+  partition.
 - **Its clock** is `Hlc::now(prev, agent)`.
   - `prev` is the newest clock among this agent's attestations in the
-    library, read under the locks, or `Hlc::zero(agent)` if there is
-    none.
+    library as re-opened under the locks (§S9), or `Hlc::zero(agent)` if
+    there is none.
   - Within one word, each attestation advances from the one before it.
   - So an agent's clocks in a library never go backwards, even when the
     wall clock does.
@@ -806,7 +858,7 @@ refused with SM03, since only an import may assign that status
 The word answers the unit's uid either way.
 
 **Retraction** follows SMYSL's own `retract` command
-(`smysl:src/main.rs:4486-4505`), step for step:
+(`smysl:src/main.rs:4484-4505`), step for step:
 
 1. If the effective status under the strict policy already reads the
    target as retracted, nothing is written and the word answers NODATA.
@@ -955,8 +1007,8 @@ where the fact came from.**
 - A fact node whose goal has one of the first seven shapes in the table
   above, and whose uid arguments all name units in the handle's library,
   stands for those units. Nothing is written for it.
-  - This is judged **at write time**, against the library as it is when
-    the locks are held. A unit a bridge wrote while the proof ran
+  - This is judged **at write time**, against the library as re-opened
+    under the locks (§S9). A unit a bridge wrote while the proof ran
     therefore counts.
 - A `[ rank Status N ]` fact with one of the six statuses and its number
   stands for nothing.
@@ -998,7 +1050,8 @@ for what was written.
 `smysl.check` will apply to the library, and carries the full goal in the
 unbounded detail.
 
-**The profiles a gist must fit** are read under the locks, at write time:
+**The profiles a gist must fit** are read from the library as re-opened
+under the locks (§S9), at write time:
 - every distinct granularity profile among the library's views;
 - the `default` preset if the library has no view.
 
@@ -1008,7 +1061,12 @@ envelope, which counts with the first view's estimator against the
 largest `l0_max`.
 
 - **gist:** §S7.1's rendering of the goal, with every uid shortened to its
-  first 12 characters.
+  first 12 characters, **normalised to NFC first**.
+  - Bund2 normalises it with `unicode-normalization`, the crate SMYSL
+    normalises with, and depends on it directly under the feature. So
+    SMYSL's own normalisation leaves the fitted gist unchanged, and
+    cannot lengthen it past the bound.
+  - The detail is normalised the same way.
   - If the rendering fits every profile in the set, it is the gist.
   - Otherwise, the cut is the shortest of the prefixes that
     `fit_gist_with(rendering, "…")` gives for each profile
@@ -1020,8 +1078,8 @@ largest `l0_max`.
     is left out of the set. If every profile is left out, the gist is cut
     by the `default` preset, and one `Warning` says the library's bound
     could not be evaluated.
-  - If a profile leaves room for no character of the rendering, the write
-    is SM12: `the library's view allows no gist of <n> tokens`. Nothing is
+  - If a profile leaves room for no character of the rendering, or not
+    even for the `…` alone, the write is SM12: `the library's view allows no gist of <n> tokens`. Nothing is
     written.
 - **body:** `proved by <functor>/<n> from <k> premises`, or `program fact`,
   or `reply`;
@@ -1068,7 +1126,7 @@ two are the house texts, unprefixed, as the reference writes them.
 | SM04 | `sq/1` refused the query | `the query was refused: <code> <message>`, one per diagnostic, joined by `; ` |
 | SM05 | an unknown status, relation kind, reader or trace kind | `unknown <kind>: <value>` |
 | SM06 | `--noio`, for a word that acts on disk [R11] | the house text, unprefixed, as `bund_models.rs:125` writes it: `bund SMYSL functions disabled with --noio` |
-| SM07 | a lock is held (`SMY-E445`) | `the library is locked: <holder as SMYSL names it>` |
+| SM07 | a lock is held (`SMY-E445`); or the shard set changed twice while locking (§S9) | `the library is locked: <holder as SMYSL names it>`, or `the library's shards changed while locking: <shard>` |
 | SM08 | a label bound to several units | `label <label> binds <n> units` |
 | SM09 | `plan_retraction` refused the retraction | `retraction refused: <SMYSL's reason>` |
 | SM10 | the `smysl` conditional's `lambda` failed | `lambda returns: <error>` |
@@ -1080,7 +1138,9 @@ two are the house texts, unprefixed, as the reference writes them.
 - **A panic inside SMYSL is not a refusal.** D49 returns it as
   `Error::internal`, and §S9 says what it leaves behind.
 - **Warnings** from appends, from `run`, and from a measure's diagnostics
-  are each reported as a `Warning` (D36). A measure's diagnostics are also
+  are each reported as a `Warning` (D36). `smysl.parse` routes SMYSL's
+  `SMY-W054`, a label declared twice in one document
+  (`smysl-graph/src/labels.rs:10-12`), the same way. A measure's diagnostics are also
   kept in its result MAP.
 
 ### S9. Effects, locks and threads
@@ -1103,39 +1163,92 @@ two are the house texts, unprefixed, as the reference writes them.
   a stack. Every `smysl.` word acts on a library on disk named by a
   handle, so a workbench form would move only the name.
 
-**Locks.** Every write follows the order SMYSL's own commands use
-(`smysl:src/main.rs:8618-8628`):
+**Locks.** Every write takes SMYSL's locks in the order SMYSL's own
+commands use (`smysl:src/main.rs:8618-8628`), then **re-opens** the
+library:
 
 1. open the library;
 2. read its shard names (`Library::shards`);
 3. take the library lock, then the shard locks in name order, through
    `acquire_all` (`smysl-text/src/lock.rs:24-43`);
-4. write;
-5. drop the locks before the word returns.
+4. **open the library a second time, and use only this second open from
+   here on;**
+5. if the second open names a shard the locks do not cover, drop the
+   locks and start again from step 1. A second mismatch is SM07, naming
+   the shard;
+6. validate, decide and write;
+7. drop the locks before the word returns.
 
-A process that appends between steps 1 and 3 is a race SMYSL's own commands
-share. It is recorded as Q57, not designed around.
+**Why step 4.** `Library::open` loads every log into memory, and nothing
+reloads it (`smysl-text/src/library.rs:327-350`). Without step 4, every
+decision a write makes would rest on the library as it was before the
+locks, not as it is under them, because another process may append in
+between. That covers:
+- the gist profiles (§S7);
+- whether a fact stands for library units (§S7);
+- the attestation clock's `prev`, and "already attested" (§S4);
+- retraction's "already retracted" and its plan (§S4);
+- `encode_by_shard`'s de-duplication, which checks the in-memory store
+  (`smysl-text/src/shards.rs:520`).
+
+SMYSL's own commands do not re-open. Bund2 does, at the cost of a second
+open per write (Q54).
+
+**The shard set is stable under the library lock.** Every SMYSL writer
+takes the library lock first (`smysl-text/src/lock.rs:30`), so once Bund2
+holds it, no honest writer can add a shard. A mismatch at step 5 is a
+shard added between steps 1 and 3, which a restart covers. This narrows
+Q57 to writers that do not take the library lock.
 
 - **A lock held by another process is SM07.** It is not waited for. SMYSL
   fails fast, and a program that wants to retry can catch SM07 with
   `?try`.
-- **A stale lock stays SM07.** A lock left behind by a crashed process
-  stays SM07 until an operator breaks it with SMYSL's `--break-lock`.
-  Bund2 offers no word that breaks one [R14]. SMYSL says why: "breaking a
-  lock is an operator's decision" (`smysl-graph/src/lock.rs:188-193`).
-- **A panic inside a write leaves SMYSL's lock in place** [R20], as a
+- **A stale lock stays SM07** until an operator breaks it [R14].
+  - SMYSL says "breaking a lock is an operator's decision"
+    (`smysl-graph/src/lock.rs:188-193`). It has no command for it at
+    4f5ecb9 (§Current, "The locks").
+  - **Bund2 gives the operator one:** a CLI subcommand,
+    `bund2 smysl-unlock <root>`, in the `smysl` build only. It is
+    dispatched as `bund2 words` is, in `crates/bund2-cli/src/main.rs`.
+    - It lists `<root>/lock` and every `<root>/log/*.lock`, and prints
+      each one's holder through `Lock::holder`.
+    - With `--yes`, it breaks each lock with `Lock::break_lock`: the shard
+      locks first, then the library lock.
+    - Without `--yes`, it only lists them.
+  - It is a subcommand and not a word, so a Bund program cannot break a
+    lock. Breaking stays an operator's act, as SMYSL asks.
+  - SMYSL is asked for its own command as U8. If it ships one, the
+    subcommand may be withdrawn by an amendment.
+- **A panic inside a write leaves SMYSL's locks in place** [R20], as a
   killed SMYSL process would. That keeps SMYSL's crash notice.
+  - **So does an error part way through an append.**
+    - Before it calls `append_records`, Bund2 runs SMYSL's whole-batch
+      refusal `Store::check_loggable` itself
+      (`smysl-graph/src/store/mod.rs:1120`). It is the check
+      `append_records` runs before any shard is written
+      (`smysl-text/src/library.rs:1347-1354`). A refusal there is SM02,
+      and the locks are dropped as usual.
+    - Any error `append_records` returns after that is a failed write,
+      which may have reached some shards (`:1364-1382`). The guard then
+      forgets the locks, exactly as on a panic, and the word answers
+      SM02, saying the library is left locked.
   - Bund2 holds the locks `acquire_all` answers in a guard of its own.
     When that guard is dropped while the thread is panicking
-    (`std::thread::panicking()`), it `std::mem::forget`s each lock instead
-    of dropping it. `Lock`'s `Drop`, which would remove the file
-    (`smysl-graph/src/lock.rs:225-228`), then never runs.
+    (`std::thread::panicking()`), or after a failed append, it
+    `std::mem::forget`s each lock instead of dropping it. `Lock`'s `Drop`,
+    which would remove the file (`smysl-graph/src/lock.rs:225-228`), then
+    never runs. A `Lock` holds no open file, so forgetting it leaks only
+    its path and name (`:126-130`).
+  - The guard starts once `acquire_all` returns. A panic inside
+    `acquire_all` itself unwinds inside SMYSL, which drops the locks it
+    had taken. Nothing has been written by then, so nothing is lost.
   - The panic still unwinds through `catch_panic` and is reported as
     `Error::internal` (D49).
   - Every later write to that library, from this process or any other,
     is SM07 naming this process as the holder, until an operator has read
-    the library and runs SMYSL's `--break-lock` (R14). Reads are not
-    locked and still succeed.
+    the library and runs `bund2 smysl-unlock <root> --yes` (R14), or
+    deletes the lock files by hand. Reads are not locked and still
+    succeed.
   - What the log holds afterwards is Q51. A truncated tail is tolerated
     when the log is read (`smysl-graph/src/lock.rs:20-22`).
   - Rejected: letting the drop release the lock. A panic would then erase
@@ -1183,7 +1296,8 @@ share. It is recorded as Q57, not designed around.
 ### S11. What SMYSL should change
 
 These would make SMYSL a better dependency for Bund2 and for any other
-embedder. Only U6 bears on Phase 1, through R2.
+embedder. Only U6 bears on Phase 1, through R2. U8 would let the
+subcommand of R14 be withdrawn.
 
 - **U1. Deny panics in the pure crates.** Add `unwrap_used`,
   `expect_used`, `panic` and `unreachable` to the workspace's clippy
@@ -1214,6 +1328,9 @@ embedder. Only U6 bears on Phase 1, through R2.
   release rather than a revision.
 - **U7. A library-level merge,** carrying records, text objects and
   manifests under both libraries' locks.
+- **U8. The `--break-lock` command `lock.rs` names.** It is documented in
+  `Lock::break_lock`'s comment and in SMYSL-2.4, and not implemented in
+  the CLI (§Current, "The locks").
 
 ### S12. Phase 2, not designed here
 
@@ -1239,7 +1356,10 @@ Phase 2 in, it comes as an amendment with its own criteria.
 | `--noio` | **Extended in kind** [R11]. Every `smysl.` word that touches disk is stubbed, as the words at the reference's 16 `cli.noio` sites are. `smysl.parse` and `smysl.agent` do no I/O and are not stubbed |
 | `conform`, `COVERAGE` and `IMPLEMENTED` | **Unchanged.** Words only Bund2 has are not in the reference's registry (D72), and the default build does not register them |
 | `bund2 words` | **Differs by build**, as it already does for `grok`. The `smysl` build lists the new words |
-| SMYSL's lock as a crash notice | **Kept** [R20]. A panic in a write leaves the lock, as a killed process does, so the library refuses writes until an operator breaks it |
+| SMYSL's lock as a crash notice | **Kept** [R20]. A panic or a failed append leaves the locks, as a killed process does, so the library refuses writes until an operator breaks them with `bund2 smysl-unlock` (R14), since SMYSL has no command for it |
+| The `bund2` CLI | **Extended in the `smysl` build** by one subcommand, `smysl-unlock` [R14]. The default build's CLI is unchanged |
+| A write's view of the library | **Stricter than SMYSL's commands.** Bund2 re-opens under the locks (§S9), so a record another process appended just before is not appended again |
+| Salience and hop | **Affected as intended.** A proof conclusion's attestation names its grounds as parents, which salience reads as its ancestry; every Bund2 unit sits at hop 0 (§S4) |
 | SMYSL's retraction authority | **Kept, and stated as advisory** [R21]. `Origin` is checked as SMYSL checks it; agent ids are self-asserted, in Bund2 as in SMYSL |
 | What a manifest records | **Named.** Bund2's defaults for `carry` (`none`) and the part policy (the reader's top level) are SMYSL's, and are recorded in each manifest Bund2 writes (§S4) |
 | The palette audit | **Kept safe.** Every `smysl.` word, and the constructor `smysl`, is named in `FEATURE_GATED`; every one that writes is also named in `ACTS_ON_HOST`. So under `--all-features` the audit never runs `smysl.create` on a palette string, which would create directories |
@@ -1386,7 +1506,8 @@ No deviation from the reference is proposed.
       - `:no-proof`, `:builtin`, `:bridge` and `:tabled`;
       - a goal with two uid arguments;
       - a goal whose rendering is too long for the profile and holds a
-        multi-byte character near the cut.
+        multi-byte character near the cut;
+      - a goal with an atom that is not NFC, with U+0958 near the cut.
     - **The libraries.** Each proof is written into four libraries:
       - one with no view;
       - one whose view sets `l0_max: 20`;
@@ -1425,13 +1546,22 @@ No deviation from the reference is proposed.
     - Under `smysl-panic-probe`, a write that panics with the mutex and
       the locks held:
       - is reported as `Error::internal`;
-      - leaves the library's lock file in place;
+      - leaves the library lock and every shard lock it took in place;
       - makes the next write to that root, from a fresh VM on another
         thread, SM07 naming this process;
       - leaves a read of that root succeeding.
 
-      After the test breaks the lock with SMYSL's `Lock::break_lock`, a
-      write succeeds.
+      After `bund2 smysl-unlock <root>` lists every one of those locks with
+      its holder, and `--yes` breaks them all, a write succeeds.
+    - An append that fails part way leaves the locks the same way. Under
+      `smysl-panic-probe`, an injected I/O error after the first shard
+      is written does this. A batch `check_loggable` refuses leaves no
+      lock.
+    - **The re-open.** A unit appended by another process between a
+      write's first open and its locks is seen by that write. The test
+      pauses the write at that point, under `smysl-panic-probe`, while a
+      second process appends the unit. So the write does not append the
+      unit again, and its clock is later than the other process's.
     - A unit written first by `tool:other` and then appended by a
       `tool:bund2` handle gains one attestation, and that handle may then
       retract it.
@@ -1509,8 +1639,18 @@ Each is in `docs/registers/open-questions.md`.
     (`smysl:src/main.rs:8618-8628`), and §S9 follows them.
   - If a shard can appear in that window, the write may miss its lock.
     That is SMYSL's to answer (U2, U3).
-- **Q58.** Does a library that binds labels draw closure diagnostics from
-  `smysl.check`?
+  - *Narrowed by revision 6.* Bund2 re-opens under the locks, and
+    restarts if a shard appeared (§S9). Every SMYSL writer takes the
+    library lock first, so what remains is a writer that does not.
+- **Q58. Answered by revision 6:** no, and the reverse is the point.
+  `SMY-E020` resolves a body token as a label only through the `labels`
+  map the caller gives (`smysl-check/src/passes/closure.rs:46-80`). Under
+  `CheckOptions::default()` that map is empty, so a library's label
+  references go **unchecked** by `smysl.check`. Closure reads only the
+  body (`:60`), and Bund2's bodies hold no uid. Checking label
+  references would mean passing the library's bindings through
+  `with_labels`, an amendment to R19. *As raised:* does a library that
+  binds labels draw closure diagnostics from `smysl.check`?
   - `CheckOptions::default()` passes no labels. SMYSL's comment says
     "Labels have no wire record, so only a caller that parsed the surface
     text has them" (`smysl-check/src/lib.rs:176-178`).
@@ -1537,17 +1677,17 @@ Each is in `docs/registers/open-questions.md`.
 | R7 | The fact schema | **A** §S7's table. **B** one fact per unit, with every field as an argument | **A** |
 | R8 | Exported proofs | **A** §S7: provenance by shape and library; the node table; `derived` capped by declared statuses; `else`, `not` and `tabled` capping at `inferred`; no grounds meaning `speculative`; gists fitted by `fit_gist_with` to every profile of the library's views, SM12 when none fits, and the full goal in the detail; §S7.1's rendering; solve, then write. **B** refuse any proof that holds a program fact or a capping node | **A** |
 | R9 | Names | **A** the `smysl.` prefix and the conditional `smysl`. **B** a `corpus.` prefix | **A** |
-| R10 | Upstream | **A** U1–U5 and U7 do not block Phase 1. **B** Phase 1 waits for U1 and U2 | **A** |
+| R10 | Upstream | **A** U1–U5, U7 and U8 do not block Phase 1. **B** Phase 1 waits for U1 and U2 | **A** |
 | R11 | `--noio` | **A** every word that touches disk is stubbed; `smysl.parse` and `smysl.agent` are not. **B** reads allowed, writes stubbed | **A** |
 | R12 | Readers | **A** `txt/1` and `md/1`. **B** every reader SMYSL has. **C** `txt/1` alone | **A** |
 | R13 | Writers in one process | **A** serialised by a process-wide table of mutexes keyed by canonical root, a poisoned mutex recovered. **B** SM07, as between processes | **A** |
-| R14 | A stale lock | **A** SM07 until an operator breaks it with SMYSL's `--break-lock`. **B** a `smysl.unlock` word | **A** |
+| R14 | A stale lock | *Re-decided by revision 6: SMYSL has no `--break-lock`.* **A** SM07 until an operator breaks it with a `bund2 smysl-unlock <root>` subcommand (lists the holders; `--yes` breaks every lock through `Lock::break_lock`), with U8 asked of SMYSL. **B** SM07 until an operator deletes the lock files by hand, which the RFC names. **C** a `smysl.unlock` word | **A** |
 | R15 | Attestation | **A** the handle's `agent` (default `"tool:bund2"`), `Authored`, rung `Document` for `cited` and `Computed` otherwise, hop 0, parents empty except a proof's conclusions, whose parents are their grounds, and a clock that is `Hlc::now` from this agent's newest clock in the library. Each is written as its own record; `measured` is refused; no attestation is written where this agent has already attested the uid; the retraction edge is unattested, as SMYSL writes it. **B** no attestation | **A** |
 | R16 | `.` forms | **A** none in Phase 1. **B** a form for `smysl.parse` | **A** |
 | R17 | Dossiers and measures | **A** answered, not saved; saving is an amendment. **B** saved by default. **C** a `save` key | **A** |
 | R18 | No C compiler | **A** the feature must build without one (criterion 3), a rule this RFC sets. **B** no such rule; the feature may compile C, as `grok` does | **A** |
 | R19 | `smysl.check`'s profile | **A** `CheckOptions::default()`: the profile SMYSL derives from the library's views, or the `default` preset without one. **B** always the `default` preset | **A** |
-| R20 | A panic in a write | **A** SMYSL's lock is left in place (forgotten, not dropped), so the library refuses writes with SM07 until an operator breaks it. **B** the lock is released and the next write proceeds | **A** |
+| R20 | A panic or a failed append in a write | **A** SMYSL's locks are left in place (forgotten, not dropped), so the library refuses writes with SM07 until an operator breaks them; a batch `check_loggable` refuses keeps no lock. **B** the locks are released and the next write proceeds | **A** |
 | R21 | Agent ids | **A** any agent SMYSL's grammar allows; `Origin` authority stated as advisory, since ids are self-asserted. **B** `smysl.agent` and handles restricted to the `tool:` kind | **A** |
 
 ---
@@ -1671,3 +1811,23 @@ Each is in `docs/registers/open-questions.md`.
 | N11 | Q58 |
 | N12 | §A's ranges cover the claims |
 | Assumptions 1–6 | 1 is intended: the profiles are read under the locks at write time, so a gist fits the library as it then is. 2 is S6's clock. 3 is R20. 4 is S4's length check. 5 is criterion 5's documents. 6 is R21 |
+
+## Revision 6: the fifth review answered
+
+| Finding | Answer |
+|---|---|
+| B1 no `--break-lock` | The claim is withdrawn, and what exists is cited. R14 is re-decided: a `bund2 smysl-unlock` subcommand lists every lock's holder and, with `--yes`, breaks each through `Lock::break_lock`. Hand deletion is option B. U8 asks SMYSL for the command. Criterion 15 breaks every lock |
+| S1 the open before the locks | Every write re-opens under the locks and decides from the second open; a shard that appears restarts the write once, then SM07. Q57 narrowed; criterion 15 |
+| S2 NFC after the fit | The rendering and detail are NFC-normalised by `unicode-normalization` before fitting. Criterion 12 adds a non-NFC atom |
+| S3 errors part way | Bund2 runs `check_loggable` first, so a whole-batch refusal keeps no lock; any later `append_records` error keeps the locks as a panic does. R20, criterion 15 |
+| S4 salience and hop | Stated in §Current and §S4, with a Preservation row |
+| N1 | `main.rs:4484-4505` |
+| N2 | Q58 answered |
+| N3 | SM12 covers a bound too small for `…` alone |
+| N4 | `policy` is not a key in Phase 1; SMYSL's default always applies |
+| N5 | `observed` is accepted as the same STRING it reads back as |
+| N6 | The guard begins when `acquire_all` returns, as stated |
+| N7 | A forgotten `Lock` leaks only its path and name |
+| N8 | `SMY-W054` routed as a `Warning` |
+| N9 | `Cargo.lock` named |
+| Assumptions 1–5 | 1 is B1. 2 is S1. 3 is S2. 4 is S3. 5 is S4 |

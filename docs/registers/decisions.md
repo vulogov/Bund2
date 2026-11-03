@@ -16579,3 +16579,26 @@ The status is still **OPEN**, and the points are now R1–R21.
   - **R19 A:** the profile is the one SMYSL derives from the library's
     views. That is the `default` preset with no view; SMYSL's name for it
     is `default`, not `standard`.
+
+*Amended a fifth time 2026-11-02, by RFC-0014's revision 6*, which
+answers the fifth review (`docs/rfc/reviews/RFC-0014-review-2026-11-02-5.md`).
+The status is still **OPEN**, and the points remain R1–R21.
+
+- **R14 is re-decided.** Every earlier revision said SMYSL's CLI offers
+  `--break-lock`. At commit 4f5ecb9 it does not: `Lock::break_lock`
+  exists, and nothing calls it. The options are now:
+  - **A** SM07 until an operator breaks the locks with a
+    `bund2 smysl-unlock <root>` subcommand in the `smysl` build. It lists
+    each lock's holder, and with `--yes` breaks every lock through
+    `Lock::break_lock`. SMYSL is asked for its own command as U8.
+  - **B** SM07 until an operator deletes the lock files by hand, which
+    the RFC names.
+  - **C** a `smysl.unlock` word.
+
+  Recommended **A**: breaking stays an operator's act, and no Bund
+  program can do it.
+- **R20 A is restated** to cover a failed append as well as a panic.
+  Bund2 runs `check_loggable` before writing, so a refusal of the whole
+  batch keeps no lock. Any error `append_records` returns after that
+  keeps the locks, as a panic does.
+- **R10 A** also covers U8.
