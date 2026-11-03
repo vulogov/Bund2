@@ -16439,3 +16439,143 @@ which leaves the RFC wrong.
 - Status: **RESOLVED** by the repository owner, 2026-11-01 ("D243: (a)").
   RFC-0013's S6 is amended where it stands, with a dated note under its
   status.
+
+## D244 — RFC-0014's rulings, R1–R12: SMYSL corpora formed, researched and queried from Bund
+
+**Raised 2026-11-02** by RFC-0014 (`docs/rfc/RFC-0014-smysl-corpora.md`),
+drafted on the owner's "Create RFC for SMYSL project that will make it
+integrateable into Bund. The idea: use SMYSL ability to form, research and
+query SMYSL corpus/database of data. Before writing RFC, assess if this
+idea is reachable/worthy." The RFC's §A is that assessment: reachable and
+worth it for the pure half, at the cost of a large and young dependency
+compiled only under a feature. SMYSL is read at commit 4f5ecb9 (v1.14.0).
+
+- Blocks: RFC-0014
+- Depends on: D26, D27, D28, D32, D36, D37, D49, D51, D72, D226 (L11)
+- Status: **OPEN.** The RFC is written against each recommended option;
+  none is adopted until ruled.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **R1** | Scope | **A** Phase 1 as designed; Phase 2, the model-backed steps, a later amendment. **B** the logic bridge alone (§S7). **C** no integration. **D** Phases 1 and 2 together. | **A** |
+| **R2** | Dependency shape | **A** eight SMYSL crates, each `=1.14.0`, defaults off. **B** the facade `smysl` with defaults off. | **A** |
+| **R3** | A handle | **A** a MAP of `type = "smysl"` naming a root. **B** a STRING path. **C** a new native value type. | **A** |
+| **R4** | Opening | **A** per call, with a per-VM cache checked by the library's stamp. **B** per call, no cache. | **A** |
+| **R5** | Writes | **A** each word appends and returns. **B** a batch word appending a LIST of records. | **A** |
+| **R6** | Queries | **A** `sq/1` text as written. **B** queries built from Bund values. | **A** |
+| **R7** | The fact schema of `smysl.kb` | **A** §S7's table. **B** one fact per unit, every field an argument. | **A** |
+| **R8** | Exported proofs | **A** §S7: rule nodes `derived` capped by rule M, corpus facts as their own units, program facts at a stated status, `not` capping at `inferred`. **B** refuse proofs holding a program fact or a `not`. | **A** |
+| **R9** | Names | **A** the `smysl.` prefix and the conditional `smysl`. **B** `corpus.`. | **A** |
+| **R10** | SMYSL's own changes (§S10, U1–U5) | **A** they do not block Phase 1. **B** Phase 1 waits for U1 and U2. | **A** |
+| **R11** | `--noio` | **A** every `smysl.` word stubbed. **B** reads allowed, writes stubbed. | **A** |
+| **R12** | Readers | **A** `txt/1` and `md/1`. **B** every reader SMYSL has. **C** `txt/1` alone. | **A** |
+
+The reasoning for each is in the RFC, under the section that names it.
+
+*Amended 2026-11-02, by RFC-0014's revision 2*, which answers the first
+review (`docs/rfc/reviews/RFC-0014-review-2026-11-02.md`). The status is
+still **OPEN**. The table below supersedes the one above. R2 and R4
+changed; R5 and R8 are restated; R13–R17 are new.
+
+- **R2.** SMYSL has published nothing after 1.11.0 on crates.io, so its
+  options are now about the source.
+- **R4.** It now recommends no cache.
+- **R5.** It now has one recommendation, where the first table gave two.
+- **R8.** It now covers every proof-node kind.
+- **R13–R17.** These come from findings B2, S9, S11 and S1.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **R1** | Scope | **A** Phase 1 as designed; Phase 2 a later amendment. **B** the bridge alone (§S7). **C** no integration. **D** Phases 1 and 2 together. | **A** |
+| **R2** | Dependency source | **A** git at `rev = "4f5ecb9"`, allowed as `algos` is (D38), moving to crates.io when SMYSL publishes 1.14 (U6). **B** crates.io `=1.11.0`, with the RFC re-grounded against it. **C** wait for U6. | **A** |
+| **R3** | A handle | **A** a MAP of `type = "smysl"` with an absolute root and an agent. **B** a STRING path. **C** a new native value type. | **A** |
+| **R4** | Opening | **A** per call, no cache, until Q54 asks for one. **B** per call, with a process-wide cache. | **A** |
+| **R5** | Writes | **A** each word appends, and `smysl.append` appends a LIST under one acquisition of the locks. **B** single-record words only. | **A** |
+| **R6** | Queries | **A** `sq/1` text as written. **B** queries built from Bund values. | **A** |
+| **R7** | The fact schema | **A** §S7's table. **B** one fact per unit, with every field as an argument. | **A** |
+| **R8** | Exported proofs | **A** §S7: provenance by shape and library; the node table; `derived` capped by rule M; `else`, `not` and `tabled` capping at `inferred`; no grounds meaning `speculative`; §S7.1's rendering. **B** refuse any proof holding a program fact or a capping node. | **A** |
+| **R9** | Names | **A** `smysl.` and the conditional `smysl`. **B** `corpus.`. | **A** |
+| **R10** | Upstream | **A** U1–U5 do not block Phase 1. **B** Phase 1 waits for U1 and U2. | **A** |
+| **R11** | `--noio` | **A** every word that touches disk is stubbed; `smysl.parse` and `smysl.agent` are not. **B** reads allowed, writes stubbed. | **A** |
+| **R12** | Readers | **A** `txt/1` and `md/1`. **B** every reader. **C** `txt/1` alone. | **A** |
+| **R13** | Writers in one process | **A** serialised by a process-wide table of mutexes keyed by root. **B** SM07, as between processes. | **A** |
+| **R14** | A stale lock | **A** SM07 until an operator breaks it with SMYSL's `--break-lock`. **B** a `smysl.unlock` word. | **A** |
+| **R15** | Attestation | **A** the handle's `agent` (default `"tool:bund2"`), `Authored`, with rung `Document` for `cited` and `Computed` otherwise; `measured` refused. **B** no attestation. | **A** |
+| **R16** | `.` forms | **A** none in Phase 1. **B** a form for `smysl.parse`. | **A** |
+| **R17** | Dossiers and measures | **A** answered and not saved. **B** saved by default. **C** a `save` key. | **A** |
+
+*Amended again 2026-11-02, by RFC-0014's revision 3*, which answers the
+second review (`docs/rfc/reviews/RFC-0014-review-2026-11-02-2.md`). The
+status is still **OPEN**.
+
+- **The points are now R1–R18.** The heading above says R1–R12, and is
+  kept as written.
+- **Depends on** also D18, D38 and D168, which the RFC consumes.
+- **R18 is new:** the feature must build without a C compiler, a rule the
+  RFC sets for itself, since D51 governs the default build only.
+  - **A** that rule (criterion 3);
+  - **B** no such rule, as `grok` compiles C behind its feature.
+
+  Recommended **A**.
+- **Restated, with the same recommended option.** The table of the first
+  amendment stands with these words:
+  - **R2 A:** the `allow-git` entry is ruled here; D38 supplies the
+    mechanism, not the reason.
+  - **R3 A:** the root is canonical.
+  - **R8 A:** adds rank facts standing for nothing, `once` as a rule,
+    bounded gists with the full goal in the detail, declared statuses,
+    and solve-then-write.
+  - **R10 A:** also covers U7.
+  - **R13 A:** a poisoned mutex is recovered.
+  - **R15 A:** units already present are not re-written.
+  - **R17 A:** saving is an amendment, since a measure needs its `Basis`.
+- **`smysl.merge` leaves Phase 1.** A library-level merge is asked of
+  SMYSL as U7.
+
+*Amended a third time 2026-11-02, by RFC-0014's revision 4*, which answers
+the third review (`docs/rfc/reviews/RFC-0014-review-2026-11-02-3.md`). The
+status is still **OPEN**, and the points are now R1–R19.
+
+- **R19 is new: `smysl.check`'s profile.**
+  - **A** `CheckOptions::default()`, which uses the library's own view's
+    profile, or `standard` without one, as SMYSL decides.
+  - **B** always `standard`.
+
+  Recommended **A**.
+- **R15 A is restated.** Each attestation is written as its own record,
+  and none is written where this agent has already attested the uid.
+  Revision 3 skipped units already present on the reading that a new
+  attestation re-encodes the unit's record. The third review showed that
+  reading wrong: an attestation is a record of its own.
+- **Depends on** also D14, D220 and D230.
+
+*Amended a fourth time 2026-11-02, by RFC-0014's revision 5*, which
+answers the fourth review (`docs/rfc/reviews/RFC-0014-review-2026-11-02-4.md`).
+The status is still **OPEN**, and the points are now R1–R21.
+
+- **R20 is new: a panic in a write.**
+  - **A** SMYSL's lock is left in place, forgotten rather than dropped
+    while the thread panics. A killed SMYSL process leaves its lock the
+    same way, and SMYSL calls that lock its crash notice. The library
+    refuses writes with SM07 until an operator breaks the lock.
+  - **B** the lock is released, and the next write proceeds.
+
+  Recommended **A**.
+- **R21 is new: agent ids.**
+  - **A** any agent SMYSL's grammar allows. `Origin` authority is stated
+    as advisory, since SMYSL's agent ids are self-asserted.
+  - **B** `smysl.agent` and handles restricted to the `tool:` kind.
+
+  Recommended **A**.
+- **Restated, with the same recommended option.**
+  - **R8 A:** gists are fitted by SMYSL's `fit_gist_with` to every profile
+    of the library's views, and SM12 refuses a write when no character
+    fits. Revision 4's claim that the gist bound does not depend on the
+    profile was wrong: a view may set its own `l0_max` and estimator.
+  - **R15 A:** names the attestation's hop (0), its parents (a proof
+    conclusion's grounds, otherwise none) and its clock (`Hlc::now` from
+    this agent's newest clock in the library). The retraction edge is
+    unattested, as SMYSL writes it.
+  - **R19 A:** the profile is the one SMYSL derives from the library's
+    views. That is the `default` preset with no view; SMYSL's name for it
+    is `default`, not `standard`.
