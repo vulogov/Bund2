@@ -16674,6 +16674,8 @@ restates when R20 A applies.
 - Depends on: D244 (R15, R20, R21)
 - Status: **RESOLVED 2026-11-02.** The owner ruled R22 A, R23 A, R24 A
   and R25 A, as recommended. The ruling is recorded below the table.
+  R22's list and R25's test were amended 2026-11-03, on the owner's word;
+  see the note at the end.
 
 | | Question | Options | Recommended |
 |---|---|---|---|
@@ -16701,3 +16703,26 @@ cover"; R23 in §S4; R24 in §S2; R25 in §S9, under R20.
 
 RFC-0014 has no OPEN decision left. Its open questions Q51, Q54, Q56 and
 Q57 remain, each with the answer route the RFC names.
+
+*Amended 2026-11-03,* on the owner's word, after the seventh review
+(`docs/rfc/reviews/RFC-0014-review-2026-11-02-7.md`, S1 and S2), in
+RFC-0014 revision 9. Both rulings stay A; what they say is corrected:
+
+- **R22:** the list above was wrong. `measure` has no `--save` flag and
+  appends unless given `--dry-run` (`smysl:src/main.rs:1163-1167,7536-7539,7579`),
+  and `ingest --text` also appends without locks
+  (`smysl:src/main.rs:10803`; `smysl-ingest/src/text/run.rs:546,635`).
+  The documentation R22 A orders names six commands: `q --save`,
+  `ask --save`, `measure` and `assess` unless given `--dry-run`,
+  `same-as`, and `ingest --text`.
+- **R25:** the stamp does not have the property the ruling relied on. It
+  is computed over in-memory lengths that move only after `write_all` and
+  `sync_data` both succeed (`smysl-text/src/shards.rs:380-384`;
+  `smysl-text/src/library.rs:993-995`), so a short write or a failed sync
+  leaves whole records on disk with the stamp unchanged. The test is now
+  each shard log's length on disk, read before the call and after a
+  failure: the locks are kept if any log's length changed, or if a log held
+  a torn tail before the call (the logs' total on disk exceeded the
+  stamp's length), since an append cuts a torn tail first and a length
+  alone cannot see what replaced it; otherwise they are dropped. The intent, that the locks stay exactly when part of a batch
+  may be on disk, is unchanged.
