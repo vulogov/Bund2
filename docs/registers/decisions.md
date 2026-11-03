@@ -16658,3 +16658,46 @@ and the status becomes **RESOLVED**:
 RFC-0014's Phase 1 is unblocked by this decision. Its open questions
 Q51, Q52, Q54, Q55, Q56 and Q57 remain, each with the answer route the
 RFC names (Q52 and Q55 before or at M1).
+
+## D245 — RFC-0014's revision 8 points, R22–R25: SMYSL's unlocked writers, `retracts`, extension kinds, and R20's test
+
+**Raised 2026-11-02** by RFC-0014's revision 8
+(`docs/rfc/RFC-0014-smysl-corpora.md`), which answers the sixth review
+(`docs/rfc/reviews/RFC-0014-review-2026-11-02-6.md`). That review found
+that five SMYSL commands append to a library without its locks
+(`smysl:src/main.rs:6324,6702,7579,8094,14019,14162`, commit 4f5ecb9),
+although every earlier revision, and D244's rulings, assumed each SMYSL
+writer locks. D244 stays RESOLVED; these points are new, and R25
+restates when R20 A applies.
+
+- Blocks: RFC-0014 (acceptance; R22 B would also hold M3)
+- Depends on: D244 (R15, R20, R21)
+- Status: **RESOLVED 2026-11-02.** The owner ruled R22 A, R23 A, R24 A
+  and R25 A, as recommended. The ruling is recorded below the table.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **R22** | SMYSL's unlocked writers: `q --save`, `ask --save`, `measure --save`, `assess`, `same-as` | **A** Phase 1 proceeds; its documentation says a library a Bund program writes must not be written by those commands at the same time; SMYSL is asked to lock them (U9). **B** Phase 1 waits for U9, and pins a SMYSL revision that has it. | **A** |
+| **R23** | A `retracts` relation written outside `smysl.retract` | **A** `smysl.rel` and `smysl.append` refuse it with SM03, naming `smysl.retract`. **B** accept it, and state beside R21 that it bypasses the retraction plan and authority. | **A** |
+| **R24** | Extension relation kinds (`x.<domain>/<kind>`) | **A** accepted on write wherever `RelKind::parse` accepts them, and read back as text. **B** read back, and refused on write with SM05. | **A** |
+| **R25** | R20's test for a failed write | **A** the locks are kept when the library's stamp grew during the failed call, and dropped when it did not, for `append_records` and `Library::add` alike. **B** revision 6's test: `check_loggable` first, then every later `append_records` error keeps the locks, with `Library::add` still needing a rule. | **A** |
+
+The reasoning for each is in the RFC: R22 in §S9, "What the locks do not
+cover"; R23 in §S4; R24 in §S2; R25 in §S9, under R20.
+
+*Resolved 2026-11-02.* The owner ruled every point A:
+
+- **R22 A:** Phase 1 proceeds without waiting for U9. Its documentation
+  says a library a Bund program writes must not be written at the same
+  time by `q --save`, `ask --save`, `measure --save`, `assess` or
+  `same-as`, and SMYSL is asked to lock them (U9).
+- **R23 A:** `smysl.rel` and `smysl.append` refuse a `retracts` relation
+  with SM03, naming `smysl.retract`.
+- **R24 A:** extension relation kinds are accepted on write wherever
+  `RelKind::parse` accepts them, and read back as text.
+- **R25 A:** after a failed `append_records` or `Library::add`, the locks
+  are kept if the library's stamp grew during the call, and dropped if it
+  did not. This is the test under which D244 R20 A applies.
+
+RFC-0014 has no OPEN decision left. Its open questions Q51, Q54, Q56 and
+Q57 remain, each with the answer route the RFC names.

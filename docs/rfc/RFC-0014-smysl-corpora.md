@@ -1,11 +1,13 @@
 # RFC-0014: SMYSL corpora — forming, researching and querying them from Bund
 
-- Status: **Draft — revision 6** (2026-11-02). Written on the owner's
+- Status: **Draft — revision 8** (2026-11-02). Written on the owner's
   request: "Create RFC for SMYSL project that will make it integrateable
   into Bund. The idea: use SMYSL ability to form, research and query SMYSL
   corpus/database of data. Before writing RFC, assess if this idea is
   reachable/worthy." The assessment is §A, before the design. The rulings
-  are **D244**, points R1–R21, with R14 re-decided by revision 6.
+  are **D244**, points R1–R21, with R14 re-decided by revision 6, and
+  **D245**, points R22–R25, raised by revision 8. **D245 is RESOLVED
+  (2026-11-02):** the owner ruled R22–R25 A, as the design assumes.
   **D244 is RESOLVED (2026-11-02):** the owner ruled R1 A and R2 A, then
   R3–R21 "as recommended", so every point is A, as the design assumes.
   D244's heading still reads "R1–R12", because it predates the
@@ -50,6 +52,28 @@
       decides everything from that second open.
     - Gists are NFC-normalised before they are fitted.
     - R20 also keeps the locks after an append that fails part way.
+  - *Revision 7 (2026-11-02)* adds the "Implementation plan", M1–M10, on
+    the owner's "proceed as recommended". Q52 and Q55 were answered
+    before it. No design changes.
+  - *Revision 8 (2026-11-02)* answers the sixth review
+    (`docs/rfc/reviews/RFC-0014-review-2026-11-02-6.md`), the first by a
+    reader independent of the earlier five: B1–B3, S1–S8, N1–N12 and its
+    assumptions, in "Revision 8: the sixth review answered". The largest
+    changes:
+    - **Five SMYSL commands append to a library without its locks.**
+      Every earlier revision said each SMYSL writer locks. The claim is
+      withdrawn, what Bund2 can promise is stated, U9 asks SMYSL to lock
+      them, and whether Phase 1 waits for that is R22 (D245).
+    - The implementation plan is reordered, so that no milestone claims a
+      criterion before the words it uses exist.
+    - Criterion 15's failed-append and re-open cases are given mechanisms
+      that exist: an unwritable shard log, and a probe that pauses a
+      write.
+    - Whether a failed write keeps the locks is decided by comparing the
+      library's stamp before and after the call. That restates the test
+      under R20, which is ruled, so it is put as R25.
+    - A `retracts` relation written through `smysl.rel` or `smysl.append`
+      is R23; extension relation kinds are R24.
 - Depends on: RFC-0001 (values), RFC-0002 (words), RFC-0004 (effects),
   RFC-0005 (promotion), RFC-0007 (threads and the bus), RFC-0013
   (knowledge bases, proof trees)
@@ -128,7 +152,7 @@ dependency set Bund2 has never linked.
 
 | Requirement | Finding | Where |
 |---|---|---|
-| Form a corpus without a model | A library is created or opened by `Library::create` (idempotent) and `Library::open`. `Library::add` reads a text in, and its caller must hold the library's locks. `Library::append_records` appends records, and SMYSL's own commands hold the same locks around it | `smysl-text/src/library.rs:285-289,302,1001-1013,1341-1379`; `smysl:src/main.rs:8618-8628` |
+| Form a corpus without a model | A library is created or opened by `Library::create` (idempotent) and `Library::open`. `Library::add` reads a text in, and its caller must hold the library's locks. `Library::append_records` appends records. SMYSL's `lib` and `text` commands hold the locks around it, and five of its saving commands do not (§Current, "The locks"; R22) | `smysl-text/src/library.rs:285-289,302,1001-1013,1341-1379`; `smysl:src/main.rs:6297,6324,8618-8628` |
 | Research without a model | Lineage, retraction, salience, packing, dossiers and measures are pure functions of a store. A dossier and a measure return what they found and **write nothing** | `smysl-graph/src/lineage.rs:149`; `smysl-graph/src/merge/retraction.rs:70-127`; `smysl-query/src/dossier/mod.rs:325-326,819`; `smysl-measure/src/lib.rs:239-248` |
 | Query | `parse`, `plan` and `run`, each answer one of five shapes | `smysl-query/src/parse.rs:42`; `smysl-query/src/plan.rs:680`; `smysl-query/src/exec.rs:70-83,115` |
 | Query a library, not only a store | `smysl-text` implements the query crate's scope ports over an open library | `smysl-text/src/scope.rs:1-8` |
@@ -139,7 +163,8 @@ dependency set Bund2 has never linked.
 | Toolchain and licence | MSRV is 1.85 (1.88 for the facade); Bund2 pins 1.95.0. SMYSL is MPL-2.0, which is already on `deny.toml`'s allow list | `smysl:Cargo.toml:16-17,136`; `rust-toolchain.toml`; `deny.toml` |
 | A source Bund2 may depend on | A git dependency pinned by revision is a mechanism Bund2 already uses, for `algos`. D38 justified that one by the oracle, which SMYSL is not, so allowing SMYSL's is R2's own ruling | `deny.toml`, `[sources]`; `crates/bund2-stdlib/Cargo.toml` |
 
-Nothing here blocks Phase 1. Three things are still unknown, and they are
+Nothing here blocks Phase 1, unless R22 rules that it waits for SMYSL to
+lock its saving commands (U9). These things are still unknown, and are
 recorded as questions rather than blockers:
 
 - what a library holds after an append interrupted part way (Q51);
@@ -530,15 +555,45 @@ The owner wrote both projects. This RFC joins them.
       (`smysl-text/src/readers/mod.rs:45-53`).
   - `Library::open` reads every shard's log into the in-memory store
     (`:327-350`), and nothing reloads it afterwards.
-  - `append_records` appends records (`:1341`). It appends to each shard's
-    log in a loop, then to the in-memory store (`:1364-1379`). Its doc
-    comment names no lock, but SMYSL's commands take the locks around
-    every write (`smysl:src/main.rs:8618-8628`).
+  - `Library::open` also writes. When the library records redactions, it
+    unlinks the objects of the redacted parts (`enforce_z`,
+    `:370,676-698`), and takes no lock to do it. Every open does this,
+    SMYSL's own included.
+  - `append_records` appends records (`:1341`). It refuses a batch
+    `check_loggable` refuses before any shard is written (`:1347-1354`).
+    It appends to each shard's log in a loop, then to the in-memory store
+    (`:1364-1379`). Its doc comment names no lock; who locks is under
+    "The locks".
+    - A unit citing a part is routed to the shard of that part's alias
+      (`smysl-text/src/shards.rs:456-466`), and the loop creates that
+      shard's log if it is new (`smysl-text/src/library.rs:1364-1369`).
+    - In a layout-1 library, a batch that creates a shard first rewrites
+      the `LIBRARY` marker to layout 2 (`:1355-1361`). Layout 2 dates from
+      SMYSL 1.10.0 (`smysl:CHANGELOG.md:958,1323-1325`), so releases
+      before it no longer read the library whole.
+    - A shard log's length grows only once a write and its `sync_data`
+      have both succeeded (`smysl-text/src/shards.rs:380-382`). The
+      library's stamp is a function of those lengths and hashes
+      (`smysl-text/src/library.rs:993-995`).
+    - Reading a log counts an undecodable tail as torn
+      (`smysl-text/src/shards.rs:236-251`). The next append to that log
+      cuts it back to the decoded length before writing (`:376-379`).
+    - A shard that `lib migrate --primary` moved into the unit store
+      cannot be read without `store-redb`, and the open fails with an I/O
+      error naming the shard (`smysl-text/src/shards.rs:300-322`).
 - **The locks.**
   - `acquire_all` takes the library's locks, in order
     (`smysl-text/src/lock.rs:24-43`).
-  - A lock is a file created with `create_new`. A second writer fails with
-    `SMY-E445`, naming the holder (`smysl-graph/src/lock.rs:3-5`).
+  - A lock is taken by writing its holder to a staged file beside it, then
+    hard-linking that file to the lock's path: "A hard link fails if the
+    lock exists, which is the `create_new` this replaces"
+    (`smysl-graph/src/lock.rs:150-158`). The module comment still says
+    `create_new` (`:3-5`).
+    - A lock already held fails with `SMY-E445`, naming the holder
+      (`:165`).
+    - Any other error from the link is `LibError::Io` (`:177`). So on a
+      filesystem without hard links every write fails, and not with
+      `SMY-E445`.
   - A lock is released when it is dropped: `Drop` removes the file
     (`smysl-graph/src/lock.rs:225-228`). A process killed mid-write leaves
     its lock behind by design: "the stale lock *is* the crash notice". The
@@ -564,6 +619,23 @@ The owner wrote both projects. This RFC joins them.
     its holder's pid, host and command, which `Lock::holder` reads
     (`smysl-graph/src/lock.rs:38-41,182-185`). A `Lock` holds a path, a
     name and a flag, not an open file (`:126-130`).
+  - **Not every SMYSL writer takes them.** `acquire_all` is called by
+    `with_library`, which `lib migrate`, `verify`, `import`, `accept` and
+    `discard` use (`smysl:src/main.rs:8618-8628`), and by five `text`
+    subcommands (`:12656,12790,12914,13033,13104`). These commands call
+    `append_records` on a library they opened, and never lock:
+
+    | Command | Opens | Appends |
+    |---|---|---|
+    | `q --library --save` | `smysl:src/main.rs:6297` | `:6324` |
+    | `ask --save` | `Corpus::open`, `:13827` | `:6702` |
+    | `measure --save` | `:7348` | `:7579` |
+    | `assess` | `:7780` | `:8094` |
+    | `same-as` | `Corpus::open` | `:14019`, `:14162` |
+
+    SMYSL's own comment assumes otherwise: "every library-wide writer
+    holds the library lock first" (`smysl-text/src/library.rs:765-769`).
+    Its CLI breaks that assumption. U9 asks SMYSL to lock them.
 - **Queries.**
   - `Env` borrows a store and a scope immutably
     (`smysl-query/src/plan.rs:51-53`).
@@ -721,7 +793,7 @@ The owner wrote both projects. This RFC joins them.
 | a status | STRING, `"unfounded"` … `"measured"` |
 | a unit | MAP: `uid`, `schema` and `gist`, and, where present, `body`, `detail`, `status`, `grounds` (LIST of uid), `deps` (LIST of uid), `source`, `lang`, `labels` (LIST of STRING), `payload` (the decoded tree) and `opaque` (BOOL, see below) |
 | a source | MAP: `kind`, `reference`, and, where present, `captured` (STRING, the date as SMYSL writes it), `observed` (INT of milliseconds; a value above `i64::MAX` reads back as a STRING of its decimal digits, and is written from one, so the two forms round-trip; any other STRING is SM03), `published`, `span` (LIST of two INTs) and `manifest` |
-| a relation | MAP: `rid`, `kind`, `from` and `to`, and, where present, `weight` (FLOAT) and `note` |
+| a relation | MAP: `rid`, `kind`, `from` and `to`, and, where present, `weight` (FLOAT), `note` (STRING: the uid of a unit carrying commentary on the edge, `smysl-core/src/types/relation.rs:182-183`) and `opaque` (BOOL, see below) |
 | a diagnostic | MAP: `code` (SMYSL's own, such as `"SMY-E030"`), `severity`, `subject` and `message`, and, where present, `suggestion` |
 | a subject | MAP `{ kind, value }`: `"unit"` with a uid; `"record"` with the hash in hex; `"span"` with LIST `[ start end ]` of byte offsets; or `"store"` with NODATA |
 | a payload tree | `Null` → NODATA; `Bool`, `Int`, `Float` and `Str` as themselves; `Array` → LIST; `Object` → MAP |
@@ -732,6 +804,19 @@ The owner wrote both projects. This RFC joins them.
     decode, and its attestations.
   - When any of the first three applies, the MAP has `opaque = true`, and
     `payload` is absent if it did not decode.
+- **A relation read back is a view too.** Its `extra`
+  (`smysl-core/src/types/relation.rs:185`) and its attestations are left
+  out, and a non-empty `extra` sets `opaque = true`.
+- **A source of a kind this build cannot name** reads back with `kind` as
+  an INT: the raw code SMYSL keeps on `SourceRef`, and reports as
+  `SMY-W409` (`smysl-core/src/types/epistemics.rs:180-191,432-439`). The
+  unit's `opaque` is set. A source Bund2 writes names a kind SMYSL knows;
+  any other is SM05.
+- **A relation kind** reads back as its text. That covers the fourteen
+  kernel kinds and SMYSL's extension kinds, `x.<domain>/<kind>`
+  (`smysl-core/src/types/relation.rs:34,103-125`). Whether `smysl.rel` and
+  `smysl.append` accept an extension kind is R24. Recommended: they accept
+  any kind `RelKind::parse` accepts, and any other is SM05.
 - **Copying records between libraries is not in Phase 1** (§S10).
 - **Units are written from MAPs of the same shape, without `uid`**, which
   SMYSL computes.
@@ -753,9 +838,15 @@ The owner wrote both projects. This RFC joins them.
 - **Floats in a weight or a payload** are quantised by SMYSL, and a
   weight is first clamped to [0, 1]. A program reads back the clamped,
   quantised value.
-- **A SMYSL value Bund2 has no arm for** — a variant added to a
-  `#[non_exhaustive]` enum after 4f5ecb9 — is `Error::internal`, naming
-  the type (D37). It cannot occur at the pinned revision.
+- **The variants data can reach have arms.** A later SMYSL can write three
+  things this build cannot name, and each is handled above or in §S7: an
+  unknown source kind, an extension relation kind, and an unknown profile
+  estimator (`smysl-core/src/types/estimate.rs:228-230`).
+- **A SMYSL value Bund2 has no arm for** is a variant added to a
+  `#[non_exhaustive]` enum after 4f5ecb9. Only a change of the pin can
+  bring one, and the code does not compile it in; Bund2 answers
+  `Error::internal`, naming the type (D37). A pin moves in a commit of its
+  own that re-runs the criteria (§S1), and that commit adds the arm.
 
 ### S3. Opening
 
@@ -783,8 +874,8 @@ marks the words that write; every write is made under §S9's locks.
 | `smysl.text.add` | handle spec → MAP | ✓ | adds a text through a reader. Answers `{ mid, parts }`, the manifest's id and its parts' ids. `spec` is a MAP, given below the table |
 | `smysl.texts` | handle → MAP | | each alias with its heads, a LIST of manifest ids (`catalog`) |
 | `smysl.unit` | handle unit → uid | ✓ | appends one unit written as §S2's MAP |
-| `smysl.rel` | handle relation → rid | ✓ | appends one relation |
-| `smysl.append` | handle list → LIST | ✓ | appends a LIST of unit, relation and label MAPs, in order and under one acquisition of the locks. Answers each one's id: a unit's uid, a relation's rid, and for a label, the uid it binds |
+| `smysl.rel` | handle relation → rid | ✓ | appends one relation. A `retracts` relation is SM03, naming `smysl.retract` [R23] |
+| `smysl.append` | handle list → LIST | ✓ | appends a LIST of unit, relation and label MAPs, in order and under one acquisition of the locks. Answers each one's id: a unit's uid, a relation's rid, and for a label, the uid it binds. A `retracts` relation anywhere in the LIST is SM03, and nothing is written [R23] |
 | `smysl.label` | handle label uid → | ✓ | binds a label |
 | `smysl.retract` | handle uid → rid | ✓ | retracts a unit as SMYSL does (below); NODATA if it was already retracted |
 | `smysl.parse` | text → LIST | | parses the surface syntax into §S2's MAPs of units, relations and labels, without their ids. Any other record (a view, a schema declaration, a thread, a manifest, a commitment, …) has no §S2 form. It is skipped, and one `Warning` per record kind names how many were skipped. Nothing is written |
@@ -800,7 +891,7 @@ the spec or has a default named here:
 | `reader` | yes: `"txt/1"` or `"md/1"`; any other is SM05 | — |
 | `alias` | yes | — |
 | `licence` | yes: SMYSL requires one (`smysl-text/src/library.rs:95`); missing is SM03 | — |
-| `lang` | no | the reader's own answer |
+| `lang` | yes: a language tag. SMYSL refuses an add when neither the caller nor the reader names a language (`smysl-text/src/library.rs:1193-1203`), and neither enabled reader names one: `ReadOutput.lang` starts `None`, and only `with_lang` sets it (`smysl-text/src/readers/mod.rs:253,268-269`). Missing is SM03 | — |
 | `title` | no | none |
 | `carry` | no: `"none"`, `"ref"` or `"text"` | `"none"`, SMYSL's `Carry` default |
 
@@ -819,7 +910,12 @@ one attestation, written as its own `Record::Attestation`. The retraction
 edge is the exception (below). The attestation has these fields:
 
 - its agent is the handle's `agent`;
-- its operation is `Authored`;
+- its operation is `Authored`. SMYSL attests its own computed units
+  `Transformed` (`smysl:src/main.rs:7566-7575`), from the unit they were
+  computed from. A unit Bund2 writes was authored by the program that
+  wrote it, and rule T reads only the rung
+  (`smysl-check/src/passes/trust.rs:33-38`), so the choice changes no
+  status;
 - its rung is `Document` for a `cited` unit, and `Computed` for every
   other;
 - its hop is 0;
@@ -876,9 +972,29 @@ The word answers the unit's uid either way.
    **unattested**, as SMYSL writes it (`:218`; `smysl:src/main.rs:4499`).
    The word answers its rid.
 
-The edge's lack of an attestation is SMYSL's choice, kept so that a
-Bund2 retraction and a CLI retraction are the same records. Attesting it
-would be an amendment to R15.
+The edge is unattested because that is the record `plan_retraction`
+simulates when it decides whether to accept
+(`smysl-graph/src/merge/retraction.rs:218`), and the record SMYSL's
+`retract` writes to a bare store (`smysl:src/main.rs:4499`). That
+command cannot write to a library, since it reads its `--store` argument
+as a file (`:4537`). So no CLI retraction in a library exists to match.
+Attesting the edge would be an amendment to R15.
+
+**`retracts` is written only by `smysl.retract`** [R23].
+- `effective_status` retracts the `to` of **any** `retracts` relation
+  whose target is present, checking neither authority nor `from`
+  (`smysl-graph/src/merge/retraction.rs:83-88`). Only `plan_retraction`
+  checks authority (`:181-209`).
+- So a `retracts` relation appended by `smysl.rel` or `smysl.append`
+  would retract any unit, skip the "already retracted" test, and not even
+  need to claim another agent's id. R21's advisory authority is a
+  narrower hole than that.
+- Recommended (R23 A): both words refuse it with SM03, naming
+  `smysl.retract`. The alternative (R23 B) accepts it, and states the
+  bypass beside R21 with a Preservation row.
+- Under A, a library holding retractions cannot be copied through
+  `smysl.write`, `smysl.parse` and `smysl.append`. Copying between
+  libraries is not in Phase 1 (§S10).
 
 **A clean library.**
 
@@ -897,7 +1013,9 @@ would be an amendment to R15.
 
 ### S5. Words — researching
 
-None of these writes.
+None of these appends a record. Each opens the library, and an open
+unlinks the objects of redacted parts, as every SMYSL open does
+(§Current, "The library").
 
 | Word | Operands → result | Does |
 |---|---|---|
@@ -915,6 +1033,26 @@ None of these writes.
 - A measure's unit grounds on a `Basis` that must be appended with it
   (`smysl-measure/src/scope.rs:52-60`), so keeping a measure is not a
   matter of appending one unit. Saving either is an amendment.
+
+**The environment** of a dossier, a measure and a query (§S6) is the one
+SMYSL's `q --library` and `measure` build:
+- the scope is `LibraryScope::new(name, &library)`, where `name` is the
+  root's file stem, as `measure` names it (`smysl:src/main.rs:7355-7362`);
+- the `Env` is `Env::new(library.store(), &scope)` with `with_times` and
+  `with_entities` over that scope (`:6313-6315`). `ask` fails without the
+  entities port (`smysl-query/src/dossier/mod.rs:829-830`), and the time
+  stages are refused without the times port
+  (`smysl-query/src/plan.rs:54-57`);
+- no semantic port is bound, since Phase 1 has no model. `~sem`,
+  `near(…)` and `lang:any` are then refused by name
+  (`smysl-query/src/plan.rs:63-66`), which reaches the program as SM04;
+- the `PlanOptions` are `PlanOptions::default()`: 10 hits per partition,
+  current versions only, no parameters (`smysl-query/src/plan.rs:161-175`);
+- a measure's base `Recipe` is `Recipe::new("", 0, scope)`, every other
+  field at its default (`smysl-measure/src/recipe.rs:191-213`). That is
+  where `measure` starts before applying its flags
+  (`smysl:src/main.rs:7448`), and its seed, 0, is `measure`'s default
+  (`:1149-1153`).
 
 ### S6. Words — querying
 
@@ -949,7 +1087,10 @@ None of these writes.
 
 **The runner's own refusals:**
 
-- a missing slot, or a slot of the wrong type, is SM03, naming the slot;
+- a missing slot, or a slot of the wrong type, is SM03, naming the slot.
+  A missing `lambda` is SM03 too, where RFC-0013 §S11 reads a missing
+  `lambda` slot as an empty lambda: a `smysl` conditional with nothing to
+  run is taken as a mistake;
 - an error raised inside `lambda` is SM10, as RFC-0013's E25 is for
   `query`.
 
@@ -992,7 +1133,8 @@ A rule can ask, for example, which findings rest on a rebutted claim:
 - **It is never promoted,** and `bund2 check` gets an arm for it: 4 →
   LIST.
 - **Its refusals are `kb.prove`'s codes,** with its own prefix
-  `SMYSL.PROVE: `.
+  `SMYSL.PROVE: `. E00 and E40 keep their house texts, unprefixed, as
+  RFC-0013 §S12 leaves them.
 - **It solves first and writes after.**
   - It finds every answer and its proof, holding no lock.
   - Only then does it take §S9's locks and write.
@@ -1065,10 +1207,15 @@ largest `l0_max`.
 
 - **gist:** §S7.1's rendering of the goal, with every uid shortened to its
   first 12 characters, **normalised to NFC first**.
+  - A uid is a STRING atom that `Uid::parse` accepts
+    (`smysl-core/src/ids.rs:71`). Any other atom, `"b3:x"` for one, is
+    rendered whole.
   - Bund2 normalises it with `unicode-normalization`, the crate SMYSL
     normalises with, and depends on it directly under the feature. So
     SMYSL's own normalisation leaves the fitted gist unchanged, and
-    cannot lengthen it past the bound.
+    cannot lengthen it past the bound. This assumes that a prefix of an
+    NFC string, followed by `…`, is still NFC; criterion 12's non-NFC
+    atom near the cut checks it.
   - The detail is normalised the same way.
   - If the rendering fits every profile in the set, it is the gist.
   - Otherwise, the cut is the shortest of the prefixes that
@@ -1124,11 +1271,11 @@ two are the house texts, unprefixed, as the reference writes them.
 |---|---|---|
 | SM00 | an operand that should be a handle is not a MAP of `type = "smysl"` with a STRING `root` and a well-formed `agent` | `#<k> parameter must be a SMYSL handle` |
 | SM01 | `smysl.open`, or a word given a handle, finds no library at `root` | `no SMYSL library at <root>` |
-| SM02 | SMYSL refused the operation | `SMYSL refused it: <code> <message>` |
-| SM03 | an operand of the wrong type (`#<k> parameter must be <kind>, found <type>`); a spec, record or slot lacking a required key or holding one of the wrong type; a value with no SMYSL form; a computed key given; a status Bund2 cannot author | `<what> <reason>`, e.g. `uid is computed, not given` |
+| SM02 | SMYSL refused the operation, or a SMYSL call failed with an I/O error: among them a lock that could not be linked (§S9), and a primary shard this build cannot read (§Current, "The library") | `SMYSL refused it: <code> <message>` |
+| SM03 | an operand of the wrong type (`#<k> parameter must be <kind>, found <type>`); a spec, record or slot lacking a required key or holding one of the wrong type; a value with no SMYSL form; a computed key given; a status Bund2 cannot author; a `smysl.text.add` spec with no `lang`; a `retracts` relation outside `smysl.retract` [R23] | `<what> <reason>`, e.g. `uid is computed, not given` |
 | SM04 | `sq/1` refused the query | `the query was refused: <code> <message>`, one per diagnostic, joined by `; ` |
-| SM05 | an unknown status, relation kind, reader or trace kind | `unknown <kind>: <value>` |
-| SM06 | `--noio`, for a word that acts on disk [R11] | the house text, unprefixed, as `bund_models.rs:125` writes it: `bund SMYSL functions disabled with --noio` |
+| SM05 | an unknown status, relation kind, source kind, reader or trace kind | `unknown <kind>: <value>` |
+| SM06 | `--noio`, for a word that acts on disk [R11] | unprefixed, in the pattern of the house text `bund SAVE.MODEL functions disabled with --noio` (`bund_models.rs:125`): `bund SMYSL functions disabled with --noio` |
 | SM07 | a lock is held (`SMY-E445`); or the shard set changed twice while locking (§S9) | `the library is locked: <holder as SMYSL names it>`, or `the library's shards changed while locking: <shard>` |
 | SM08 | a label bound to several units | `label <label> binds <n> units` |
 | SM09 | `plan_retraction` refused the retraction | `retraction refused: <SMYSL's reason>` |
@@ -1166,7 +1313,7 @@ two are the house texts, unprefixed, as the reference writes them.
   a stack. Every `smysl.` word acts on a library on disk named by a
   handle, so a workbench form would move only the name.
 
-**Locks.** Every write takes SMYSL's locks in the order SMYSL's own
+**Locks.** Every write takes SMYSL's locks in the order SMYSL's locking
 commands use (`smysl:src/main.rs:8618-8628`), then **re-opens** the
 library:
 
@@ -1197,11 +1344,42 @@ between. That covers:
 SMYSL's own commands do not re-open. Bund2 does, at the cost of a second
 open per write (Q54).
 
-**The shard set is stable under the library lock.** Every SMYSL writer
-takes the library lock first (`smysl-text/src/lock.rs:30`), so once Bund2
-holds it, no honest writer can add a shard. A mismatch at step 5 is a
-shard added between steps 1 and 3, which a restart covers. This narrows
-Q57 to writers that do not take the library lock.
+**The shard set is stable against writers that lock.** `acquire_all`
+takes the library lock first (`smysl-text/src/lock.rs:30`), so while
+Bund2 holds it no writer that locks can add a shard. A mismatch at step 5
+is a shard such a writer added between steps 1 and 3, which a restart
+covers. A shard Bund2's own batch creates is covered by the library lock,
+not by a shard lock, as SMYSL intends
+(`smysl-text/src/library.rs:765-769`).
+
+**What the locks do not cover** [R22]. Five SMYSL commands append without
+locking (§Current, "The locks"): `q --save`, `ask --save`,
+`measure --save`, `assess` and `same-as`.
+- **Bund2 promises serialisation only against writers that lock:**
+  itself, in this process and in others, and SMYSL's `lib` and `text`
+  commands.
+- **Against the five it promises nothing, and cannot.** They write at any
+  moment, including between Bund2's second open and its append. Then:
+  - Bund2's de-duplication, its "already attested" and "already
+    retracted" tests, and its clock's `prev`, may rest on a library that
+    has since moved on;
+  - worse, if Bund2 opens while one of them is part way through a record,
+    it reads that record as a torn tail, and its append cuts it off
+    (`smysl-text/src/shards.rs:236-251,376-379`). The other process then
+    writes the rest of its record at the new end. Neither side reports
+    anything.
+- A locking SMYSL command opening beside one of the five can do the same,
+  so the hazard is SMYSL's. Bund2 makes it neither better nor worse, and
+  the remedy is SMYSL's: U9 asks it to lock those commands.
+- **Recommended (R22 A):** Phase 1 proceeds, and its documentation says a
+  library a Bund program writes must not be written by those five
+  commands at the same time. The alternative (R22 B) is that Phase 1 waits
+  for U9, and pins a SMYSL revision that has it.
+- Q57 is re-opened with the hazard named.
+
+**Filesystems.** A lock is a hard link (§Current, "The locks"), so a
+library must sit on a filesystem that has them. Elsewhere every write
+fails with an I/O error from taking the lock, which is SM02, not SM07.
 
 - **A lock held by another process is SM07.** It is not waited for. SMYSL
   fails fast, and a program that wants to retry can catch SM07 with
@@ -1224,21 +1402,34 @@ Q57 to writers that do not take the library lock.
     subcommand may be withdrawn by an amendment.
 - **A panic inside a write leaves SMYSL's locks in place** [R20], as a
   killed SMYSL process would. That keeps SMYSL's crash notice.
-  - **So does an error part way through an append.**
-    - Before it calls `append_records`, Bund2 runs SMYSL's whole-batch
-      refusal `Store::check_loggable` itself
-      (`smysl-graph/src/store/mod.rs:1120`). It is the check
-      `append_records` runs before any shard is written
-      (`smysl-text/src/library.rs:1347-1354`). A refusal there is SM02,
-      and the locks are dropped as usual.
-    - Any error `append_records` returns after that is a failed write,
-      which may have reached some shards (`:1364-1382`). The guard then
-      forgets the locks, exactly as on a panic, and the word answers
-      SM02, saying the library is left locked.
+  - **So does a failed call after which a log has grown** [R25, revised
+    by revision 8].
+    - Bund2 reads the library's stamp (`Library::stamp`,
+      `smysl-text/src/library.rs:993-995`) before it calls
+      `append_records` or `Library::add`, and again if the call fails.
+    - A shard log's length grows only once a write and its `sync_data`
+      have succeeded (`smysl-text/src/shards.rs:380-382`), and the stamp
+      is a function of those lengths. So a stamp that grew means part of
+      the batch is on disk and part may not be. The guard then forgets the
+      locks, exactly as on a panic, and the word answers SM02, saying the
+      library is left locked.
+    - An unchanged stamp means no record reached any log whole. At most
+      one log holds a torn tail, which readers tolerate and the next
+      append cuts (`smysl-text/src/shards.rs:236-251,376-379`).
+      `Library::add` may also have written text objects, which are
+      addressed by their identity (`smysl-text/src/library.rs:680-682`)
+      and which no manifest names. The locks are dropped as usual, and
+      the word answers SM02 with SMYSL's reason.
+    - So every refusal that writes nothing leaves no lock:
+      `check_loggable`'s (`:1347-1354`), a language-less `add`, an I/O
+      error before the first shard. Revision 6 ran `check_loggable` first
+      instead. The stamp makes that unnecessary, and also covers `add`,
+      whose manifest is built inside the call, where Bund2 cannot check
+      it first.
   - Bund2 holds the locks `acquire_all` answers in a guard of its own.
     When that guard is dropped while the thread is panicking
-    (`std::thread::panicking()`), or after a failed append, it
-    `std::mem::forget`s each lock instead of dropping it. `Lock`'s `Drop`,
+    (`std::thread::panicking()`), or after a failed call whose stamp grew,
+    it `std::mem::forget`s each lock instead of dropping it. `Lock`'s `Drop`,
     which would remove the file (`smysl-graph/src/lock.rs:225-228`), then
     never runs. A `Lock` holds no open file, so forgetting it leaks only
     its path and name (`:126-130`).
@@ -1274,9 +1465,21 @@ Q57 to writers that do not take the library lock.
   nothing for it to protect. D49 has already reported that panic, and the
   lock it left (above) refuses the next write with SM07.
 - **A test-only probe** makes this checkable. A feature
-  `smysl-panic-probe`, on no default and in no shipped build, makes a
-  write panic after its mutex and SMYSL's locks are taken, and before it
-  appends, as `panic-probe` gives `test.panic` (D220).
+  `smysl-panic-probe`, on no default and in no shipped build, as
+  `panic-probe` gives `test.panic` (D220), adds a process-wide probe that
+  the crate's own tests arm. It acts at two points of a write, and only
+  when armed:
+  - **`panic`**, after the mutex and SMYSL's locks are taken and before
+    the append: the write panics;
+  - **`pause`**, after the first open (step 1) and before the locks: the
+    write creates a file the test names, to say it has arrived, and waits
+    until the test removes it. After 30 s it panics instead, so that a
+    broken test fails rather than hangs.
+
+  A failed append needs no probe. The test makes one shard's log
+  unwritable, so that `ShardLog::append`'s open fails
+  (`smysl-text/src/shards.rs:371-375`) after an earlier shard has been
+  written (criterion 15).
 - **`smysl.prove` takes no mutex or lock while solving** (§S7).
 
 ### S10. What is not in Phase 1
@@ -1299,8 +1502,8 @@ Q57 to writers that do not take the library lock.
 ### S11. What SMYSL should change
 
 These would make SMYSL a better dependency for Bund2 and for any other
-embedder. Only U6 bears on Phase 1, through R2. U8 would let the
-subcommand of R14 be withdrawn.
+embedder. U6 bears on Phase 1 through R2, and U9 through R22. U8 would
+let the subcommand of R14 be withdrawn.
 
 - **U1. Deny panics in the pure crates.** Add `unwrap_used`,
   `expect_used`, `panic` and `unreachable` to the workspace's clippy
@@ -1334,6 +1537,13 @@ subcommand of R14 be withdrawn.
 - **U8. The `--break-lock` command `lock.rs` names.** It is documented in
   `Lock::break_lock`'s comment and in SMYSL-2.4, and not implemented in
   the CLI (§Current, "The locks").
+- **U9. Lock every command that appends to a library.** `q --save`,
+  `ask --save`, `measure --save`, `assess` and `same-as` call
+  `append_records` without `acquire_all` (§Current, "The locks"), which
+  the comment on `Library::shards` says no library-wide writer does
+  (`smysl-text/src/library.rs:765-769`). Since an append cuts a torn tail,
+  one of them can silently cut off a record another writer is part way
+  through.
 
 ### S12. Phase 2, not designed here
 
@@ -1349,6 +1559,52 @@ Phase 2 in, it comes as an amendment with its own criteria.
 
 ---
 
+## Implementation plan
+
+Everything lives in a `smysl` module of `bund2-stdlib`, compiled only
+under the feature. Every milestone ends with:
+- its criteria passing, under the feature and in the default build;
+- `cargo xtask conform` and `cargo xtask coverage` unchanged (D72);
+- clippy passing under the feature.
+
+Each word is named in `FEATURE_GATED`, and each writing word in
+`ACTS_ON_HOST`, in the milestone that registers it. Each refusal code is
+tested in the milestone that first raises it, so criterion 14 is complete
+when M10 is.
+
+| Milestone | Builds | Criteria |
+|---|---|---|
+| M1 | the `smysl` feature on `bund2-stdlib` and its forwarding from `bund2-cli` (§S1); the eight crates at `rev = "4f5ecb9"` and the `allow-git` entry naming D244; `SMYSL_BUILT_IN` in `features_built_in`; four of §S1's five CI steps, all but the `smysl_demo` run; `FEATURE_GATED` moved to module scope and `UNVARIED` filtered by it. **First, Q55's spike:** in a test, build each value §S4–§S7 need against a fixture library, and run one query, one dossier, one measure and one attested append, through SMYSL's API alone | 1, 2, 3; 16's audits; 18's `features_built_in` case |
+| M2 | handles and values (§S2), and no word that writes: the handle MAP, canonicalisation, validation; `smysl.open`, `smysl.agent`; the read-back and write mappings of units, relations, sources, diagnostics and payloads, tested as functions against records built through SMYSL's API | 14's SM00, SM01, SM03 and SM05 cases that need no write; 18's read-back cases |
+| M3 | the first writes, with their locks (§S9, §S4): the process-wide mutex table; open, lock, re-open and the shard-set restart; the guard and its stamp rule; the probe feature; the `bund2 smysl-unlock` subcommand; `smysl.create` and `smysl.unit`, with attestations, their clock, rung, hop and parents, and the already-attested rule | 4; 15's stale-lock, thread, panic and re-open cases; SM07 |
+| M4 | the rest of forming (§S4): `smysl.rel`, `smysl.label`, `smysl.append`; `smysl.text.add` and its spec, `smysl.texts`; `smysl.parse`, `smysl.write`; `smysl.check` | 5, 7; 15's failed-append and nothing-written cases; 18's `smysl.rel` and `smysl.label` cases; SM02, SM08 |
+| M5 | retraction and research (§S4, §S5): `smysl.retract` in SMYSL's sequence; `smysl.get`, `smysl.trace` with all five kinds, `smysl.status`, `smysl.salience`, `smysl.pack` | 8; 15's attestation and advisory-authority cases; 18's salience and pack case; SM09 |
+| M6 | dossiers and measures (§S5), in the environment §S5 names | 10 |
+| M7 | querying (§S6): `smysl.query` and its answer MAPs; the `smysl` conditional and its runner; `bund2 check`'s arm; the runner's `REENTERING` entry | 6, 9; 16's `REENTERING` scan; 18's `bund2 check` and warning cases; SM04, SM10 |
+| M8 | `smysl.kb` (§S7) | 11 |
+| M9 | `smysl.prove` (§S7): proof nodes to units, statuses under rule M, gists fitted to the library's profiles after NFC, solve then write; §S7.1's rendering; its `bund2 check` arm | 12, 13; 18's `smysl.prove` case; SM12 |
+| M10 | `bund_examples/smysl_demo/` and `smysl_demo.rs`, with the fifth CI step, which runs it; the `--noio` stubs (§S8); the editor syntax file left as at 0.53.0 | 14 complete (SM06, SM11), 16 complete, 17; 18's `--noio` case |
+
+Each criterion is claimed by the first milestone at which every word it
+uses exists. A criterion split across milestones is complete at the last
+of them.
+
+**What may stop a milestone.**
+- **M1.** If Q55's spike finds two values that cannot be composed from
+  outside SMYSL, M1 stops and the gap goes to SMYSL as part of U2, or to
+  an amendment.
+- **M3.** Its words are the first that write, and they arrive with §S9's
+  locks, so that no word ever writes without them. `smysl.create` writes,
+  which is why it waits for M3 rather than joining `smysl.open` in M2.
+- **R22** is ruled A, so M3 does not wait for U9. The documentation
+  M10 writes for the example says that a library a Bund program writes
+  must not be written at the same time by SMYSL's five unlocked commands.
+- **Q51** stays open through M4. If M4's failed-append test shows a
+  library that SMYSL cannot read back, that is an amendment for a repair
+  step.
+
+---
+
 ## Preservation analysis
 
 | Behaviour | Disposition |
@@ -1359,9 +1615,14 @@ Phase 2 in, it comes as an amendment with its own criteria.
 | `--noio` | **Extended in kind** [R11]. Every `smysl.` word that touches disk is stubbed, as the words at the reference's 16 `cli.noio` sites are. `smysl.parse` and `smysl.agent` do no I/O and are not stubbed |
 | `conform`, `COVERAGE` and `IMPLEMENTED` | **Unchanged.** Words only Bund2 has are not in the reference's registry (D72), and the default build does not register them |
 | `bund2 words` | **Differs by build**, as it already does for `grok`. The `smysl` build lists the new words |
-| SMYSL's lock as a crash notice | **Kept** [R20]. A panic or a failed append leaves the locks, as a killed process does, so the library refuses writes until an operator breaks them with `bund2 smysl-unlock` (R14), since SMYSL has no command for it |
+| SMYSL's lock as a crash notice | **Kept** [R20]. A panic, or a failed call after which a log has grown, leaves the locks, as a killed process does, so the library refuses writes until an operator breaks them with `bund2 smysl-unlock` (R14), since SMYSL has no command for it |
 | The `bund2` CLI | **Extended in the `smysl` build** by one subcommand, `smysl-unlock` [R14]. The default build's CLI is unchanged |
-| A write's view of the library | **Stricter than SMYSL's commands.** Bund2 re-opens under the locks (§S9), so a record another process appended just before is not appended again |
+| A write's view of the library | **Stricter than SMYSL's commands.** Bund2 re-opens under the locks (§S9), so a record another locking writer appended just before is not appended again |
+| Concurrent use with SMYSL's saving commands | **Not safe, as in SMYSL itself** [R22]. `q --save`, `ask --save`, `measure --save`, `assess` and `same-as` append without locks, so a Bund2 write beside one of them may decide from a stale library, or cut off a record it is part way through (§S9). Bund2 makes this neither safer nor less safe; U9 asks SMYSL to lock them |
+| Reading a library | **Not strictly read-only, as in SMYSL.** Every open, a read's included, unlinks the objects of redacted parts, without a lock (§Current, "The library") |
+| A library's layout | **May be raised.** A Bund2 write that creates a shard in a layout-1 library rewrites its marker to layout 2, as any SMYSL write does. SMYSL releases before 1.10.0 then no longer read it whole (§Current, "The library") |
+| Filesystems | **As SMYSL's.** A lock is a hard link, so a library on a filesystem without hard links cannot be written; each write is SM02 (§S9) |
+| `retracts` relations | **Written only by `smysl.retract`** [R23], so every retraction passes SMYSL's plan and its authority check. A document holding a `retracts` relation cannot be appended with `smysl.append` |
 | Salience and hop | **Affected as intended.** A proof conclusion's attestation names its grounds as parents, which salience reads as its ancestry; every Bund2 unit sits at hop 0 (§S4) |
 | SMYSL's retraction authority | **Kept, and stated as advisory** [R21]. `Origin` is checked as SMYSL checks it; agent ids are self-asserted, in Bund2 as in SMYSL |
 | What a manifest records | **Named.** Bund2's defaults for `carry` (`none`) and the part policy (the reader's top level) are SMYSL's, and are recorded in each manifest Bund2 writes (§S4) |
@@ -1444,7 +1705,9 @@ No deviation from the reference is proposed.
    - **The documents.** At least five, written for this test in Bund2's
      own tree, so no SMYSL file is copied. Between them they hold:
      - units of every status a program can author;
-     - relations of each of SMYSL's fourteen kernel kinds;
+     - relations of each of SMYSL's fourteen kernel kinds but `retracts`,
+       which `smysl.append` refuses [R23], and of one extension kind
+       [R24];
      - labels, none of them bound twice in one document, since a
        document's last binding wins (`smysl-graph/src/labels.rs:10`);
      - a payload that is lossless;
@@ -1458,9 +1721,12 @@ No deviation from the reference is proposed.
 
      The two LISTs `smysl.append` answered are equal **as sets**, and the
      skipped kinds draw the warnings §S4 names.
+   - A sixth document, holding a `retracts` relation, is refused by
+     `smysl.append` with SM03, and the library is unchanged.
 6. **Forming persists.** A test:
    - creates a library in a temporary directory;
-   - adds one text per alias with each enabled reader;
+   - adds one text per alias with each enabled reader, each naming its
+     `lang`;
    - appends units and relations.
 
    Then, in a fresh VM:
@@ -1493,7 +1759,9 @@ No deviation from the reference is proposed.
    - A `count` answer runs the `smysl` conditional's lambda zero times.
 10. **Dossiers and measures match, and write nothing.**
     - One dossier, and the measures T1 and A4, over a fixture library give
-      what the direct calls give.
+      what the direct calls give. The direct calls use the environment §S5
+      names: the same `LibraryScope`, an `Env` with times and entities,
+      `PlanOptions::default()` and the base `Recipe`.
     - A measure id `"XX"` gives a result with `SMY-E489`.
     - The library's catalog and units are unchanged afterwards.
 11. **The bridge loads.** `smysl.kb` over a scope gives the facts of §S7's
@@ -1538,33 +1806,60 @@ No deviation from the reference is proposed.
     value is SM03.
 14. **Refusals.** SM00–SM12 each have a test asserting §S8's text. The
     tests include:
-    - an empty span, a non-MAP payload, and an over-cap `text` for
-      `smysl.text.add`, which is SM02 with `SMY-E440`;
+    - an empty span, and a non-MAP payload;
+    - for `smysl.text.add`, a `path` to a sparse file one byte longer than
+      `Caps::default().input_bytes`, made with `set_len`, which is SM02
+      with `SMY-E440` and reads nothing. The `text` form shares the length
+      check, and is not tested with a STRING over 1 GiB;
+    - a `smysl.text.add` spec with no `lang`, which is SM03;
+    - a gist of spaces, which SMYSL refuses as empty after `trim`
+      (`smysl-core/src/types/unit.rs:146-149`), so SM02;
     - a unit MAP with `body: ""` and a `detail`, which is SM02.
 15. **Locks are SMYSL's.**
     - With a lock file left as a crashed SMYSL process would leave it, a
-      write is SM07 naming the holder, and a read succeeds.
+      write is SM07 naming the holder, and `smysl.open` of the library
+      succeeds.
     - Four VMs on four threads each append 250 units to one library,
-      through two spellings of its root. All 1,000 are present afterwards.
-    - Under `smysl-panic-probe`, a write that panics with the mutex and
-      the locks held:
+      through two spellings of its root. All 1,000 are present afterwards,
+      read through SMYSL's API.
+    - With the probe armed to `panic`, a write that panics with the mutex
+      and the locks held:
       - is reported as `Error::internal`;
       - leaves the library lock and every shard lock it took in place;
       - makes the next write to that root, from a fresh VM on another
         thread, SM07 naming this process;
-      - leaves a read of that root succeeding.
+      - leaves `smysl.open` of that root succeeding.
 
       After `bund2 smysl-unlock <root>` lists every one of those locks with
       its holder, and `--yes` breaks them all, a write succeeds.
-    - An append that fails part way leaves the locks the same way. Under
-      `smysl-panic-probe`, an injected I/O error after the first shard
-      is written does this. A batch `check_loggable` refuses leaves no
-      lock.
-    - **The re-open.** A unit appended by another process between a
-      write's first open and its locks is seen by that write. The test
-      pauses the write at that point, under `smysl-panic-probe`, while a
-      second process appends the unit. So the write does not append the
-      unit again, and its clock is later than the other process's.
+    - **A failed append.**
+      - The fixture adds a text under the alias `zeta` and appends one unit
+        citing a part of it, so the shard `zeta`, which sorts after
+        `catalog`, has a log.
+      - The test makes `zeta`'s log read-only, then appends in one
+        `smysl.append` a unit with no source, routed to `catalog`, and a
+        unit citing the part, routed to `zeta`
+        (`smysl-text/src/shards.rs:456-466`).
+      - So `catalog`'s log grows and `zeta`'s open fails. The word answers
+        SM02 saying the library is left locked, and every lock stays, as
+        after a panic.
+      - The test first checks that the read-only log does refuse an
+        append. If the environment ignores permissions, as a root user
+        does, the test fails with a message saying so.
+    - **A failure that writes nothing leaves no lock.** A batch
+      `check_loggable` refuses, and a `Library::add` that SMYSL refuses for
+      want of a language, called through Bund2's guarded write directly
+      (the word's own SM03 stops it first), each leave no lock, and the
+      next write succeeds.
+    - **The re-open.** With the probe armed to `pause`, a `smysl.append`
+      of two new units stops after its first open. The test then appends
+      the first of them, with an attestation by the same agent, through
+      SMYSL's API under `acquire_all`, and releases the pause.
+      - The write appends neither that unit nor a second attestation of
+        it.
+      - The attestation it writes for the second unit has a clock later
+        than the other writer's. That holds because both attest as the
+        same agent, whose newest clock is `prev` (§S4).
     - A unit written first by `tool:other` and then appended by a
       `tool:bund2` handle gains one attestation, and that handle may then
       retract it.
@@ -1588,6 +1883,29 @@ No deviation from the reference is proposed.
       crate's tests,
       compare the output, as for `logic_demo`, and CI runs that test
       (§S1).
+18. **What the other criteria do not reach.**
+    - `smysl.salience` and `smysl.pack` over a fixture library equal
+      `salience` and `pack` called directly with the same inputs.
+    - `smysl.rel` and `smysl.label`, each alone, write what the same record
+      written through `smysl.append` writes. `smysl.rel` given a
+      `retracts` relation is SM03 [R23].
+    - `bund2 check` reads a program using the `smysl` conditional, and one
+      using `smysl.prove`, with no unknown-effect diagnostic, and takes
+      `smysl.prove` as 4 → LIST.
+    - `features_built_in` names `smysl` in the `smysl` build and not in the
+      default one.
+    - Under `--noio`, `smysl.parse` and `smysl.agent` work, and every other
+      `smysl.` word is SM06.
+    - The function that reports a run's `warnings`, a measure's
+      diagnostics and a write's warnings gives one `Warning` per warning
+      (D36), driven with a diagnostic of each severity, since which
+      queries warn is SMYSL's to change.
+    - A source whose `observed` is above `i64::MAX`, written from its
+      STRING form, reads back as that STRING.
+    - Data a later SMYSL may write reads back: a source of an unknown kind
+      code, built with `SourceRef::with_unknown_kind`, with `kind` as that
+      INT and `opaque = true`; an extension relation kind as its text; and
+      a relation with a non-empty `extra` with `opaque = true`.
 
 ---
 
@@ -1596,7 +1914,9 @@ No deviation from the reference is proposed.
 Each is in `docs/registers/open-questions.md`.
 
 - **Q50. Answered by revision 2.** Libraries are locked by SMYSL, and
-  Phase 1 writes only libraries.
+  Phase 1 writes only libraries. *Corrected by revision 8:* a lock is a
+  hard link, not a `create_new` file, and not every SMYSL writer takes
+  it (§Current, "The locks"; Q57).
 - **Q51 [UNGROUNDED], narrowed.**
   - A truncated tail is tolerated (`smysl-graph/src/lock.rs:20-22`).
   - Since revision 5, a panic leaves the lock in place (§S9, R20), so a
@@ -1608,6 +1928,13 @@ Each is in `docs/registers/open-questions.md`.
     some shards written and others not.
   - What remains is a write interrupted between its records, such as a
     text's objects without its manifest.
+  - *Narrowed by revision 8.* Shards written before a failure keep their
+    records. The failing shard may hold a torn tail, which reading
+    tolerates and the next append cuts
+    (`smysl-text/src/shards.rs:236-251,376-379`). So after
+    `bund2 smysl-unlock`, the next write silently discards that partial
+    record. What stays open is whether a batch written to some shards and
+    not others leaves a library SMYSL's own checks object to.
   - If that can leave a library half-written, a repair step is an
     amendment.
 - **Q52.** Does `blake3` with `pure` and no default features invoke a C
@@ -1678,9 +2005,14 @@ Each is in `docs/registers/open-questions.md`.
     (`smysl:src/main.rs:8618-8628`), and §S9 follows them.
   - If a shard can appear in that window, the write may miss its lock.
     That is SMYSL's to answer (U2, U3).
-  - *Narrowed by revision 6.* Bund2 re-opens under the locks, and
-    restarts if a shard appeared (§S9). Every SMYSL writer takes the
-    library lock first, so what remains is a writer that does not.
+  - *Narrowed by revision 6*, on the premise that every SMYSL writer
+    takes the library lock first.
+  - **Re-opened by revision 8:** the premise is false. Five SMYSL
+    commands append without any lock (§Current, "The locks"), and an
+    append cuts another writer's partial record as a torn tail (§S9).
+    Against writers that lock, the re-open and the restart answer the
+    question. Against the five, nothing Bund2 does answers it. U9 asks
+    SMYSL; R22 decides whether Phase 1 waits.
 - **Q58. Answered by revision 6:** no, and the reverse is the point.
   `SMY-E020` resolves a body token as a label only through the `labels`
   map the caller gives (`smysl-check/src/passes/closure.rs:46-80`). Under
@@ -1703,7 +2035,7 @@ Each is in `docs/registers/open-questions.md`.
 
 ---
 
-## Rulings asked for (D244)
+## Rulings asked for (D244, D245)
 
 | | Point | Options | Recommended |
 |---|---|---|---|
@@ -1728,6 +2060,10 @@ Each is in `docs/registers/open-questions.md`.
 | R19 | `smysl.check`'s profile | **A** `CheckOptions::default()`: the profile SMYSL derives from the library's views, or the `default` preset without one. **B** always the `default` preset | **A** — **ruled A** 2026-11-02 |
 | R20 | A panic or a failed append in a write | **A** SMYSL's locks are left in place (forgotten, not dropped), so the library refuses writes with SM07 until an operator breaks them; a batch `check_loggable` refuses keeps no lock. **B** the locks are released and the next write proceeds | **A** — **ruled A** 2026-11-02 |
 | R21 | Agent ids | **A** any agent SMYSL's grammar allows; `Origin` authority stated as advisory, since ids are self-asserted. **B** `smysl.agent` and handles restricted to the `tool:` kind | **A** — **ruled A** 2026-11-02 |
+| R22 | SMYSL's unlocked writers | *Raised by revision 8 (D245).* **A** Phase 1 proceeds; its documentation says a library a Bund program writes must not be written at the same time by `q --save`, `ask --save`, `measure --save`, `assess` or `same-as`; U9 is asked of SMYSL. **B** Phase 1 waits for U9, and pins a SMYSL revision that has it | **A** — **ruled A** 2026-11-02 |
+| R23 | `retracts` outside `smysl.retract` | *Raised by revision 8 (D245).* **A** `smysl.rel` and `smysl.append` refuse a `retracts` relation with SM03, naming `smysl.retract`. **B** accept it, and state beside R21 that it bypasses the plan and authority | **A** — **ruled A** 2026-11-02 |
+| R24 | Extension relation kinds | *Raised by revision 8 (D245).* **A** `smysl.rel` and `smysl.append` accept any kind `RelKind::parse` accepts, `x.<domain>/<kind>` included, and read them back as text. **B** read them back, and refuse them on write with SM05 | **A** — **ruled A** 2026-11-02 |
+| R25 | R20's test for a failed write | *Raised by revision 8 (D245).* R20 A is ruled; this restates when it applies. **A** the locks are kept when the library's stamp grew during the failed call, and dropped when it did not, for `append_records` and `Library::add` alike. **B** revision 6's test: `check_loggable` first, then every later error from `append_records` keeps the locks. Under B, an `add` that SMYSL refuses before writing anything still needs a rule, since its manifest is built inside the call | **A** — **ruled A** 2026-11-02 |
 
 ---
 
@@ -1870,3 +2206,32 @@ Each is in `docs/registers/open-questions.md`.
 | N8 | `SMY-W054` routed as a `Warning` |
 | N9 | `Cargo.lock` named |
 | Assumptions 1–5 | 1 is B1. 2 is S1. 3 is S2. 4 is S3. 5 is S4 |
+
+## Revision 8: the sixth review answered
+
+| Finding | Answer |
+|---|---|
+| B1 five SMYSL commands append unlocked | The claim that every SMYSL writer locks is withdrawn in §A, §Current and §S9, and the commands are listed with their lines. Bund2 promises serialisation against writers that lock, and nothing against the five, whose torn-tail hazard §S9 names. Q57 re-opened; U9 asked; R22 (D245) decides whether Phase 1 waits; a Preservation row |
+| B2 criteria before their words | The plan is reordered: `smysl.create` and `smysl.unit` arrive with the locks in M3; criterion 4 is M3's; criterion 6 is M7's; 15's failed-append case is M4's and its attestation case M5's; the `smysl_demo` CI step lands in M10. Each criterion is claimed where every word it uses exists |
+| B3 the probe cannot inject or pause | The failed append uses a read-only shard log, in a two-shard batch whose fixture is named. The probe gains a defined `pause`, released by the test, and the other writer is the test itself through SMYSL's API. Criterion 15, §S9 |
+| S1 the lock is a hard link | §Current corrected; an `Io` from taking a lock is SM02; the filesystem assumption is stated, with a Preservation row. Q50 noted |
+| S2 `lang` is required | Required, SM03 when missing; criteria 6 and 14 |
+| S3 the guard and `Library::add` | R25 (D245), recommending that the guard compare the library's stamp before and after a failed call: grown keeps the locks, unchanged drops them. `check_loggable`-first is then unnecessary. Criterion 15 tests a refused `add` |
+| S4 `retracts` outside `smysl.retract` | R23 (D245), recommending SM03; criteria 5 and 18; a Preservation row |
+| S5 variants data can reach | An unknown source kind reads back as its code with `opaque`; extension relation kinds read back as text, and writing them is R24 (D245). `Error::internal` is kept for a variant a later pin brings |
+| S6 the environment | §S5 names the scope, the `Env` and its ports, `PlanOptions::default()` and the base `Recipe`, each as SMYSL's commands build them. Criterion 10 uses them |
+| S7 untested pieces | Criterion 18; criterion 14's over-cap case uses a sparse file |
+| S8 the retraction edge's reason | Restated as the record `plan_retraction` simulates; the CLI's `retract` cannot write a library |
+| N1 opens write | §Current, §S5, and a Preservation row |
+| N2 layout raised | §Current and a Preservation row |
+| N3 a shard no lock covers | §S9: the library lock covers it, as SMYSL intends |
+| N4 Q51 | Narrowed |
+| N5 primary shards | §Current; SM02 |
+| N6 relation read-back | `note` is a uid STRING; `extra` sets `opaque` |
+| N7 a gist of spaces | Criterion 14 |
+| N8 `Authored` | Its reason is stated in §S4 |
+| N9 the re-open clock | Criterion 15 says the other writer attests as the same agent |
+| N10 uid shortening | A STRING `Uid::parse` accepts |
+| N11 RFC-0013 conventions | The missing `lambda` and the unprefixed E00 and E40 are stated |
+| N12 SM06's text | Described as following the house text's pattern |
+| Assumptions 1–7 | 1 is B1 and R22. 2 is S1. 3 is S2. 4 is S3's stamp rule. 5 is S5. 6 is N5. 7 is stated in §S7, and criterion 12 checks it |
