@@ -6,6 +6,8 @@
   corpus/database of data. Before writing RFC, assess if this idea is
   reachable/worthy." The assessment is §A, before the design. The rulings
   are **D244, OPEN**, points R1–R21, with R14 re-decided by revision 6.
+  **R1 A and R2 A were ruled by the owner on 2026-11-02**; R3–R21 are
+  open.
   D244's heading still reads "R1–R12",
   because it predates the amendments that added the rest. Nothing in this
   RFC takes the default of any of them.
@@ -1668,8 +1670,8 @@ Each is in `docs/registers/open-questions.md`.
 
 | | Point | Options | Recommended |
 |---|---|---|---|
-| R1 | Scope | **A** Phase 1 as designed; Phase 2 a later amendment. **B** the bridge alone (§S7). **C** no integration. **D** Phases 1 and 2 together | **A** |
-| R2 | Dependency source | **A** git at `rev = "4f5ecb9"`, with an `allow-git` entry ruled here (D38's mechanism, not its reason), moving to crates.io when U6 lands. **B** crates.io `=1.11.0`, with this RFC re-grounded against it. **C** wait for U6 | **A** |
+| R1 | Scope | **A** Phase 1 as designed; Phase 2 a later amendment. **B** the bridge alone (§S7). **C** no integration. **D** Phases 1 and 2 together | **A** — **ruled A** 2026-11-02 |
+| R2 | Dependency source | **A** git at `rev = "4f5ecb9"`, with an `allow-git` entry ruled here (D38's mechanism, not its reason), moving to crates.io when U6 lands. **B** crates.io `=1.11.0`, with this RFC re-grounded against it. **C** wait for U6 | **A** — **ruled A** 2026-11-02 |
 | R3 | Handle | **A** a MAP of `type = "smysl"` with a canonical root and an agent. **B** a STRING path. **C** a new native value type | **A** |
 | R4 | Opening | **A** per call, no cache, until Q54 asks for one. **B** per call, with a process-wide cache | **A** |
 | R5 | Writes | **A** each word appends, and `smysl.append` appends a LIST under one acquisition of the locks. **B** single-record words only | **A** |

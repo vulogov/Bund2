@@ -16452,8 +16452,10 @@ compiled only under a feature. SMYSL is read at commit 4f5ecb9 (v1.14.0).
 
 - Blocks: RFC-0014
 - Depends on: D26, D27, D28, D32, D36, D37, D49, D51, D72, D226 (L11)
-- Status: **OPEN.** The RFC is written against each recommended option;
-  none is adopted until ruled.
+- Status: **OPEN, R1 and R2 ruled.** The owner ruled R1 A and R2 A on
+  2026-11-02 (below, after the fifth amendment). R3–R21 are open. The RFC
+  is written against each recommended option, and none of R3–R21 is
+  adopted until ruled.
 
 | | Question | Options | Recommended |
 |---|---|---|---|
@@ -16602,3 +16604,19 @@ The status is still **OPEN**, and the points remain R1–R21.
   batch keeps no lock. Any error `append_records` returns after that
   keeps the locks, as a panic does.
 - **R10 A** also covers U8.
+
+*Ruled in part 2026-11-02 by the owner:* "R2: A", "R1: A". The status
+becomes **OPEN, R1 and R2 ruled**.
+
+- **R1 A, scope.** Phase 1 as RFC-0014 designs it: forming, researching
+  and querying a library, and the bridge to RFC-0013, with no model,
+  async runtime or HTTP client. The model-calling steps are Phase 2, a
+  later amendment with its own criteria.
+- **R2 A, dependency source.** The eight SMYSL crates come from a git
+  dependency on `https://github.com/vulogov/smysl` at `rev = "4f5ecb9"`,
+  under an `allow-git` entry in `deny.toml` with its own comment naming
+  D244. D38 supplies the mechanism, not the reason. They move to
+  crates.io once SMYSL publishes 1.14 (U6), in a commit of its own that
+  re-runs RFC-0014's SMYSL criteria.
+- **Still open: R3–R21.** Phase 1's work items wait on them, because the
+  RFC's design rests on their recommended options.
