@@ -51,6 +51,10 @@ jit   = ["bund2/jit", "bund2-runtime/jit"]
 # Test-only: `test.panic`, a word that panics, so `tests/panic_tier.rs` has a
 # real panic to report once no shipped native panics (D220).
 panic-probe = ["bund2-runtime/panic-probe"]
+# The `smysl.` words (RFC-0014 §S1). Straight to the crate that owns them,
+# not through the `bund2` facade, where a feature reaches no code (F124,
+# D168); `bund2-runtime` has nothing to forward.
+smysl = ["bund2-stdlib/smysl"]
 # No `async`: the façade's feature links `bund2-async` and the CLI names
 # none of it, so a feature here changed only a bundle's record (D168).
 

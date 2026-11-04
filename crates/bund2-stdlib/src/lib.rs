@@ -21,6 +21,10 @@ pub(crate) mod wb;
 /// on this one cannot ask `cfg!(feature = "grok")` and get a true answer.
 pub const GROK_BUILT_IN: bool = cfg!(feature = "grok");
 
+/// Whether this build carries the `smysl.` words — RFC-0014's feature gate,
+/// asked by `features_built_in` for the reason `GROK_BUILT_IN` is.
+pub const SMYSL_BUILT_IN: bool = cfg!(feature = "smysl");
+
 pub mod stack;
 
 pub mod console;
@@ -638,6 +642,35 @@ mod honesty_tests {
         "save.model",
     ];
 
+    // **Natives a feature gate may or may not have registered — F123.**
+    //
+    // `PROMOTABLE.txt` is one file and there are two builds. `string.grok`
+    // and `string.grok.` exist only under `--features grok`, which D10 and
+    // D40 keep off by default, so a list regenerated without the feature
+    // fails `--all-features` with `now reached ["string.grok",
+    // "string.grok."]`, and a list regenerated with it fails the default
+    // build from the other side. No content of the file satisfies both.
+    //
+    // **Excluded at the source rather than subtracted afterwards.**
+    // Filtering where the audits collect natives means they never *claim*
+    // to have checked them; subtracting after the run would measure them
+    // under `--all-features` and then discard the result, which is a
+    // measurement taken and thrown away. Unreached is also the conservative
+    // answer: promotion syncs before an unlisted native exactly as it does
+    // before an embedder's, so a gated word costs speed and never meaning.
+    //
+    // Kept by hand, as `ACTS_ON_HOST` is, and for the same reason: a new
+    // feature-gated native runs for real until it is named here. `grok`
+    // binds these two. `smysl` binds every `smysl.` word and the
+    // constructor `smysl`, each named here by the RFC-0014 milestone that
+    // registers it; M1 registers none.
+    //
+    // At the module's scope, not in the palette audit's body, because the
+    // `UNVARIED` audit filters it too (RFC-0014 criterion 16): a gated
+    // native with an operand the palette leaves at seven is in one build's
+    // list and not the other's, as it would be in `PROMOTABLE.txt`.
+    const FEATURE_GATED: [&str; 2] = ["string.grok", "string.grok."];
+
     /// **RFC-0005's assumption 23, scanned.** Criterion 28's palette varies a
     /// native's top two operands, or its top operand and the workbench for a
     /// workbench form, and puts `7` in every operand beneath those. So a
@@ -709,7 +742,11 @@ mod honesty_tests {
             .registry
             .declared_effects()
             .into_iter()
-            .filter(|(n, e)| !e.opaque && usize::from(e.consumes) > varied_of(n, e))
+            .filter(|(n, e)| {
+                !e.opaque
+                    && !FEATURE_GATED.contains(&n.as_str())
+                    && usize::from(e.consumes) > varied_of(n, e)
+            })
             .collect();
         let names: Vec<&str> = unvaried.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(
@@ -857,28 +894,6 @@ mod honesty_tests {
             .map(|v| v.display().to_ascii_lowercase().contains("stamp"))
             .collect();
         let template = setup.registry.clone();
-        // **Natives a feature gate may or may not have registered — F123.**
-        //
-        // `PROMOTABLE.txt` is one file and there are two builds. `string.grok`
-        // and `string.grok.` exist only under `--features grok`, which D10 and
-        // D40 keep off by default, so a list regenerated without the feature
-        // fails `--all-features` with `now reached ["string.grok",
-        // "string.grok."]`, and a list regenerated with it fails the default
-        // build from the other side. No content of the file satisfies both.
-        //
-        // **Excluded at the source rather than subtracted afterwards.**
-        // Filtering here means the audit never *claims* to have checked them;
-        // subtracting after the run would measure them under `--all-features`
-        // and then discard the result, which is a measurement taken and thrown
-        // away. Unreached is also the conservative answer: promotion syncs
-        // before an unlisted native exactly as it does before an embedder's, so
-        // the two words cost speed and never meaning.
-        //
-        // Kept by hand, as `ACTS_ON_HOST` is, and for the same reason: a new
-        // feature-gated native runs for real until it is named here. `grok` is
-        // the only feature this crate has today, and it binds exactly these
-        // two.
-        const FEATURE_GATED: [&str; 2] = ["string.grok", "string.grok."];
         let natives: Vec<(String, bund2_api::StackEffect)> = setup
             .registry
             .declared_effects()

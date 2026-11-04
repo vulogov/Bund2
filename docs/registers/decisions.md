@@ -16696,6 +16696,18 @@ blocking and revision 21 answered its should-fix findings. These rulings
 stand as the RFC records them, with the notes above. By R1 A, acceptance
 covers Phase 1, built as M1–M10 in order; Phase 2 is a later amendment.
 
+*Note 2026-11-04, RFC-0014 M1,* on the owner's choice "Ignore, with
+reasons": criterion 2's `cargo deny --features smysl check` found three
+advisories in crates SMYSL pins, none in the default build. RUSTSEC-2026-0414
+and RUSTSEC-2026-0433 are `pulldown-cmark` 0.13.4 parser blow-ups that need
+`Options::ENABLE_WIKILINKS`, which SMYSL's Markdown reader never sets
+(`smysl-text/src/readers/md.rs:69-72` at 4f5ecb9); RUSTSEC-2025-0057 is
+`fxhash`, unmaintained with no safe upgrade, through `bm25` under
+`smysl-retrieve`. Each is ignored in `deny.toml` with its reason. R2 is
+unchanged. A `pulldown-cmark` bump and `fxhash`'s removal are to be asked
+of SMYSL beside U1–U9, and a SMYSL revision that has them is a re-pin, a
+commit of its own (§S1).
+
 ## D245 — RFC-0014's revision 8 points, R22–R25: SMYSL's unlocked writers, `retracts`, extension kinds, and R20's test
 
 **Raised 2026-11-02** by RFC-0014's revision 8

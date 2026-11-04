@@ -420,6 +420,20 @@ fn a_failed_build_still_says_nothing_was_written() {
     );
 }
 
+/// RFC-0014 criterion 18: `features_built_in` names `smysl` in the `smysl`
+/// build and not in the default one. The feature is `bund2-stdlib`'s, so a
+/// record that asked `cfg!` in the CLI would always say no (§S1).
+#[test]
+fn the_version_names_smysl_exactly_when_built_with_it() {
+    let r = bund2(&["--version"], &[]);
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    let first = r.out.lines().next().unwrap_or_default();
+    let named = first
+        .split_once("(features: ")
+        .is_some_and(|(_, f)| f.trim_end_matches(')').split(',').any(|f| f == "smysl"));
+    assert_eq!(named, cfg!(feature = "smysl"), "{first}");
+}
+
 /// `help` in every spelling, for one command too, and `--version`; no
 /// arguments is a mistake and is told as one.
 #[test]

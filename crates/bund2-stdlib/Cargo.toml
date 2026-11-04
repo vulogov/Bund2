@@ -123,6 +123,23 @@ hyphenation = { version = "0.8", features = ["embed_en-us"] }
 # precisely so a target without a toolchain can still run Bund. A default-on
 # grok would make the toolchain-free fallback itself unbuildable. See D40.
 grok = { version = "2.0", optional = true }
+# **Optional, and off by default — RFC-0014 §S1, D244 R2.** The SMYSL
+# corpora words (`smysl.*`) link eight of SMYSL's crates, pinned to the
+# revision RFC-0014 was grounded against, from git until SMYSL publishes
+# 1.14 to crates.io (U6). Each takes no default feature; `smysl-text` adds
+# the two readers R12 rules, `txt/1` and `md/1`. Not linked: `smysl-ingest`
+# and `smysl-provider` (Phase 2, R1), `detect`, `stem`, `store-redb` and
+# `substrate-redb`, `smysl-check`'s `text`, and every other reader. The
+# feature builds with no C compiler (R18, criterion 3). A change of
+# revision is a commit of its own, and re-runs the RFC's SMYSL criteria.
+smysl-core    = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
+smysl-graph   = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
+smysl-check   = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
+smysl-query   = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
+smysl-retrieve = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
+smysl-pack    = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
+smysl-text    = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, features = ["reader-txt", "reader-md"], optional = true }
+smysl-measure = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
 # `display` and the `.display` method render through termimad's markdown
 # formatter (`reference/Bund/src/stdlib/functions/system/display.rs:44`,
 # `.../oop/display_class.rs:65`). Same version as
@@ -274,6 +291,18 @@ bund2-ir.workspace = true
 # `string.grok` and `string.grok.`. Off by default: see the note on the
 # dependency above and D40's amendment.
 grok = ["dep:grok"]
+# The `smysl.` words and the conditional `smysl` (RFC-0014). Off by
+# default (D28): see the note on the dependencies above.
+smysl = [
+  "dep:smysl-core",
+  "dep:smysl-graph",
+  "dep:smysl-check",
+  "dep:smysl-query",
+  "dep:smysl-retrieve",
+  "dep:smysl-pack",
+  "dep:smysl-text",
+  "dep:smysl-measure",
+]
 # **Measurement only, and unsound when used.** RFC-0013 criterion 16 asks for
 # the occurs check's share of naive reverse, and the per-inference guard
 # poll's. Both are unconditional (L7; S4's poll), so there is nothing to

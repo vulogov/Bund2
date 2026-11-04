@@ -54,6 +54,10 @@ fn features_built_in() -> String {
     if bund2_stdlib::GROK_BUILT_IN {
         on.push("grok");
     }
+    // `smysl` is `bund2-stdlib`'s too (RFC-0014 §S1), asked the same way.
+    if bund2_stdlib::SMYSL_BUILT_IN {
+        on.push("smysl");
+    }
     on.join(",")
 }
 

@@ -64,10 +64,20 @@ ignore = [
     { id = "RUSTSEC-2022-0013", reason = "regex 0.2.11, slow parsing of large repetitions: reached through markov-chain 0.1.1 (D215), whose one regex is a fixed pattern in train_string, which Bund2 never calls; no program supplies a pattern to it (D216)." },
     { id = "RUSTSEC-2022-0006", reason = "thread_local 0.3, a data race in Iter and IterMut: reached through regex 0.2.11 under markov-chain 0.1.1 (D215); regex keeps its cache in it, and the one regex is never compiled by Bund2 (D216)." },
     { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained: reached through argmin 0.10 under augurs-forecaster 0.9 (D215), a compile-time macro crate (D216)." },
+    { id = "RUSTSEC-2026-0414", reason = "pulldown-cmark 0.13.4, exponential events from a wikilink: only under the `smysl` feature, through smysl-text's md reader, which SMYSL pins at =0.13.4. The bug needs Options::ENABLE_WIKILINKS, and the reader sets tables, footnotes, strikethrough and task lists only (smysl-text/src/readers/md.rs:69-72 at 4f5ecb9). Accepted by the owner for RFC-0014 M1 (D244 note 2026-11-04); a bump is to be asked of SMYSL." },
+    { id = "RUSTSEC-2026-0433", reason = "pulldown-cmark 0.13.4, quadratic parsing of nested image wikilinks: the same crate, path and reason as RUSTSEC-2026-0414; ENABLE_WIKILINKS is never set." },
+    { id = "RUSTSEC-2025-0057", reason = "fxhash is unmaintained, with no safe upgrade: only under the `smysl` feature, through bm25 2.3.2 under smysl-retrieve, a hash function with no I/O. Accepted by the owner for RFC-0014 M1 (D244 note 2026-11-04); its removal is to be asked of SMYSL." },
 ]
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-# Pinned by revision in `bund2-stdlib`, the revision the oracle links (D38).
-allow-git = ["https://github.com/Brad-Edwards/algos.git"]
+# `algos`: pinned by revision in `bund2-stdlib`, the revision the oracle
+# links (D38).
+# `smysl`: the `smysl` feature's eight crates, pinned by revision in
+# `bund2-stdlib` (RFC-0014 §S1). Allowed by D244's R2 ruling, not by D38:
+# SMYSL has no oracle. It leaves when SMYSL publishes 1.14 to crates.io (U6).
+allow-git = [
+  "https://github.com/Brad-Edwards/algos.git",
+  "https://github.com/vulogov/smysl",
+]
