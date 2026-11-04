@@ -16659,6 +16659,12 @@ RFC-0014's Phase 1 is unblocked by this decision. Its open questions
 Q51, Q52, Q54, Q55, Q56 and Q57 remain, each with the answer route the
 RFC names (Q52 and Q55 before or at M1).
 
+*Note 2026-11-03, RFC-0014 revision 15,* after the thirteenth review: R3
+is unchanged. Its "canonical root" is what `smysl.create` and
+`smysl.open` build. A hand-built handle's root must be absolute (SM00),
+and `smysl.agent` passes it on without canonicalising it, since it does
+no I/O (R11); every word that opens the library canonicalises it again.
+
 ## D245 — RFC-0014's revision 8 points, R22–R25: SMYSL's unlocked writers, `retracts`, extension kinds, and R20's test
 
 **Raised 2026-11-02** by RFC-0014's revision 8
