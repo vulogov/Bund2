@@ -27,6 +27,10 @@ pub const SMYSL_BUILT_IN: bool = cfg!(feature = "smysl");
 
 pub mod stack;
 
+/// The `smysl.` words (RFC-0014), only under the `smysl` feature (§S1).
+#[cfg(feature = "smysl")]
+pub mod smysl;
+
 pub mod console;
 pub mod console_effects;
 pub mod console_text;
@@ -200,6 +204,8 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     library::register(r);
     library_string::register(r);
     kb::register(r);
+    #[cfg(feature = "smysl")]
+    smysl::register(r, opts);
     // After `singles`, which registers `bund.eval-file`, and before
     // `--noeval`'s stubs, whose message wins when both flags are set (D132).
     if opts.noio {
@@ -663,13 +669,13 @@ mod honesty_tests {
     // feature-gated native runs for real until it is named here. `grok`
     // binds these two. `smysl` binds every `smysl.` word and the
     // constructor `smysl`, each named here by the RFC-0014 milestone that
-    // registers it; M1 registers none.
+    // registers it.
     //
     // At the module's scope, not in the palette audit's body, because the
     // `UNVARIED` audit filters it too (RFC-0014 criterion 16): a gated
     // native with an operand the palette leaves at seven is in one build's
     // list and not the other's, as it would be in `PROMOTABLE.txt`.
-    const FEATURE_GATED: [&str; 2] = ["string.grok", "string.grok."];
+    const FEATURE_GATED: [&str; 4] = ["string.grok", "string.grok.", "smysl.agent", "smysl.open"];
 
     /// **RFC-0005's assumption 23, scanned.** Criterion 28's palette varies a
     /// native's top two operands, or its top operand and the workbench for a
