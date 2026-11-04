@@ -16674,6 +16674,15 @@ dependency, label, effective status or live edge it states held), and is
 otherwise a program fact. Before revision 17 a fact stood for its units
 whenever its uids were held.
 
+*Note 2026-11-04, RFC-0014 revision 19,* after the seventeenth review:
+R8 is unchanged. Two corrections to the note above. Only the units a
+fact stands for must be held (`U`, or a `rel` fact's `From` and `To`); a
+`grounds` or `deps` fact's `G` or `D` need only be among `U`'s grounds or
+deps, held or not, so every fact `smysl.kb` loads stands for its units at
+write time unless its edge was withdrawn since. And revision 16 already
+asked a `rel` fact's edge to be held and not withdrawn; what revision 17
+added was the test for the other shapes.
+
 ## D245 — RFC-0014's revision 8 points, R22–R25: SMYSL's unlocked writers, `retracts`, extension kinds, and R20's test
 
 **Raised 2026-11-02** by RFC-0014's revision 8

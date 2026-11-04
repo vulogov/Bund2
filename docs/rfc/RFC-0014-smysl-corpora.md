@@ -1,6 +1,6 @@
 # RFC-0014: SMYSL corpora — forming, researching and querying them from Bund
 
-- Status: **Draft — revision 18** (2026-11-04). Written on the owner's
+- Status: **Draft — revision 19** (2026-11-04). Written on the owner's
   request: "Create RFC for SMYSL project that will make it integrateable
   into Bund. The idea: use SMYSL ability to form, research and query SMYSL
   corpus/database of data. Before writing RFC, assess if this idea is
@@ -170,6 +170,15 @@
     on R8. A fact stands for its units by a test per shape, with a
     superseded unit the library holds counting as held; `smysl.kb`
     resolves its scope in §S5's environment.
+  - *Revision 19 (2026-11-04)* answers the seventeenth review
+    (`docs/rfc/reviews/RFC-0014-review-2026-11-04-3.md`): S1, N1–N5 and
+    its assumptions, in "Revision 19: the seventeenth review answered",
+    on the owner's "go ahead". No ruling changes; D244 carries a further
+    dated note on R8. Only the units a fact stands for must be held, so a
+    ground or dependency the library does not hold leaves a `grounds` or
+    `deps` fact standing; `smysl.kb` resolves its scope with
+    `scope::resolve`; a ranked query in a library with a supersession
+    answers a scope.
 - Depends on: RFC-0001 (values), RFC-0002 (words), RFC-0004 (effects),
   RFC-0005 (promotion), RFC-0007 (threads and the bus), RFC-0013
   (knowledge bases, proof trees)
@@ -1378,6 +1387,14 @@ SMYSL's `q --library` and `measure` build:
 - A `count` answer names none, so the lambda does not run.
 - A `ranked` answer's scores, and a `groups` answer's keys and boundaries,
   are in `smysl.query`'s MAP but not in what the conditional sees.
+- **A ranked or packed query answers `"scope"`** once the library holds
+  any supersession: SMYSL's supersession pass, which runs under
+  `PlanOptions::default()`, leaves an answer unchanged only when the store
+  has no supersession heads and no forks
+  (`smysl-query/src/exec.rs:476-482`), and otherwise turns a `Ranked` or
+  `Packed` answer into a `Scope`, since "a head that replaced two
+  different hits has no one score" (`:497-508`). `smysl.query` maps the
+  answer it is given, so such a query answers `units` and no scores.
 
 **Queries are SMYSL's text** [R6].
 
@@ -1412,15 +1429,23 @@ runner does (§S11), and its function is added to `REENTERING`.
 **`smysl.kb`** (handle scope → kb) loads the units an `sq/1` scope selects
 as the facts of a new knowledge base [R7].
 
-- **The scope** is resolved in §S5's environment, as a measure's is: the
-  text is parsed, planned and run with `PlanOptions::default()`
-  (`smysl-measure/src/scope.rs:100-110`), and the scope is the units the
+- **The scope** is resolved in §S5's environment, as a measure's is, by
+  `scope::resolve(text, &env, &PlanOptions::default())`, which parses,
+  plans and runs the query and builds its saved-query unit
+  (`smysl-measure/src/scope.rs:100-110`). The scope is the units the
   answer names (`Answer::uids`, `smysl-query/src/exec.rs:86-98`).
+  - A refusal from `resolve` is SM04, carrying every diagnostic, whether
+    the planner refused the query or its saved-query unit did not build
+    (`SMY-E460`, `smysl-query/src/saved.rs:417-420`).
+  - A uid the answer names that is not a unit the store holds gives no
+    fact. M8's first step establishes what a `from texts` answer names.
   - Only current versions are answered, so a superseded unit is in the
     scope only when a history traversal reaches it
     (`smysl-query/src/exec.rs:429-454`).
   - A `ranked` answer gives its hits, as many as `PlanOptions::default()`
-    allows (§S5); a `groups` answer gives the units of every group.
+    allows (§S5), and in a library holding a supersession is already a
+    `scope` answer (§S6); a `groups` answer gives the units of every
+    group.
   - A `count` answer names no units, so its KB holds only the `rank`
     facts.
 - The KB is built through the same validation `kb!` uses.
@@ -1430,12 +1455,12 @@ as the facts of a new knowledge base [R7].
 
 | Fact | Holds | In a proof, stands for |
 |---|---|---|
-| `[ unit U Schema Status ]` | one per unit | `U` |
-| `[ gist U Text ]` | its gist | `U` |
-| `[ grounds U G ]` | one per ground | `U` |
-| `[ deps U D ]` | one per dependency | `U` |
-| `[ label L U ]` | one per label | `U` |
-| `[ effective U Status ]` | one per unit whose status retraction changed, computed over the whole library under the strict policy as `smysl.status` computes it (§S5) | `U` |
+| `[ unit U Schema Status ]` | one per unit in scope | `U` |
+| `[ gist U Text ]` | one per unit in scope, its gist | `U` |
+| `[ grounds U G ]` | one per ground of a unit in scope, held or not | `U` |
+| `[ deps U D ]` | one per dependency of a unit in scope, held or not | `U` |
+| `[ label L U ]` | one per label of a unit in scope | `U` |
+| `[ effective U Status ]` | one per unit in scope whose status retraction changed, computed over the whole library under the strict policy as `smysl.status` computes it (§S5) | `U` |
 | `[ rel Kind From To ]` | one per relation with both ends in scope that is not withdrawn (`is_withdrawn`, `smysl-graph/src/store/mod.rs:1500-1504`), as SMYSL's own interpreting reads leave a withdrawn edge out (§Current, "Relations") | `From` and `To` |
 | `[ rank Status N ]` | six facts, `unfounded` 0 … `measured` 5, so a rule can compare statuses | nothing: a constant of the scale |
 
@@ -1473,11 +1498,16 @@ where the fact came from.**
 - A fact node whose goal has one of the first seven shapes in the table
   above stands for its units when the library bears it out. Nothing is
   written for it.
-  - Its uid positions are `U` in each shape, `G`, `D`, `From` and `To`.
+  - The units it stands for, `U` in each shape and `From` and `To` in
+    `rel`, are units the library holds. A superseded unit the library
+    holds counts as held.
+  - `G` and `D` need only be among `U`'s grounds or deps, held or not: a
+    unit's grounds are fixed in its identity, and SMYSL keeps a unit whose
+    ground is absent, reporting it as `SMY-E060`
+    (`smysl-graph/src/store/mod.rs:1019-1029`) and counting only the
+    grounds present (`smysl-graph/src/merge/retraction.rs:103-108`).
     `Schema`, `Status`, `Text`, `L` and `Kind` are not uids, whatever they
     spell.
-  - Every uid position names a unit the library holds. A superseded unit
-    the library holds counts as held.
   - `[ unit U Schema Status ]`: `U`'s schema and declared status are
     those given.
   - `[ gist U Text ]`: `U`'s gist is `Text`.
@@ -1492,7 +1522,13 @@ where the fact came from.**
 
   These are the facts `smysl.kb` loads for a scope holding those units,
   so a fact `smysl.kb` loaded stands for its units whatever scope it came
-  from. Any other fact of these shapes is a program fact, so no
+  from, at write time: an edge withdrawn since, through SMYSL's API or
+  `smysl lib import` in another process (§Current, "Relations"), leaves
+  its `rel` fact a program fact. A unit's schema, status, gist, grounds
+  and deps are fixed in its uid, and a retraction appended since only
+  ever makes a unit `unfounded`
+  (`smysl-graph/src/merge/retraction.rs:83-86,112-117`), so an
+  `effective` fact `smysl.kb` loaded stays borne out. Any other fact of these shapes is a program fact, so no
   conclusion is written as resting on a status, ground, label or edge the
   library does not hold, or on an edge SMYSL does not follow. A fact node
   is read back as the answer instantiated it (RFC-0013 §S15), so one
@@ -2000,7 +2036,7 @@ when M10 is.
 | M6 | dossiers and measures (§S5), in the environment §S5 names | 10; 18's `Unwritable` case; 18's `--noio` case for its words |
 | M7 | querying (§S6): `smysl.query` and its answer MAPs; the `smysl` conditional and its runner; `bund2 check`'s arm; the runner's `REENTERING` entry | 6, 9; 16's `REENTERING` scan; 18's `bund2 check` case for the conditional, and its warning case; SM04, SM10; 18's `--noio` case for the constructor, the handler and `smysl.query` |
 | M8 | `smysl.kb` (§S7) | 11, its withdrawn-edge and scope-environment cases among them; 18's `--noio` case for `smysl.kb` |
-| M9 | `smysl.prove` (§S7): proof nodes to units, statuses under rule M, gists fitted to the library's profiles after NFC, solve then write; §S7.1's rendering; its `bund2 check` arm | 12, 13; 18's `bund2 check` case for `smysl.prove`, and its withdrawn-`rel`, hand-built `grounds`, `label`, `effective` and `unit`, and superseded-ground cases; SM12; 18's `--noio` case for `smysl.prove` |
+| M9 | `smysl.prove` (§S7): proof nodes to units, statuses under rule M, gists fitted to the library's profiles after NFC, solve then write; §S7.1's rendering; its `bund2 check` arm | 12, 13; 18's `bund2 check` case for `smysl.prove`, and its withdrawn-`rel`, hand-built `grounds`, `label`, `effective` and `unit`, superseded-ground and unheld-ground cases; SM12; 18's `--noio` case for `smysl.prove` |
 | M10 | `bund_examples/smysl_demo/` and `smysl_demo.rs`, with §S1's CI step that runs it; no `--noio` stub, each having arrived and been tested with its word; the editor syntax file left as at 0.53.0 | 14 complete (SM06), 16 complete, 17; 18's `--noio` case complete |
 
 Each criterion is claimed by the first milestone at which every word it
@@ -2048,7 +2084,7 @@ half in M7, its `smysl.prove` half in M9.
 | A label bound to several units | **Written on none of them**, where SMYSL's `merge` keeps it on the first. `smysl.write` writes each such unit unlabelled and its references as uids, and names the label in a `Warning`, so a re-parse re-points no reference (§S4) |
 | Records other than units, relations and labels | **Written as SMYSL's writer writes them**, through `smysl.write`: manifests, threads, withdrawals and the rest it has a form for, and counted in a `Warning` when it has none. Attestations are never written, so a text appended elsewhere is attested afresh by the appending agent (§S4) |
 | A withdrawn edge | **Never followed, and absent from a Bund2 copy.** "Withdrawn" is SMYSL's `is_withdrawn`, so a `supersedes` or `retracts` edge never is. `smysl.write` writes a withdrawal with its edge, which SMYSL's parser reads back withdrawn, or names the edge in a `Warning` when none of the edge's withdrawals has a surface form; a library's withdrawals may come from SMYSL's API or `smysl lib import` (§Current), and the rules are the same; `smysl.parse` leaves out an edge its document withdraws, with a `Warning`, so `smysl.write`, `smysl.parse` and `smysl.append` copy a library without it; `smysl.kb` loads no `rel` fact for it, and `smysl.prove` lets no `rel` fact stand for its ends (§S4, §S7) |
-| A fact a proof uses | **Stands for its units only when the library bears it out**, judged at write time; otherwise it is a program fact, written as a claim. A hand-built fact whose uids are held but whose schema, status, gist, ground, dependency, label or edge the library does not hold, or which still holds a variable, is a program fact; revision 16 let it stand for its units. A superseded unit the library holds counts as held, so a fact `smysl.kb` loaded always stands for its units (§S7) |
+| A fact a proof uses | **Stands for its units only when the library bears it out**, judged at write time; otherwise it is a program fact, written as a claim. A hand-built fact whose units are held but whose schema, status, gist, ground, dependency or label the library does not hold, or which still holds a variable, is a program fact; revision 16 let it stand for its units, though it already asked a `rel` fact's edge to be held and live. A superseded unit the library holds counts as held, and a ground or dependency need not be held, so a fact `smysl.kb` loaded stands for its units at write time, unless its edge was withdrawn since (§S7) |
 | An omitted unit's references | **Written as its uid.** `smysl.write` gives no label to a unit it omits, so a relation or a ground naming it still parses back (§S4) |
 | A relation's and a label binding's `extra` | **Dropped by `smysl.write`, and counted** in a `Warning`, since the surface syntax has no place for either (§S4) |
 | An edge re-written with another weight or note | **Refused**, SM03. SMYSL's API would append it and every read would keep the first (§S4) |
@@ -2200,7 +2236,9 @@ No deviation from the reference is proposed.
      `EdgeSet::premises`, compared in the test.
 9. **Every answer shape is mapped.**
    - One query per `Answer` variant gives §S6's MAP, with the uids `run`
-     gives, in the same order.
+     gives, in the same order. The fixture holds no `supersedes` edge, so
+     a ranked and a packed query keep their kinds; in a second fixture
+     that holds one, the ranked query answers `"scope"`.
    - A query `plan` refuses is SM04, carrying every diagnostic.
    - A `count` answer runs the `smysl` conditional's lambda zero times.
 10. **Dossiers and measures match, and write nothing.**
@@ -2423,9 +2461,11 @@ No deviation from the reference is proposed.
       where the library binds `L` to `U`, writes nothing for that fact.
       Nor does one using `[ grounds U G ]` from `smysl.kb`, where `G` is
       superseded and held, though no scope of current versions selects
-      `G`. A hand-built `[ effective U "unfounded" ]` for a unit no
-      retraction touches, and a hand-built `[ unit U S "cited" ]` for a
-      `speculative` `U`, are each written as a program fact.
+      `G`, nor one using `[ grounds U G ]` from `smysl.kb`, where `G` is a
+      uid the library does not hold. A hand-built
+      `[ effective U "unfounded" ]` for a unit no retraction touches, and a
+      hand-built `[ unit U S "cited" ]` for a `speculative` `U` whose
+      schema is `S`, are each written as a program fact.
     - `smysl.rel` of a new edge whose rid a withdrawal already names,
       built through SMYSL's API, answers its rid and reports the
       withdrawn-edge `Warning`.
@@ -3023,3 +3063,15 @@ The owner chose A for each of S1–S3.
 | N3 a Preservation row | "A fact a proof uses" is its own row; the withdrawn-edge row keeps to edges |
 | N4 D244 R8 | A dated note on R8 records revision 17's and 18's reading of "provenance by shape and library"; the ruling is unchanged |
 | Assumptions 1–4 | 1 is S1. 2 is stated in §S7's table. 3 is S1. 4 is N2 |
+
+## Revision 19: the seventeenth review answered
+
+| Finding | Answer |
+|---|---|
+| S1 an unheld ground | Option (a): only the units a fact stands for, `U`, `From` and `To`, must be held; `G` and `D` need only be among `U`'s grounds or deps, as SMYSL keeps a unit whose ground is absent. The table's rows say "held or not". Criterion 18 adds an unheld-ground case in M9. D244 carries a further dated note |
+| N1 at write time | §S7 and the Preservation row say a loaded `rel` fact is a program fact if its edge was withdrawn since; the other shapes stay borne out |
+| N2 revision 16 misstated | The Preservation row says revision 16 already asked a `rel` fact's edge to be held and live; D244's further note corrects the earlier one |
+| N3 facts in scope | Every row of §S7's table but `rel` and `rank` says "per unit in scope" |
+| N4 ranked in a superseded library | §S6 says a ranked or packed query answers `"scope"` once the library holds a supersession; criterion 9's fixture holds none, and a second fixture holds one |
+| N5 the call, and `S` | `scope::resolve` is named, and its refusal, `SMY-E460` included, is SM04; criterion 18's `S` is `U`'s schema |
+| Assumptions 1–5 | 1 is S1. 2 is N1. 3 is N3. 4 is N4. 5: a uid that is not a unit gives no fact, and M8's first step establishes what a `from texts` answer names |
