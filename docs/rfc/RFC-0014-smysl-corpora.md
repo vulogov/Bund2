@@ -1,6 +1,6 @@
 # RFC-0014: SMYSL corpora — forming, researching and querying them from Bund
 
-- Status: **Draft — revision 19** (2026-11-04). Written on the owner's
+- Status: **Draft — revision 20** (2026-11-04). Written on the owner's
   request: "Create RFC for SMYSL project that will make it integrateable
   into Bund. The idea: use SMYSL ability to form, research and query SMYSL
   corpus/database of data. Before writing RFC, assess if this idea is
@@ -179,6 +179,14 @@
     `deps` fact standing; `smysl.kb` resolves its scope with
     `scope::resolve`; a ranked query in a library with a supersession
     answers a scope.
+  - *Revision 20 (2026-11-04)* answers the eighteenth review
+    (`docs/rfc/reviews/RFC-0014-review-2026-11-04-4.md`): S1–S3, N1–N4
+    and its assumptions, in "Revision 20: the eighteenth review
+    answered", on the owner's "follow that plan". No ruling changes; D244
+    carries a further dated note on R8. A packed query keeps its kind; an
+    `effective` fact can lapse when an absent ground is appended;
+    `smysl.kb` runs `parse`, `plan` and `run` itself and reports `run`'s
+    warnings; a uid that is not a held unit is left out of the scope.
 - Depends on: RFC-0001 (values), RFC-0002 (words), RFC-0004 (effects),
   RFC-0005 (promotion), RFC-0007 (threads and the bus), RFC-0013
   (knowledge bases, proof trees)
@@ -1387,14 +1395,17 @@ SMYSL's `q --library` and `measure` build:
 - A `count` answer names none, so the lambda does not run.
 - A `ranked` answer's scores, and a `groups` answer's keys and boundaries,
   are in `smysl.query`'s MAP but not in what the conditional sees.
-- **A ranked or packed query answers `"scope"`** once the library holds
-  any supersession: SMYSL's supersession pass, which runs under
+- **A ranked query answers `"scope"`** once the library holds any
+  supersession: SMYSL's supersession pass, which runs under
   `PlanOptions::default()`, leaves an answer unchanged only when the store
   has no supersession heads and no forks
-  (`smysl-query/src/exec.rs:476-482`), and otherwise turns a `Ranked` or
-  `Packed` answer into a `Scope`, since "a head that replaced two
-  different hits has no one score" (`:497-508`). `smysl.query` maps the
-  answer it is given, so such a query answers `units` and no scores.
+  (`smysl-query/src/exec.rs:476-482`), and otherwise turns a `Ranked`
+  answer into a `Scope`, since "a head that replaced two different hits
+  has no one score" (`:497-508`). It does so too when the query has a
+  traversal or a closure (`:311-315,426`). `smysl.query` maps the answer
+  it is given, so such a query answers `units` and no scores. A packed
+  query keeps its kind: `Packed` is built in phase 9, after the pass
+  (`:122-128`).
 
 **Queries are SMYSL's text** [R6].
 
@@ -1429,16 +1440,23 @@ runner does (§S11), and its function is added to `REENTERING`.
 **`smysl.kb`** (handle scope → kb) loads the units an `sq/1` scope selects
 as the facts of a new knowledge base [R7].
 
-- **The scope** is resolved in §S5's environment, as a measure's is, by
-  `scope::resolve(text, &env, &PlanOptions::default())`, which parses,
-  plans and runs the query and builds its saved-query unit
-  (`smysl-measure/src/scope.rs:100-110`). The scope is the units the
-  answer names (`Answer::uids`, `smysl-query/src/exec.rs:86-98`).
-  - A refusal from `resolve` is SM04, carrying every diagnostic, whether
-    the planner refused the query or its saved-query unit did not build
-    (`SMY-E460`, `smysl-query/src/saved.rs:417-420`).
-  - A uid the answer names that is not a unit the store holds gives no
-    fact. M8's first step establishes what a `from texts` answer names.
+- **The scope** is resolved in §S5's environment, as a measure's is: the
+  query is parsed, planned and run with `PlanOptions::default()`, the
+  three steps `scope::resolve` takes (`smysl-measure/src/scope.rs:101-103`).
+  `smysl.kb` takes them itself, since `resolve` keeps only the answer
+  (`:108`) and builds a saved-query unit `smysl.kb` has no use for. The
+  scope is the units the answer names, in its order (`Answer::uids`,
+  `smysl-query/src/exec.rs:86-98`), and the KB holds their facts in that
+  order, the `rank` facts last.
+  - A refusal from any step is SM04, carrying every diagnostic.
+  - `run`'s warnings are reported as `smysl.query`'s are (§S8), among
+    them `SMY-W464` for a fork in a supersession
+    (`smysl-query/src/exec.rs:512-519`).
+  - A uid the answer names that is not a unit the store holds is left out
+    of the scope, so no fact names it as `U` and no `rel` fact ends on it.
+    A `grounds` closure adds every ground of a seed, held or not
+    (`smysl-query/src/exec.rs:414-418`). M8's first step establishes what
+    a `from texts` answer names.
   - Only current versions are answered, so a superseded unit is in the
     scope only when a history traversal reaches it
     (`smysl-query/src/exec.rs:429-454`).
@@ -1528,9 +1546,14 @@ where the fact came from.**
   and deps are fixed in its uid, and a retraction appended since only
   ever makes a unit `unfounded`
   (`smysl-graph/src/merge/retraction.rs:83-86,112-117`), so an
-  `effective` fact `smysl.kb` loaded stays borne out. Any other fact of these shapes is a program fact, so no
-  conclusion is written as resting on a status, ground, label or edge the
-  library does not hold, or on an edge SMYSL does not follow. A fact node
+  `effective` fact `smysl.kb` loaded stays borne out under later
+  retractions. It can lapse when a ground absent at load time is appended
+  since, by Bund2 or a bridge while the proof runs: the orphaning test
+  counts only the grounds present (`:97-124`), so `U` may return to its
+  declared status, and the fact is then a program fact. Any other fact of
+  these shapes is a program fact, so no conclusion is written as resting
+  on a status, ground or dependency `U` does not have, a label or edge
+  the library does not hold, or on an edge SMYSL does not follow. A fact node
   is read back as the answer instantiated it (RFC-0013 §S15), so one
   still holding a variable is a program fact too.
   - This is judged **at write time**, against the library as re-opened
@@ -2084,7 +2107,7 @@ half in M7, its `smysl.prove` half in M9.
 | A label bound to several units | **Written on none of them**, where SMYSL's `merge` keeps it on the first. `smysl.write` writes each such unit unlabelled and its references as uids, and names the label in a `Warning`, so a re-parse re-points no reference (§S4) |
 | Records other than units, relations and labels | **Written as SMYSL's writer writes them**, through `smysl.write`: manifests, threads, withdrawals and the rest it has a form for, and counted in a `Warning` when it has none. Attestations are never written, so a text appended elsewhere is attested afresh by the appending agent (§S4) |
 | A withdrawn edge | **Never followed, and absent from a Bund2 copy.** "Withdrawn" is SMYSL's `is_withdrawn`, so a `supersedes` or `retracts` edge never is. `smysl.write` writes a withdrawal with its edge, which SMYSL's parser reads back withdrawn, or names the edge in a `Warning` when none of the edge's withdrawals has a surface form; a library's withdrawals may come from SMYSL's API or `smysl lib import` (§Current), and the rules are the same; `smysl.parse` leaves out an edge its document withdraws, with a `Warning`, so `smysl.write`, `smysl.parse` and `smysl.append` copy a library without it; `smysl.kb` loads no `rel` fact for it, and `smysl.prove` lets no `rel` fact stand for its ends (§S4, §S7) |
-| A fact a proof uses | **Stands for its units only when the library bears it out**, judged at write time; otherwise it is a program fact, written as a claim. A hand-built fact whose units are held but whose schema, status, gist, ground, dependency or label the library does not hold, or which still holds a variable, is a program fact; revision 16 let it stand for its units, though it already asked a `rel` fact's edge to be held and live. A superseded unit the library holds counts as held, and a ground or dependency need not be held, so a fact `smysl.kb` loaded stands for its units at write time, unless its edge was withdrawn since (§S7) |
+| A fact a proof uses | **Stands for its units only when the library bears it out**, judged at write time; otherwise it is a program fact, written as a claim. A hand-built fact whose units are held but whose schema, status, gist, ground or dependency `U` does not have, or whose label the library does not bind, or which still holds a variable, is a program fact; revision 16 let it stand for its units, though it already asked a `rel` fact's edge to be held and live. A superseded unit the library holds counts as held, and a ground or dependency need not be held, so a fact `smysl.kb` loaded stands for its units at write time, unless its edge was withdrawn since, or its `effective` status lapsed when an absent ground was appended (§S7) |
 | An omitted unit's references | **Written as its uid.** `smysl.write` gives no label to a unit it omits, so a relation or a ground naming it still parses back (§S4) |
 | A relation's and a label binding's `extra` | **Dropped by `smysl.write`, and counted** in a `Warning`, since the surface syntax has no place for either (§S4) |
 | An edge re-written with another weight or note | **Refused**, SM03. SMYSL's API would append it and every read would keep the first (§S4) |
@@ -2236,9 +2259,10 @@ No deviation from the reference is proposed.
      `EdgeSet::premises`, compared in the test.
 9. **Every answer shape is mapped.**
    - One query per `Answer` variant gives §S6's MAP, with the uids `run`
-     gives, in the same order. The fixture holds no `supersedes` edge, so
-     a ranked and a packed query keep their kinds; in a second fixture
-     that holds one, the ranked query answers `"scope"`.
+     gives, in the same order. The fixture holds no `supersedes` edge,
+     and the ranked query has no traversal or closure, so it keeps its
+     kind; in a second fixture that holds one, the ranked query answers
+     `"scope"` and a packed query answers `"packed"`.
    - A query `plan` refuses is SM04, carrying every diagnostic.
    - A `count` answer runs the `smysl` conditional's lambda zero times.
 10. **Dossiers and measures match, and write nothing.**
@@ -2263,7 +2287,10 @@ No deviation from the reference is proposed.
     resting on its target through it. The scope is resolved in §S5's
     environment: a superseded unit that a scope matches without a history
     traversal gives no `unit` fact, and its newest version gives one; a
-    scope whose answer is a `count` gives only the six `rank` facts.
+    scope whose answer is a `count` gives only the six `rank` facts; a
+    scope over a forked supersession reports `SMY-W464` as a `Warning`;
+    and a `grounds` closure from a unit with a ground the library does
+    not hold gives no `unit` fact for that ground.
 12. **Exported proofs keep rule M.**
     - **The proofs.** A test proves goals whose proofs contain, between
       them, every node kind in §S7's table:
@@ -3075,3 +3102,15 @@ The owner chose A for each of S1–S3.
 | N4 ranked in a superseded library | §S6 says a ranked or packed query answers `"scope"` once the library holds a supersession; criterion 9's fixture holds none, and a second fixture holds one |
 | N5 the call, and `S` | `scope::resolve` is named, and its refusal, `SMY-E460` included, is SM04; criterion 18's `S` is `U`'s schema |
 | Assumptions 1–5 | 1 is S1. 2 is N1. 3 is N3. 4 is N4. 5: a uid that is not a unit gives no fact, and M8's first step establishes what a `from texts` answer names |
+
+## Revision 20: the eighteenth review answered
+
+| Finding | Answer |
+|---|---|
+| S1 packed queries | A packed query keeps its kind, since `Packed` is built after the supersession pass; §S6 and criterion 9 say so. The revision 19 answer table's N4 row stands corrected here |
+| S2 `effective` lapsing | §S7 says an `effective` fact stays borne out under later retractions, and can lapse when an absent ground is appended since; the Preservation row and a further D244 note say so |
+| S3 `resolve`'s warnings | Option (a): `smysl.kb` takes `parse`, `plan` and `run` itself, reporting `run`'s warnings as `smysl.query` does; criterion 11 adds a forked-supersession case. No saved-query unit is built, so `SMY-E460` from it no longer arises |
+| N1 traversals and closures | §S6 cites them; criterion 9's ranked query has neither |
+| N2 unheld uids in a scope | Left out of the scope; the `grounds` closure is cited; criterion 11 adds the case |
+| N3 fact order | The answer's order, `rank` facts last |
+| N4 "does not hold" | "a ground or dependency `U` does not have" in §S7 and the Preservation row |

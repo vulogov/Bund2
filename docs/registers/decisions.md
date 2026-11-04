@@ -16683,6 +16683,12 @@ write time unless its edge was withdrawn since. And revision 16 already
 asked a `rel` fact's edge to be held and not withdrawn; what revision 17
 added was the test for the other shapes.
 
+*Note 2026-11-04, RFC-0014 revision 20,* after the eighteenth review:
+R8 is unchanged. One qualification to the note above: an `effective`
+fact `smysl.kb` loaded can lapse before the write when a ground absent
+at load time is appended since, as SMYSL's orphaning counts only the
+grounds present; it is then a program fact.
+
 ## D245 — RFC-0014's revision 8 points, R22–R25: SMYSL's unlocked writers, `retracts`, extension kinds, and R20's test
 
 **Raised 2026-11-02** by RFC-0014's revision 8
