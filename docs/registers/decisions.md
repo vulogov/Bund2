@@ -16665,6 +16665,15 @@ is unchanged. Its "canonical root" is what `smysl.create` and
 and `smysl.agent` passes it on without canonicalising it, since it does
 no I/O (R11); every word that opens the library canonicalises it again.
 
+*Note 2026-11-04, RFC-0014 revisions 17 and 18,* after the fifteenth and
+sixteenth reviews: R8 is unchanged. Its "provenance by shape and library"
+now reads as: a fact of one of §S7's first seven shapes stands for its
+units only when the library bears it out at write time (each uid held, a
+superseded unit included, and the schema, status, gist, ground,
+dependency, label, effective status or live edge it states held), and is
+otherwise a program fact. Before revision 17 a fact stood for its units
+whenever its uids were held.
+
 ## D245 — RFC-0014's revision 8 points, R22–R25: SMYSL's unlocked writers, `retracts`, extension kinds, and R20's test
 
 **Raised 2026-11-02** by RFC-0014's revision 8
