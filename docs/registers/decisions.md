@@ -16689,6 +16689,13 @@ fact `smysl.kb` loaded can lapse before the write when a ground absent
 at load time is appended since, as SMYSL's orphaning counts only the
 grounds present; it is then a program fact.
 
+**Note, 2026-11-04.** RFC-0014 is Accepted by the repository owner
+("accept RFC-0014"), at revision 21, after its nineteenth review
+(`docs/rfc/reviews/RFC-0014-review-2026-11-04-5.md`) found nothing
+blocking and revision 21 answered its should-fix findings. These rulings
+stand as the RFC records them, with the notes above. By R1 A, acceptance
+covers Phase 1, built as M1–M10 in order; Phase 2 is a later amendment.
+
 ## D245 — RFC-0014's revision 8 points, R22–R25: SMYSL's unlocked writers, `retracts`, extension kinds, and R20's test
 
 **Raised 2026-11-02** by RFC-0014's revision 8
@@ -16770,3 +16777,7 @@ snapshot. The locks are kept when any of these changed, or when a
 snapshot cannot be taken after the failure, and dropped otherwise. That
 makes "exactly" true outside R22's hazard, where an unlocked writer's own
 changes can only keep the locks.
+
+**Note, 2026-11-04.** RFC-0014 is Accepted by the repository owner
+("accept RFC-0014"), at revision 21. R22–R25 stand as ruled, with their
+amendments above.

@@ -1,6 +1,20 @@
 # RFC-0014: SMYSL corpora — forming, researching and querying them from Bund
 
-- Status: **Draft — revision 21** (2026-11-04). Written on the owner's
+- Status: **Accepted** (2026-11-04) by the repository owner ("accept
+  RFC-0014"), at revision 21. The nineteenth review
+  (`docs/rfc/reviews/RFC-0014-review-2026-11-04-5.md`) found nothing
+  blocking; revision 21 answered its two should-fix findings and its
+  notes, and the owner accepted without a further review. None of the
+  last nine reviews found anything blocking. Accepting means:
+  - D244's R1–R21 and D245's R22–R25 as ruled, with the dated notes D244
+    and D245 carry;
+  - Phase 1 as designed, built as milestones M1–M10 in order, each gated
+    by the acceptance criteria it claims;
+  - Phase 2 a later amendment (R1 A);
+  - Q50–Q58 as the Open questions leave them, each open one with the
+    answer route this RFC names.
+
+  The draft was written on the owner's
   request: "Create RFC for SMYSL project that will make it integrateable
   into Bund. The idea: use SMYSL ability to form, research and query SMYSL
   corpus/database of data. Before writing RFC, assess if this idea is
