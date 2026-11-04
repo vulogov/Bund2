@@ -1,6 +1,6 @@
 # RFC-0014: SMYSL corpora — forming, researching and querying them from Bund
 
-- Status: **Draft — revision 11** (2026-11-03). Written on the owner's
+- Status: **Draft — revision 12** (2026-11-03). Written on the owner's
   request: "Create RFC for SMYSL project that will make it integrateable
   into Bund. The idea: use SMYSL ability to form, research and query SMYSL
   corpus/database of data. Before writing RFC, assess if this idea is
@@ -117,11 +117,19 @@
     owner's "go ahead". No ruling changes. A held lock is SM07 only;
     `smysl.create` canonicalises before it takes the mutex; the label MAP
     is defined; every new criterion case is placed in a milestone.
+  - *Revision 12 (2026-11-03)* answers the tenth review
+    (`docs/rfc/reviews/RFC-0014-review-2026-11-03-3.md`): S1–S4, N1–N9 and
+    its assumptions, in "Revision 12: the tenth review answered", on the
+    owner's "go ahead". No ruling changes. `smysl.parse` takes labels from
+    SMYSL's `LabelBinding` records only, and refuses a document SMYSL could
+    not parse whole; `smysl.append` decides a MAP's kind by its keys; the
+    `smysl` constructor declares `Leaves::Conditional("smysl")` (D181);
+    each `--noio` stub arrives with its word.
 - Depends on: RFC-0001 (values), RFC-0002 (words), RFC-0004 (effects),
   RFC-0005 (promotion), RFC-0007 (threads and the bus), RFC-0013
   (knowledge bases, proof trees)
 - Decisions consumed: D14, D18, D26, D27, D28, D32, D36, D37, D38, D49,
-  D51, D72, D119, D168, D220, D226 (L11), D230
+  D51, D72, D119, D168, D181, D220, D226 (L11), D230
 - Reference SHA: `reference/Bund` 21b40b0, `reference/rust_multistackvm`
   4605832, `reference/rust_dynamic` ceb27c9
 - External source: **SMYSL at commit 4f5ecb9**,
@@ -826,7 +834,8 @@ The owner wrote both projects. This RFC joins them.
     at `smysl-graph/src/store/mod.rs:414` takes none).
   - A document in the surface syntax is brought into a library with
     `smysl.parse` and `smysl.append`.
-- **Its `root` is canonicalised** (`std::fs::canonicalize`) when
+- **Its `root` is canonicalised** (`std::fs::canonicalize`; a failure is
+  SM01) when
   `smysl.create` or `smysl.open` builds the handle.
   - `smysl.create` first makes the root's directory
     (`std::fs::create_dir_all`), because a path that does not exist yet
@@ -867,7 +876,7 @@ The owner wrote both projects. This RFC joins them.
 | a status | STRING, `"unfounded"` … `"measured"` |
 | a unit | MAP: `uid`, `schema` and `gist`, and, where present, `body`, `detail`, `status`, `grounds` (LIST of uid), `deps` (LIST of uid), `source`, `lang`, `labels` (LIST of STRING), `payload` (the decoded tree) and `opaque` (BOOL, see below) |
 | a source | MAP: `kind`, `reference`, and, where present, `captured` (STRING, the date as SMYSL writes it), `observed` (INT of milliseconds; a value above `i64::MAX` reads back as a STRING of its decimal digits, and is written from one, so the two forms round-trip; any other STRING is SM03), `published`, `span` (LIST of two INTs) and `manifest` |
-| a label | MAP: `label` (STRING) and `uid` (STRING, the unit it binds). SMYSL's record is `LabelBinding { label, uid, extra }` (`smysl-core/src/types/annex.rs:488-493`). This is the one MAP whose `uid` is given rather than computed, because a binding names a unit and is not identified by one |
+| a label | MAP: `label` (STRING) and `uid` (STRING, the unit it binds). SMYSL's record is `LabelBinding { label, uid, extra }` (`smysl-core/src/types/annex.rs:488-493`). This is the one MAP whose `uid` is given rather than computed, because a binding names a unit and is not identified by one. It has no `opaque`: a binding SMYSL or Bund2 writes has an empty `extra`, and one read back with a non-empty `extra` is read as `{ label, uid, opaque = true }` |
 | a relation | MAP: `rid`, `kind`, `from` and `to`, and, where present, `weight` (FLOAT), `note` (STRING: the uid of a unit carrying commentary on the edge, `smysl-core/src/types/relation.rs:182-183`) and `opaque` (BOOL, see below) |
 | a diagnostic | MAP: `code` (SMYSL's own, such as `"SMY-E030"`), `severity`, `subject` and `message`, and, where present, `suggestion` |
 | a subject | MAP `{ kind, value }`: `"unit"` with a uid; `"record"` with the hash in hex; `"span"` with LIST `[ start end ]` of byte offsets; or `"store"` with NODATA |
@@ -910,8 +919,29 @@ The owner wrote both projects. This RFC joins them.
   MAPs earlier in the same `smysl.append` LIST. A label bound to several
   units, or to none (`LabelError::Unbound`, `smysl-graph/src/labels.rs:20-29`),
   is SM08 (`:3-8`).
+  A STRING in `grounds` or `deps` is a uid when `Uid::parse` accepts it,
+  and a label when SMYSL's label syntax accepts it (`<ns>/<name>`,
+  `smysl-core/src/ids.rs:500-507`); a uid begins `b3:`, so no STRING is
+  both. One that is neither is SM03.
 - **A unit MAP's `labels` key is read-back only.** On write it is SM03,
   naming `smysl.label` and the label MAP, which are how a label is bound.
+  `smysl.parse` gives its unit MAPs no `labels` key, since their labels
+  travel as label MAPs.
+- **A MAP's kind is decided by its keys**, in this order, wherever a
+  record MAP is written (`smysl.append`'s LIST, and the operand of
+  `smysl.unit` and `smysl.rel`):
+  1. a MAP with `label` is a label MAP;
+  2. otherwise, one with `kind`, `from` and `to` is a relation MAP;
+  3. otherwise, one with `gist` is a unit MAP;
+  4. anything else is SM03, `record is not a unit, relation or label`.
+
+  A MAP decided as one kind and given to a word that takes another
+  (`smysl.unit` given a relation) is SM03 naming both. Within its kind a
+  MAP is then checked as §S2 says, so a label MAP that also carries
+  `gist` is SM03 for the key it should not have.
+- **A label MAP's `uid` must name a unit** in the library as re-opened
+  under the locks, or a unit earlier in the same LIST; otherwise SM03,
+  `uid <uid> names no unit in the library`. `smysl.label` checks the same.
 - **A Bund value with no SMYSL form** (BIN, MATRIX, LAMBDA, OBJECT, any
   other non-tree value) is SM03, naming the key.
 - **Floats in a weight or a payload** are quantised by SMYSL, and a
@@ -958,8 +988,8 @@ locks. `smysl.create` appends nothing and is the exception (below).
 | `smysl.append` | handle list → LIST | ✓ | appends a LIST of unit, relation and label MAPs, in order and under one acquisition of the locks. Answers each one's id: a unit's uid, a relation's rid, and for a label, the uid it binds. A `retracts` relation anywhere in the LIST is SM03, and nothing is written [R23] |
 | `smysl.label` | handle label uid → | ✓ | binds a label. A label the library already binds to another unit is SM08, and nothing is written, since nothing removes a binding and every later use of the label would be SM08 (`smysl-graph/src/labels.rs:3-8`). A label already bound to the same unit writes nothing. A label MAP in `smysl.append` follows the same rule, and so do two label MAPs in one LIST that bind one label to two units: SM08, and nothing of the LIST is written |
 | `smysl.retract` | handle uid → rid | ✓ | retracts a unit as SMYSL does (below); NODATA if it was already retracted |
-| `smysl.parse` | text → LIST | | parses the surface syntax into §S2's MAPs of units, relations and labels, without the units' and relations' ids. SMYSL's parser resolves a document's labels to uids itself and returns them as a map beside the records (`smysl-core/src/surface/parse.rs:12-14,63`); each entry becomes a label MAP with that uid, which is the uid `smysl.append` computes for the same unit (criterion 4). Any other record (a view, a schema declaration, a thread, a manifest, a commitment, …) has no §S2 form. It is skipped, and one `Warning` per record kind names how many were skipped. Nothing is written |
-| `smysl.write` | handle → text | | the surface syntax of every unit, relation and label the library holds |
+| `smysl.parse` | text → LIST | | parses the surface syntax into §S2's MAPs of units, relations and labels, without the units' and relations' ids. SMYSL's parser resolves a document's labels to uids itself (`smysl-core/src/surface/parse.rs:12-14`) and emits one `Record::LabelBinding` per label after the units it names (`:2596-2606`); the same set is kept as a map (`:63,2793`). `smysl.parse` reads labels from the records only, each `LabelBinding` becoming a label MAP whose uid is the uid `smysl.append` computes for the same unit (criterion 4); the map is not read, and nothing is counted as skipped twice. **A document SMYSL could not parse whole is refused** with SM02, and nothing is answered: the parser recovers from a malformed record by skipping it and reporting it (`:1-6,66-67,348-352`), and an unresolved label is `SMY-E060`, which drops the reference (`:2553-2562`), so answering what survived would let `smysl.append` write a library that differs from the document. The refusal is any diagnostic of error severity, or any recovered record. An unparseable `@doc` header, SMYSL's one hard error (`:3-6`), is SM02 too. Warnings are reported as a `Warning` each. Any other record (a view, a schema declaration, a thread, a manifest, a commitment, …) has no §S2 form. It is skipped, and one `Warning` per record kind names how many were skipped. Nothing is written |
+| `smysl.write` | handle → text | | the surface syntax of every unit, relation and label the library holds. A unit with two labels is written with one, the first in canonical order, since the syntax has room for one (`smysl-core/src/surface/write.rs:51-61`); the second is not in the text |
 | `smysl.check` | handle → LIST | | every diagnostic of `check`'s store passes, as MAPs, under `CheckOptions::default()` [R19]. The profile is therefore the one SMYSL derives from the library's views: the `default` preset with none, the view's own with one, the widest envelope with several |
 
 **`smysl.text.add`'s spec.** Every field of SMYSL's `AddSpec` is a key of
@@ -1161,7 +1191,7 @@ SMYSL's `q --library` and `measure` build:
 | Word | Operands → result | Does |
 |---|---|---|
 | `smysl.query` | handle text → MAP | parses, plans and runs one `sq/1` query |
-| `smysl` | → c | a conditional, `Conditional("smysl")`, with slots `handle`, `query` and `lambda`. It runs the lambda once per unit of the answer, with the unit's MAP on top |
+| `smysl` | → c | a conditional, `Conditional("smysl")`, with slots `handle`, `query` and `lambda`. Its effect is `StackEffect::fixed(0, 1).leaving(Leaves::Conditional("smysl"))`, as `query` declares (`crates/bund2-stdlib/src/kb/query.rs`, `register`), since `bund2 check` learns a CONDITIONAL's type only from what its constructor leaves (D181). It runs the lambda once per unit of the answer, with the unit's MAP on top |
 
 **An answer is a MAP** with `kind` and the fields that kind has:
 
@@ -1192,7 +1222,9 @@ SMYSL's `q --library` and `measure` build:
 - a missing slot, or a slot of the wrong type, is SM03, naming the slot.
   A missing `lambda` is SM03 too, where RFC-0013 §S11 reads a missing
   `lambda` slot as an empty lambda: a `smysl` conditional with nothing to
-  run is taken as a mistake;
+  run is taken as a mistake. `bund2 check`'s arm reads a missing
+  `lambda` as empty, as it does for `query`: the checker models effects,
+  and the refusal is the runner's;
 - an error raised inside `lambda` is SM10, as RFC-0013's E25 is for
   `query`.
 
@@ -1379,14 +1411,14 @@ two are the house texts, unprefixed, as the reference writes them.
 | Code | When | Text after `<W>: ` |
 |---|---|---|
 | SM00 | an operand that should be a handle is not a MAP of `type = "smysl"` with a STRING `root` and a well-formed `agent` | `#<k> parameter must be a SMYSL handle` |
-| SM01 | `smysl.open`, or a word given a handle, finds no library at `root` | `no SMYSL library at <root>` |
-| SM02 | SMYSL refused the operation, or a SMYSL call failed with an I/O error: among them a lock that could not be linked (§S9), and a primary shard this build cannot read (§Current, "The library"). Also a `smysl.text.add` input over `Caps::default().input_bytes`, which Bund2 refuses before reading it (§S4) by calling SMYSL's own `Budget::new` with the input's length (`smysl-text/src/limits.rs:168-172`). That error names the SMYSL CLI's flag for the cap, `(raise it with --max-input)` (`smysl-text/src/limits.rs:109-111`; `smysl-core/src/error.rs:905-916`), which Bund2 does not have, so Bund2 displays it with `flag` set to none: `SMY-E440: input_bytes limit <limit> exceeded by <saw>` | `SMYSL refused it: <message>`, where `<message>` is SMYSL's error as its `Display` writes it. That begins with the code when the error has one (`SMY-E402: …`, `smysl-core/src/error.rs:895-926`), and has none for the variants `LibError::code` gives none, `Io` among them (`:858-878`), so no code is written twice or invented. A `ShapeError` displays the same way, with its code (`:179-192`). A held lock is never SM02: it is SM07. When R25 keeps the locks, the text continues `; the library is left locked until an operator runs bund2 smysl-unlock` |
+| SM01 | `smysl.open`, or a word given a handle, finds no library at `root`; or `root` cannot be canonicalised | `no SMYSL library at <root>` |
+| SM02 | SMYSL refused the operation, or a SMYSL call failed with an I/O error: among them a lock that could not be linked (§S9), and a primary shard this build cannot read (§Current, "The library"). Also a `smysl.text.add` input over `Caps::default().input_bytes`, which Bund2 refuses before reading it (§S4) by calling SMYSL's own `Budget::new` with the input's length (`smysl-text/src/limits.rs:168-172`). That error names the SMYSL CLI's flag for the cap, `(raise it with --max-input)` (`smysl-text/src/limits.rs:109-111`; `smysl-core/src/error.rs:905-916`), which Bund2 does not have. So Bund2 displays every `LibError::Limit`, whichever cap a reader exceeded, with `flag` set to none: `SMY-E440: <cap> limit <limit> exceeded by <saw>`. Also `smysl.parse` of a document SMYSL could not parse whole (§S4), whose text joins each error diagnostic as `<code>: <message>` with `; `, then `; <n> records skipped` when any were | `SMYSL refused it: <message>`, where `<message>` is SMYSL's error as its `Display` writes it. That begins with the code when the error has one (`SMY-E402: …`, `smysl-core/src/error.rs:895-926`), and has none for the variants `LibError::code` gives none, `Io` among them (`:858-878`), so no code is written twice or invented. A `ShapeError` displays the same way, with its code (`:179-192`). A held lock is never SM02: it is SM07. When R25 keeps the locks, the text continues `; the library is left locked until an operator runs bund2 smysl-unlock` |
 | SM03 | an operand of the wrong type (`#<k> parameter must be <kind>, found <type>`); a spec, record or slot lacking a required key or holding one of the wrong type; a value with no SMYSL form; a computed key given; a unit MAP's `labels` on write; a status Bund2 cannot author; a `smysl.text.add` spec with no `lang`; a `retracts` relation outside `smysl.retract` [R23] | `<what> <reason>`, e.g. `uid is computed, not given` |
 | SM04 | `sq/1` refused the query | `the query was refused: <code> <message>`, one per diagnostic, joined by `; ` |
 | SM05 | an unknown status, relation kind, source kind, reader or trace kind | `unknown <kind>: <value>` |
 | SM06 | `--noio`, for a word that acts on disk, and for the constructor `smysl` and the conditional's handler, as D119 stubs the word `csv` and its handler (D119) [R11]. Each stub is registered `opaque(0)`, as D119's are | unprefixed, in the pattern of the house text `bund SAVE.MODEL functions disabled with --noio` (`bund_models.rs:125`): `bund SMYSL functions disabled with --noio` |
 | SM07 | a lock is held (`SMY-E445`, which only `Lock::acquire` raises, `smysl-graph/src/lock.rs:165`, and Bund2 reaches only through `acquire_all`); or the shard set changed twice while locking (§S9) | `the library is locked: <SMYSL's Display of the error>`, which names the holder (`smysl-core/src/error.rs:918-926`), or `the library's shards changed while locking: <shard>` |
-| SM08 | a label bound to several units; or `smysl.label`, or a label MAP in `smysl.append`, binding a label the library or the same LIST binds to another unit (§S4) | `label <label> binds <n> units`, `<n>` being 0 for an unbound label; at bind time, `label <label> is bound to <uid>, not <uid>` |
+| SM08 | a label bound to several units, or to none; or `smysl.label`, or a label MAP in `smysl.append`, binding a label the library or the same LIST binds to another unit (§S4) | `label <label> binds <n> units`, `<n>` being 0 for an unbound label; at bind time, `label <label> is bound to <uid>, not <uid>` |
 | SM09 | `plan_retraction` refused the retraction | `retraction refused: <SMYSL's reason>` |
 | SM10 | the `smysl` conditional's `lambda` failed | `lambda returns: <error>` |
 | SM11 | the stack holds fewer operands than the word takes | the house text, unprefixed, as `reference/Bund/src/stdlib/functions/statistics/get_data.rs:12` writes it: `Stack is too shallow for inline <w>` |
@@ -1431,7 +1463,9 @@ library:
 1. open the library;
 2. read its shard names (`Library::shards`);
 3. take the library lock, then the shard locks in name order, through
-   `acquire_all` (`smysl-text/src/lock.rs:24-43`);
+   `acquire_all` (`smysl-text/src/lock.rs:24-43`), naming the command
+   as `bund2 <word>`, for example `bund2 smysl.append`, which a lock's
+   holder records and SM07 and `bund2 smysl-unlock` print;
 4. **open the library a second time, and use only this second open from
    here on;**
 5. if the second open names a shard the locks do not cover, drop the
@@ -1742,22 +1776,24 @@ under the feature. Every milestone ends with:
 - clippy passing under the feature.
 
 Each word is named in `FEATURE_GATED`, and each writing word in
-`ACTS_ON_HOST`, in the milestone that registers it. Each refusal code is
+`ACTS_ON_HOST`, in the milestone that registers it. Each word that touches
+disk gets its `--noio` stub (§S8) in the same milestone, so no build reads
+a library under `--noio` between milestones. Each refusal code is
 tested in the milestone that first raises it, so criterion 14 is complete
 when M10 is.
 
 | Milestone | Builds | Criteria |
 |---|---|---|
 | M1 | the `smysl` feature on `bund2-stdlib` and its forwarding from `bund2-cli` (§S1); the eight crates at `rev = "4f5ecb9"` and the `allow-git` entry naming D244; `SMYSL_BUILT_IN` in `features_built_in`; four of §S1's seven CI steps, all but the probe's nextest run and clippy run, which arrive with the probe in M3, and the `smysl_demo` run; `FEATURE_GATED` moved to module scope and `UNVARIED` filtered by it. **First, Q55's spike:** in a test, build each value §S4–§S7 need against a fixture library, and run one query, one dossier, one measure and one attested append, through SMYSL's API alone | 1, 2, 3; 16's audits; 18's `features_built_in` case |
-| M2 | handles and values (§S2), and no word that writes: the handle MAP, canonicalisation, validation; `smysl.open`, `smysl.agent`; the read-back and write mappings of units, relations, sources, diagnostics and payloads, tested as functions against records built through SMYSL's API | 14's SM00, SM01, SM03, SM05 and SM11 cases that need no write; 18's read-back cases |
-| M3 | the first writes, with their locks (§S9, §S4): the process-wide mutex table; open, lock, re-open and the shard-set restart; the guard and its snapshot of the logs, their torn tails and the marker; the probe feature and §S1's two CI steps for it; the `bund2 smysl-unlock` subcommand and the function it calls; `smysl.create` and `smysl.unit`, with attestations, their clock, rung, hop and parents, and the already-attested rule | 4; 15's stale-lock, thread, panic and changed-log cases; 18's create-and-open race; SM02, SM07 |
-| M4 | the rest of forming (§S4): `smysl.rel`, `smysl.label`, `smysl.append`; `smysl.text.add` and its spec, `smysl.texts`; `smysl.parse`, `smysl.write`; `smysl.check` | 5, 7; 15's failed-append, nothing-written, torn-refusal, SM02-text and re-open cases; 18's `smysl.rel`, `smysl.label`, label-MAP and `smysl.text.add` reporting cases; SM08 |
+| M2 | handles and values (§S2), and no word that writes: the handle MAP, canonicalisation, validation; `smysl.open`, `smysl.agent`; the read-back and write mappings of units, relations, sources, diagnostics and payloads, tested as functions against records built through SMYSL's API | 14's SM00, SM01, SM02, SM03, SM05 and SM11 cases that need no write (SM02 by a primary shard `smysl.open` cannot read); 18's read-back cases |
+| M3 | the first writes, with their locks (§S9, §S4): the process-wide mutex table; open, lock, re-open and the shard-set restart; the guard and its snapshot of the logs, their torn tails and the marker; the probe feature and §S1's two CI steps for it; the `bund2 smysl-unlock` subcommand and the function it calls; `smysl.create` and `smysl.unit`, with attestations, their clock, rung, hop and parents, and the already-attested rule | 4; 15's stale-lock, thread, panic and changed-log cases; 18's create-and-open race; SM02's write cases, SM07, SM08 (an unbound label in `grounds`) |
+| M4 | the rest of forming (§S4): `smysl.rel`, `smysl.label`, `smysl.append`; `smysl.text.add` and its spec, `smysl.texts`; `smysl.parse`, `smysl.write`; `smysl.check` | 5, 7; 15's failed-append, nothing-written, torn-refusal, SM02-text and re-open cases; 18's `smysl.rel`, `smysl.label`, label-MAP, record-kind, parse-refusal and `smysl.text.add` reporting cases; SM08's bind-time cases |
 | M5 | retraction and research (§S4, §S5): `smysl.retract` in SMYSL's sequence; `smysl.get`, `smysl.trace` with all five kinds, `smysl.status`, `smysl.salience`, `smysl.pack` | 8; 15's attestation and advisory-authority cases; 18's salience and pack case; SM09 |
 | M6 | dossiers and measures (§S5), in the environment §S5 names | 10; 18's `Unwritable` case |
 | M7 | querying (§S6): `smysl.query` and its answer MAPs; the `smysl` conditional and its runner; `bund2 check`'s arm; the runner's `REENTERING` entry | 6, 9; 16's `REENTERING` scan; 18's `bund2 check` case for the conditional, and its warning case; SM04, SM10 |
 | M8 | `smysl.kb` (§S7) | 11 |
 | M9 | `smysl.prove` (§S7): proof nodes to units, statuses under rule M, gists fitted to the library's profiles after NFC, solve then write; §S7.1's rendering; its `bund2 check` arm | 12, 13; 18's `bund2 check` case for `smysl.prove`; SM12 |
-| M10 | `bund_examples/smysl_demo/` and `smysl_demo.rs`, with §S1's CI step that runs it; the `--noio` stubs (§S8), the constructor `smysl` and the conditional's handler among them; the editor syntax file left as at 0.53.0 | 14 complete (SM06), 16 complete, 17; 18's `--noio` case |
+| M10 | `bund_examples/smysl_demo/` and `smysl_demo.rs`, with §S1's CI step that runs it; the last of the `--noio` stubs, each word's having arrived with it; the editor syntax file left as at 0.53.0 | 14 complete (SM06), 16 complete, 17; 18's `--noio` case |
 
 Each criterion is claimed by the first milestone at which every word it
 uses exists. A criterion split across milestones is complete at the last
@@ -1799,6 +1835,8 @@ half in M7, its `smysl.prove` half in M9.
 | A library's layout | **May be raised.** A Bund2 write that creates a shard in a layout-1 library rewrites its marker to layout 2, as any SMYSL write does. SMYSL releases before 1.10.0 then no longer read it whole (§Current, "The library"). The marker is rewritten before the first log, so a write that then fails raises it with no new shard, and one that fails while writing it leaves a library nothing can open (`smysl-text/src/library.rs:304-319,1355-1362`). Either keeps the locks (§S9). U10 asks SMYSL to write it atomically |
 | Creating a library | **As SMYSL's, outside the locks.** `smysl.create` does what SMYSL's `text add` does before it locks, under Bund2's process mutex. An open that races a create can read an empty marker and is SM02; a create killed while writing the marker leaves it empty until an operator removes it (§S4) |
 | SMYSL's index sidecar | **Kept current, as SMYSL's `text add` keeps it.** `smysl.text.add` completes the index under the locks and writes the sidecar after (§S4). The other writing words do not, as SMYSL's other appenders do not, so the next open rebuilds the catalog tables when the sidecar's stamp no longer matches (`smysl-text/src/library.rs:390-398`), which costs speed, not meaning (Q54) |
+| A parsed document | **Refused whole, or answered whole.** `smysl.parse` refuses a document SMYSL could not parse without skipping or dropping something, where SMYSL's own parser recovers and reports. So `smysl.parse` then `smysl.append` never writes a library that differs from its document by a record the parser lost (§S4) |
+| A unit's second label | **Bound, and not written.** `smysl.label` can give a unit a second label; `smysl.write` writes one, as SMYSL's writer does (§S4) |
 | What `smysl.text.add` reports | **As SMYSL's `text add`.** `lossy` and the count of objects rule Z withheld are in its answer MAP (§S4) |
 | Filesystems | **As SMYSL's.** A lock is a hard link, so a library on a filesystem without hard links cannot be written; each write is SM02 (§S9) |
 | `retracts` relations | **Written only by `smysl.retract`** [R23], so every retraction passes SMYSL's plan and its authority check. A document holding a `retracts` relation cannot be appended with `smysl.append` |
@@ -1901,9 +1939,13 @@ No deviation from the reference is proposed.
         library.
 
      The two LISTs `smysl.append` answered are equal **as sets**, and the
-     skipped kinds draw the warnings §S4 names.
+     skipped kinds draw the warnings §S4 names. No unit MAP `smysl.parse`
+     answers has a `labels` key, and each label appears once.
    - A sixth document, holding a `retracts` relation, is refused by
      `smysl.append` with SM03, and the library is unchanged.
+   - A seventh, with one malformed record, and an eighth, whose `grounds`
+     name a label it never binds (`SMY-E060`), are each refused by
+     `smysl.parse` with SM02 carrying SMYSL's diagnostics.
 6. **Forming persists.** A test:
    - creates a library in a temporary directory;
    - adds one text per alias with each enabled reader, each naming its
@@ -2108,6 +2150,11 @@ No deviation from the reference is proposed.
 18. **What the other criteria do not reach.**
     - `smysl.salience` and `smysl.pack` over a fixture library equal
       `salience` and `pack` called directly with the same inputs.
+    - `smysl.append` decides each MAP's kind by §S2's rule: a MAP with
+      none of `label`, `kind`/`from`/`to` or `gist` is SM03 `record is
+      not a unit, relation or label`; `smysl.unit` given a relation MAP
+      is SM03; a label MAP naming a uid no unit has is SM03; a `grounds`
+      STRING that is neither a uid nor a label is SM03.
     - A label MAP `{ label, uid }` in `smysl.append` writes the
       `LabelBinding` `smysl.label` writes; a unit MAP with `labels` is
       SM03; a `grounds` entry naming an unbound label is SM08 with `0`;
@@ -2218,6 +2265,10 @@ Each is in `docs/registers/open-questions.md`.
     (`smysl:README.md:57`), which is not the same operation.
   - Phase 1 opens per call. A cache is an amendment if the measurement
     asks for one.
+  - A write opens twice (§S9). Over a library holding a torn tail, R25's
+    snapshot reads every log a third time, to find which is torn; without
+    one, it reads only the logs' lengths. The measurement should include
+    a torn library.
 - **Q55.** Can every value the words need be built from outside SMYSL's
   crates at 4f5ecb9?
   - The values: an `Env` over a library's scope, `AskOptions` and its
@@ -2555,3 +2606,22 @@ The owner chose A for each of S1–S3.
 | N7 the constructor under `--noio` | Stubbed, as D119 stubs `csv` |
 | N8 redaction in the test | Through SMYSL's `Library::redact` |
 | N9 the snapshot in the steps | §S9's steps 6–8 |
+
+## Revision 12: the tenth review answered
+
+| Finding | Answer |
+|---|---|
+| S1 labels given twice | `smysl.parse` reads the `LabelBinding` records only; parsed unit MAPs have no `labels`. §S2, §S4, criterion 5 |
+| S2 a MAP's kind | Decided by its keys: `label`, then `kind`/`from`/`to`, then `gist`, else SM03. §S2, criterion 18 |
+| S3 parse errors | Any error diagnostic or recovered record refuses the document with SM02 carrying the diagnostics; the `@doc` header's hard error too. §S4, §S8, criterion 5, a Preservation row |
+| S4 `bund2 check` | The constructor leaves `Conditional("smysl")`, as `query`'s does; D181 consumed. The checker's empty-`lambda` reading is stated |
+| N1 SM08's "When" | Includes a label bound to none |
+| N2 other caps' flags | Every `Limit` is displayed with `flag` none |
+| N3 first raised | SM02 in M2, SM08 in M3 |
+| N4 `--noio` stubs | Each arrives with its word |
+| N5 the lock's command | `bund2 <word>` |
+| N6 canonicalisation | SM01 |
+| N7 a second label | Stated in `smysl.write`'s row, and a Preservation row |
+| N8 a label's `extra` | Stated; a non-empty one reads back `opaque` |
+| N9 the ninth review's leftovers | Its Preservation items are rows of revision 11; the third read over a torn library is under Q54 |
+| Assumptions 1–8 | 1 and 2 are S1. 3 is S2. 4 is stated in §S2. 5 is S3. 6 is S4. 7: a label's `uid` must name a unit, SM03 otherwise. 8 is N6 |
