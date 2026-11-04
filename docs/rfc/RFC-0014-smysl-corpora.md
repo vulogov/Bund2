@@ -1,6 +1,6 @@
 # RFC-0014: SMYSL corpora — forming, researching and querying them from Bund
 
-- Status: **Draft — revision 20** (2026-11-04). Written on the owner's
+- Status: **Draft — revision 21** (2026-11-04). Written on the owner's
   request: "Create RFC for SMYSL project that will make it integrateable
   into Bund. The idea: use SMYSL ability to form, research and query SMYSL
   corpus/database of data. Before writing RFC, assess if this idea is
@@ -187,6 +187,12 @@
     `effective` fact can lapse when an absent ground is appended;
     `smysl.kb` runs `parse`, `plan` and `run` itself and reports `run`'s
     warnings; a uid that is not a held unit is left out of the scope.
+  - *Revision 21 (2026-11-04)* answers the nineteenth review
+    (`docs/rfc/reviews/RFC-0014-review-2026-11-04-5.md`): S1, S2, N1–N4,
+    in "Revision 21: the nineteenth review answered", on the owner's
+    "go". No ruling changes. An answer's kind is the one `run` gives,
+    with no list of the stages that change it; the `smysl` conditional
+    skips a uid with no unit.
 - Depends on: RFC-0001 (values), RFC-0002 (words), RFC-0004 (effects),
   RFC-0005 (promotion), RFC-0007 (threads and the bus), RFC-0013
   (knowledge bases, proof trees)
@@ -1377,7 +1383,7 @@ SMYSL's `q --library` and `measure` build:
 | Word | Operands → result | Does |
 |---|---|---|
 | `smysl.query` | handle text → MAP | parses, plans and runs one `sq/1` query |
-| `smysl` | → c | a conditional, `Conditional("smysl")`, with slots `handle`, `query` and `lambda`. Its effect is `StackEffect::fixed(0, 1).leaving(Leaves::Conditional("smysl"))`, as `query` declares (`crates/bund2-stdlib/src/kb/query.rs`, `register`), since `bund2 check` learns a CONDITIONAL's type only from what its constructor leaves (D181). It runs the lambda once per unit of the answer, with the unit's MAP on top |
+| `smysl` | → c | a conditional, `Conditional("smysl")`, with slots `handle`, `query` and `lambda`. Its effect is `StackEffect::fixed(0, 1).leaving(Leaves::Conditional("smysl"))`, as `query` declares (`crates/bund2-stdlib/src/kb/query.rs`, `register`), since `bund2 check` learns a CONDITIONAL's type only from what its constructor leaves (D181). It runs the lambda once per uid of the answer that names a unit the store holds, with the unit's MAP on top |
 
 **An answer is a MAP** with `kind` and the fields that kind has:
 
@@ -1393,23 +1399,25 @@ SMYSL's `q --library` and `measure` build:
 (`smysl-query/src/exec.rs:86-95`).
 
 - A `count` answer names none, so the lambda does not run.
+- A uid with no unit in the store is not visited, as `smysl.kb` leaves
+  it out of its scope (§S7). A `grounds` closure adds every ground of a
+  seed, held or not (`smysl-query/src/exec.rs:414-418`). `smysl.query`'s
+  MAP keeps such a uid.
 - A `ranked` answer's scores, and a `groups` answer's keys and boundaries,
   are in `smysl.query`'s MAP but not in what the conditional sees.
-- **A ranked query answers `"scope"`** once the library holds any
-  supersession: SMYSL's supersession pass, which runs under
-  `PlanOptions::default()`, leaves an answer unchanged only when the store
-  has no supersession heads and no forks
-  (`smysl-query/src/exec.rs:476-482`), and otherwise turns a `Ranked`
-  answer into a `Scope`, since "a head that replaced two different hits
-  has no one score" (`:497-508`). It does so too when the query has a
-  traversal or a closure (`:311-315,426`). `smysl.query` maps the answer
-  it is given, so such a query answers `units` and no scores. A packed
-  query keeps its kind: `Packed` is built in phase 9, after the pass
-  (`:122-128`).
+- **The kind is the one `run` gives**, which need not be the one the
+  query's output asks for. SMYSL turns a `Ranked` or `Packed` answer into
+  a `Scope` at several stages. Among them are the supersession pass once
+  the library holds any supersession, since "a head that replaced two
+  different hits has no one score" (`smysl-query/src/exec.rs:476-482,497-508`),
+  a traversal or closure (`:311-315,426`), a set operation (`:169-173`),
+  an ordering stage (`:1033-1035`), and a `limit` after `pack`
+  (`:1172-1176`). `smysl.query` maps the answer it is given and lists no
+  such stage itself, so a program reads `kind` rather than assuming it.
 
 **Queries are SMYSL's text** [R6].
 
-- A query that `parse` or `plan` refuses is SM04, which carries every
+- A query that `parse`, `plan` or `run` refuses is SM04, which carries every
   diagnostic SMYSL gave, so `SMY-E461` reaches the program as SMYSL wrote
   it.
 - A run's `warnings` are each reported as a `Warning` (D36).
@@ -1445,9 +1453,10 @@ as the facts of a new knowledge base [R7].
   three steps `scope::resolve` takes (`smysl-measure/src/scope.rs:101-103`).
   `smysl.kb` takes them itself, since `resolve` keeps only the answer
   (`:108`) and builds a saved-query unit `smysl.kb` has no use for. The
-  scope is the units the answer names, in its order (`Answer::uids`,
-  `smysl-query/src/exec.rs:86-98`), and the KB holds their facts in that
-  order, the `rank` facts last.
+  scope is the units the answer names (`Answer::uids`,
+  `smysl-query/src/exec.rs:86-98`). No order of the KB's facts is
+  promised: a KB groups its clauses by predicate
+  (`crates/bund2-stdlib/src/kb/store.rs`, `Kb::build`).
   - A refusal from any step is SM04, carrying every diagnostic.
   - `run`'s warnings are reported as `smysl.query`'s are (§S8), among
     them `SMY-W464` for a fork in a supersession
@@ -1461,9 +1470,8 @@ as the facts of a new knowledge base [R7].
     scope only when a history traversal reaches it
     (`smysl-query/src/exec.rs:429-454`).
   - A `ranked` answer gives its hits, as many as `PlanOptions::default()`
-    allows (§S5), and in a library holding a supersession is already a
-    `scope` answer (§S6); a `groups` answer gives the units of every
-    group.
+    allows (§S5), unless `run` has already made it a `scope` answer
+    (§S6); a `groups` answer gives the units of every group.
   - A `count` answer names no units, so its KB holds only the `rank`
     facts.
 - The KB is built through the same validation `kb!` uses.
@@ -1548,7 +1556,8 @@ where the fact came from.**
   (`smysl-graph/src/merge/retraction.rs:83-86,112-117`), so an
   `effective` fact `smysl.kb` loaded stays borne out under later
   retractions. It can lapse when a ground absent at load time is appended
-  since, by Bund2 or a bridge while the proof runs: the orphaning test
+  since, by any writer, a bridge while the proof runs among them: the
+  orphaning test
   counts only the grounds present (`:97-124`), so `U` may return to its
   declared status, and the fact is then a program fact. Any other fact of
   these shapes is a program fact, so no conclusion is written as resting
@@ -2058,7 +2067,7 @@ when M10 is.
 | M5 | retraction and research (§S4, §S5): `smysl.retract` in SMYSL's sequence; `smysl.get`, `smysl.trace` with all five kinds, `smysl.status`, `smysl.salience`, `smysl.pack` | 8; 15's attestation and advisory-authority cases; 18's salience and pack case; SM09; 18's `--noio` case for its words |
 | M6 | dossiers and measures (§S5), in the environment §S5 names | 10; 18's `Unwritable` case; 18's `--noio` case for its words |
 | M7 | querying (§S6): `smysl.query` and its answer MAPs; the `smysl` conditional and its runner; `bund2 check`'s arm; the runner's `REENTERING` entry | 6, 9; 16's `REENTERING` scan; 18's `bund2 check` case for the conditional, and its warning case; SM04, SM10; 18's `--noio` case for the constructor, the handler and `smysl.query` |
-| M8 | `smysl.kb` (§S7) | 11, its withdrawn-edge and scope-environment cases among them; 18's `--noio` case for `smysl.kb` |
+| M8 | `smysl.kb` (§S7); its first step establishes, against a fixture, what a `from texts` scope's answer names, and whether §S7's rule for a uid with no unit covers it | 11, its withdrawn-edge and scope-environment cases among them; 18's `--noio` case for `smysl.kb` |
 | M9 | `smysl.prove` (§S7): proof nodes to units, statuses under rule M, gists fitted to the library's profiles after NFC, solve then write; §S7.1's rendering; its `bund2 check` arm | 12, 13; 18's `bund2 check` case for `smysl.prove`, and its withdrawn-`rel`, hand-built `grounds`, `label`, `effective` and `unit`, superseded-ground and unheld-ground cases; SM12; 18's `--noio` case for `smysl.prove` |
 | M10 | `bund_examples/smysl_demo/` and `smysl_demo.rs`, with §S1's CI step that runs it; no `--noio` stub, each having arrived and been tested with its word; the editor syntax file left as at 0.53.0 | 14 complete (SM06), 16 complete, 17; 18's `--noio` case complete |
 
@@ -2259,10 +2268,15 @@ No deviation from the reference is proposed.
      `EdgeSet::premises`, compared in the test.
 9. **Every answer shape is mapped.**
    - One query per `Answer` variant gives §S6's MAP, with the uids `run`
-     gives, in the same order. The fixture holds no `supersedes` edge,
-     and the ranked query has no traversal or closure, so it keeps its
-     kind; in a second fixture that holds one, the ranked query answers
-     `"scope"` and a packed query answers `"packed"`.
+     gives, in the same order. The fixture holds no `supersedes` edge;
+     the ranked query has no traversal, closure, set operation or
+     ordering stage, and the packed query no `limit` after `pack`, so
+     each keeps its kind. In a second fixture that holds a `supersedes`
+     edge, the ranked query answers `"scope"` and the packed query
+     `"packed"`.
+   - A `grounds` closure from a unit with a ground the library does not
+     hold: `smysl.query`'s `units` include the ground, and the `smysl`
+     conditional's lambda does not run for it.
    - A query `plan` refuses is SM04, carrying every diagnostic.
    - A `count` answer runs the `smysl` conditional's lambda zero times.
 10. **Dossiers and measures match, and write nothing.**
@@ -3114,3 +3128,14 @@ The owner chose A for each of S1–S3.
 | N2 unheld uids in a scope | Left out of the scope; the `grounds` closure is cited; criterion 11 adds the case |
 | N3 fact order | The answer's order, `rank` facts last |
 | N4 "does not hold" | "a ground or dependency `U` does not have" in §S7 and the Preservation row |
+
+## Revision 21: the nineteenth review answered
+
+| Finding | Answer |
+|---|---|
+| S1 when an answer changes kind | §S6 says the kind is the one `run` gives, names the supersession pass, traversals and closures, set operations, ordering stages and a `limit` after `pack` as examples, and lists no stage as complete; a program reads `kind`. Criterion 9's queries avoid every such stage |
+| S2 the conditional and a uid with no unit | Not visited, as `smysl.kb` leaves it out; `smysl.query`'s MAP keeps it. Criterion 9 adds the case |
+| N1 `run` refuses | "`parse`, `plan` or `run`" in §S6 |
+| N2 fact order | No order is promised; the revision 20 answer table's N3 row stands corrected here |
+| N3 any writer | §S7 says any writer may append the ground |
+| N4 M8's first step | The M8 row names it |
