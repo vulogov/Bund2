@@ -706,6 +706,7 @@ dependencies = [
  "terminal_size 0.4.4",
  "textwrap",
  "ulid",
+ "unicode-normalization",
  "unicode-segmentation",
  "unicode-width 0.2.2",
  "unix_path",

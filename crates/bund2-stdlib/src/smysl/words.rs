@@ -7,7 +7,8 @@
 //! `smysl.status`, `smysl.salience` and `smysl.pack`; and M6's,
 //! `smysl.dossier` and `smysl.measure`, which append nothing; and M7's,
 //! `smysl.query` and the constructor `smysl`, whose conditional's runner
-//! is [`super::query::run_smysl`]; and M8's, `smysl.kb`.
+//! is [`super::query::run_smysl`]; and M8's, `smysl.kb`; and M9's,
+//! `smysl.prove`, which solves before it takes the locks.
 //!
 //! - **SM11 is the house text, unprefixed** (§S8). Every other refusal
 //!   begins `<W>: `, the word's name in capitals.
@@ -610,6 +611,32 @@ fn smysl_kb(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `handle kb goal opts smysl.prove` — prove `goal` over `kb` with proofs
+/// on, then write each answer's proof into the library, and answer each
+/// root's uid, or NODATA for a root that became no single unit (§S7, D246).
+///
+/// The operands are checked first, `opts` before the KB; the engine runs
+/// holding no lock, so a bridge may write to the same library; only then
+/// is the write guarded (§S9).
+fn smysl_prove(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.prove";
+    let [opts, goal, kb, h] = <[BundValue; 4]>::try_from(operands(vm, W, 4)?)
+        .map_err(|_| Error::internal(format!("{W}: four operands were guarded and not pulled")))?;
+    let (h, opts) = handle_at(&h, 4)
+        .and_then(|h| Ok((h, super::prove::Opts::of(&opts, 1)?)))
+        .map_err(|r| r.for_word(W))?;
+    let proofs = super::prove::solve(vm, &kb, &goal)?;
+    let written = super::prove::write(&h, &opts, &proofs).map_err(|f| match f {
+        super::prove::Failed::Refused(r) => r.for_word(W),
+        super::prove::Failed::Internal(e) => e,
+    })?;
+    if written.unevaluable {
+        warn(vm, W, super::prove::UNEVALUABLE);
+    }
+    vm.push(BundValue::list(written.roots));
+    Ok(())
+}
+
 /// `smysl` — a CONDITIONAL of type `smysl`, to fill with `set` and run with
 /// `!` (§S6).
 fn smysl_word(vm: &mut dyn Vm) -> Result<(), Error> {
@@ -618,7 +645,7 @@ fn smysl_word(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 /// The words that touch disk, stubbed under `--noio` (R11).
-const ON_DISK: [&str; 20] = [
+const ON_DISK: [&str; 21] = [
     "smysl.append",
     "smysl.check",
     "smysl.create",
@@ -629,6 +656,7 @@ const ON_DISK: [&str; 20] = [
     "smysl.measure",
     "smysl.open",
     "smysl.pack",
+    "smysl.prove",
     "smysl.query",
     "smysl.rel",
     "smysl.retract",
@@ -716,6 +744,14 @@ pub fn register(r: &mut Registry, opts: &crate::host::HostOptions) {
         );
         r.register_native("smysl.query", smysl_query, leaving(2, MAP), WordKind::Sync);
         r.register_native("smysl.kb", smysl_kb, leaving(2, MAP), WordKind::Sync);
+        // Opaque, as `kb.prove` is: a bridge re-enters evaluation, so it is
+        // never promoted; `bund2 check` reads it as 4 → LIST (§S7).
+        r.register_native(
+            "smysl.prove",
+            smysl_prove,
+            StackEffect::opaque(4),
+            WordKind::Sync,
+        );
         // D181: it leaves a CONDITIONAL of the type its runner is filed under.
         r.register_native(
             "smysl",

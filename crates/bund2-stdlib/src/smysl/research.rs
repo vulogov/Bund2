@@ -92,7 +92,7 @@ pub fn status(store: &Store) -> BundValue {
 }
 
 /// A spec MAP's keys, checked against those its word takes.
-fn spec_of<'a>(
+pub(crate) fn spec_of<'a>(
     v: &'a BundValue,
     k: usize,
     keys: &[&str],

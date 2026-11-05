@@ -53,7 +53,8 @@ impl Clock {
 
 /// The attestation Bund2 writes for a unit or a relation it authors (R15):
 /// `Authored`, rung `Document` for a cited unit and `Computed` for every
-/// other, hop 0, no parents.
+/// other, hop 0, no parents. A conclusion `smysl.prove` writes adds its
+/// grounds as parents ([`Batch::proved`]).
 pub(crate) fn attestation(uid: Uid, rung: Rung, agent: &AgentId, ts: Hlc) -> Attestation {
     Attestation::new(uid, agent.clone(), Op::Authored, rung, ts)
 }
@@ -130,8 +131,8 @@ impl<'s> Batch<'s> {
     }
 
     /// Attest `uid` unless this agent already has, in the library or in
-    /// this batch (§S4).
-    fn attest(&mut self, uid: Uid, rung: Rung) {
+    /// this batch (§S4), naming `parents`.
+    fn attest(&mut self, uid: Uid, rung: Rung, parents: BTreeSet<Uid>) {
         let held = self
             .store
             .attestations_of(&uid)
@@ -141,8 +142,9 @@ impl<'s> Batch<'s> {
             return;
         }
         let ts = self.clock.next();
-        self.records
-            .push(Record::Attestation(attestation(uid, rung, &self.agent, ts)));
+        self.records.push(Record::Attestation(
+            attestation(uid, rung, &self.agent, ts).with_parents(parents),
+        ));
     }
 
     /// One record MAP, of whichever kind its keys say (§S2), answering its
@@ -168,6 +170,16 @@ impl<'s> Batch<'s> {
     /// - The attestation is written only if this agent has not attested that
     ///   uid already, so a re-append adds nothing to the log (§S4).
     pub(crate) fn unit(&mut self, m: &BTreeMap<String, BundValue>) -> Result<Uid, Refusal> {
+        self.proved(m, BTreeSet::new())
+    }
+
+    /// One unit MAP whose attestation names `parents`: for a conclusion
+    /// `smysl.prove` writes, its grounds (R15, §S7); for any other, none.
+    pub(crate) fn proved(
+        &mut self,
+        m: &BTreeMap<String, BundValue>,
+        parents: BTreeSet<Uid>,
+    ) -> Result<Uid, Refusal> {
         let core = map::unit_core(m, &mut |l| self.resolve(l))?;
         let uid = canonical_uid(&core);
         let status = core.status;
@@ -175,7 +187,7 @@ impl<'s> Batch<'s> {
             self.units.insert(uid);
             self.records.push(Record::Unit(core));
         }
-        self.attest(uid, rung(status));
+        self.attest(uid, rung(status), parents);
         Ok(uid)
     }
 
@@ -210,7 +222,7 @@ impl<'s> Batch<'s> {
                 self.records.push(Record::Relation(rel.clone()));
             }
         }
-        self.attest(rid, Rung::Computed);
+        self.attest(rid, Rung::Computed, BTreeSet::new());
         if self.store.is_withdrawn(&rel) {
             self.withdrawn.push(rid);
         }

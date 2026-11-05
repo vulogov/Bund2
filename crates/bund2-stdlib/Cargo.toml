@@ -140,6 +140,10 @@ smysl-retrieve = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", de
 smysl-pack    = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
 smysl-text    = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, features = ["reader-txt", "reader-md"], optional = true }
 smysl-measure = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
+# The NFC SMYSL normalises unit text with (`smysl-core/src/types/mod.rs:274-281`):
+# `smysl.prove` normalises a rendering before fitting its gist, so SMYSL's
+# own normalisation cannot lengthen it past the bound (RFC-0014 §S7).
+unicode-normalization = { version = "0.1.26", optional = true }
 # `display` and the `.display` method render through termimad's markdown
 # formatter (`reference/Bund/src/stdlib/functions/system/display.rs:44`,
 # `.../oop/display_class.rs:65`). Same version as
@@ -302,6 +306,7 @@ smysl = [
   "dep:smysl-pack",
   "dep:smysl-text",
   "dep:smysl-measure",
+  "dep:unicode-normalization",
 ]
 # **Test-only, and never in a shipped build** (RFC-0014 §S9): a probe the
 # crate's own tests arm, to make a write panic, or pause, at a named point.

@@ -684,7 +684,7 @@ mod honesty_tests {
     // `UNVARIED` audit filters it too (RFC-0014 criterion 16): a gated
     // native with an operand the palette leaves at seven is in one build's
     // list and not the other's, as it would be in `PROMOTABLE.txt`.
-    const FEATURE_GATED: [&str; 25] = [
+    const FEATURE_GATED: [&str; 26] = [
         "string.grok",
         "string.grok.",
         "smysl",
@@ -700,6 +700,7 @@ mod honesty_tests {
         "smysl.open",
         "smysl.pack",
         "smysl.parse",
+        "smysl.prove",
         "smysl.query",
         "smysl.rel",
         "smysl.retract",

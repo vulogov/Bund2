@@ -1201,6 +1201,14 @@ impl<'a> Walker<'a> {
                 });
                 true
             }
+            // RFC-0014 §S7: `smysl.prove` runs the same engine, so its bridges
+            // restore the stack as the asking words' do: 4 → LIST.
+            "smysl.prove" => {
+                self.report.analysed += 1;
+                let _ = self.take(stack, 4, name, at, via);
+                stack.push(Abs::Tagged(LIST));
+                true
+            }
             // RFC-0013 §S9: `kb.saturate` answers a KB, its bridges on a
             // scratch stack as the asking words' are.
             "kb.saturate" => {

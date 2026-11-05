@@ -16793,3 +16793,20 @@ changes can only keep the locks.
 **Note, 2026-11-04.** RFC-0014 is Accepted by the repository owner
 ("accept RFC-0014"), at revision 21. R22–R25 stand as ruled, with their
 amendments above.
+
+## D246 — RFC-0014 M9: a LAMBDA's rendering, the answer for a root that is no single unit, and `opts.facts "unfounded"`
+
+**Raised 2026-11-05** while implementing RFC-0014 M9 (`smysl.prove`,
+§S7, §S7.1). Three points the Accepted RFC (revision 21) leaves open or
+states two ways.
+
+- Blocks: RFC-0014 M9
+- Depends on: D244 (R8)
+- Status: **RESOLVED 2026-11-05.** The owner ruled R26 A, R27 A and
+  R28 A, as recommended.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **R26** | A premise goal holding a LAMBDA. Every bridge goal (`test`, `is`) keeps its λ as written (RFC-0013 §S15), and §S7.1 makes a LAMBDA opaque, so SM03. §S7 gives the detail one line per premise, so a rule with a bridge premise could never be written, against criterion 12's written `:bridge` proof | **A** §S7.1 gains a row: a LAMBDA is `{ ` then each item rendered by the same table, separated by single spaces, then ` }`, the empty LAMBDA `{ }`; an item with no row is still SM03. Criterion 13 tests the row. **B** a premise whose goal has no text is listed by its node kind. **C** keep SM03 | **A** |
+| **R27** | What `smysl.prove` answers for an answer whose root becomes no single unit: a `:builtin`, `:bridge` or `:tabled` root, a `rank` fact, or a `rel` fact, which stands for two units | **A** NODATA; a fact standing for one unit answers that unit's uid. **B** a LIST of the uids. **C** leave the answer out | **A** |
+| **R28** | `opts.facts "unfounded"`: §S7's node table says any value but the five it names is SM05; §S8 files a status Bund2 cannot author under SM03, and SM05 under an unknown status | **A** SM03, `status unfounded cannot be authored`, as `smysl.unit` refuses it; SM05 stays for a status SMYSL does not know. **B** SM05 | **A** |

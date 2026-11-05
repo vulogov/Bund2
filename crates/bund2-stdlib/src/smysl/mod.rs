@@ -6,7 +6,7 @@
 //! checks the family is its unit tests. Compiled only under the `smysl`
 //! feature (§S1); without it no `smysl.` word is registered.
 //!
-//! Built in the RFC's milestones, in order. So far, M2's to M8's:
+//! Built in the RFC's milestones, in order. So far, M2's to M9's:
 //!
 //! - [`handle`]: the handle MAP, its validation and canonicalisation, and
 //!   opening the library it names (§S2, §S3);
@@ -16,6 +16,8 @@
 //!   the re-open, and R25's snapshot, which decides whether a failed write
 //!   leaves the locks;
 //! - [`facts`]: `smysl.kb`'s scope and facts (§S7);
+//! - [`prove`]: `smysl.prove`'s solving, rendering (§S7.1), fitting and
+//!   writing of proofs as units (§S7, D246);
 //! - [`form`]: units, relations and labels, with their attestations,
 //!   decided under the locks as one batch, and retraction (§S4);
 //! - [`surface`]: what `smysl.parse` answers and `smysl.write` writes,
@@ -35,6 +37,7 @@ pub(crate) mod form;
 pub mod handle;
 pub mod map;
 pub mod probe;
+pub mod prove;
 pub mod query;
 pub mod research;
 pub mod surface;
@@ -155,6 +158,8 @@ mod bridging_tests;
 mod forming_tests;
 #[cfg(test)]
 mod measuring_tests;
+#[cfg(test)]
+mod proving_tests;
 #[cfg(test)]
 mod querying_tests;
 #[cfg(test)]
