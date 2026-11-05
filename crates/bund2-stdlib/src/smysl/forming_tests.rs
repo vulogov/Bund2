@@ -474,7 +474,7 @@ pub(super) fn add_text(d: &Dir, alias: &str, body: &str) -> BundValue {
 }
 
 /// A unit citing the first part of the text `added` answered.
-fn citing(gist: &str, added: &BundValue) -> BundValue {
+pub(super) fn citing(gist: &str, added: &BundValue) -> BundValue {
     let part = text(&items(&get(added, "parts"))[0]);
     m(&[
         ("schema", s("observation")),

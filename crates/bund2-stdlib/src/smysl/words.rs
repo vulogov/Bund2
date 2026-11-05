@@ -7,7 +7,7 @@
 //! `smysl.status`, `smysl.salience` and `smysl.pack`; and M6's,
 //! `smysl.dossier` and `smysl.measure`, which append nothing; and M7's,
 //! `smysl.query` and the constructor `smysl`, whose conditional's runner
-//! is [`super::query::run_smysl`].
+//! is [`super::query::run_smysl`]; and M8's, `smysl.kb`.
 //!
 //! - **SM11 is the house text, unprefixed** (§S8). Every other refusal
 //!   begins `<W>: `, the word's name in capitals.
@@ -590,6 +590,26 @@ fn smysl_query(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `handle scope smysl.kb` — a new KB of the units the scope selects, as
+/// §S7's facts; the query's warnings are reported (§S7, §S8).
+fn smysl_kb(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.kb";
+    let [text, h] = <[BundValue; 2]>::try_from(operands(vm, W, 2)?)
+        .map_err(|_| Error::internal(format!("{W}: two operands were guarded and not pulled")))?;
+    let loaded = handle_at(&h, 2).and_then(|h| {
+        let text = string(&text, 1)?;
+        let (root, library) = handle::open(&h.root)?;
+        let q = super::query::query(&library, &root, &text)?;
+        let store = library.store();
+        let scope = super::facts::scope(store, &q.answer.uids());
+        Ok((super::facts::facts(store, &scope), q.warnings))
+    });
+    let (facts, warnings) = loaded.map_err(|r| r.for_word(W))?;
+    warn_each(vm, W, &warnings);
+    vm.push(super::facts::kb(&facts)?);
+    Ok(())
+}
+
 /// `smysl` — a CONDITIONAL of type `smysl`, to fill with `set` and run with
 /// `!` (§S6).
 fn smysl_word(vm: &mut dyn Vm) -> Result<(), Error> {
@@ -598,12 +618,13 @@ fn smysl_word(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 /// The words that touch disk, stubbed under `--noio` (R11).
-const ON_DISK: [&str; 19] = [
+const ON_DISK: [&str; 20] = [
     "smysl.append",
     "smysl.check",
     "smysl.create",
     "smysl.dossier",
     "smysl.get",
+    "smysl.kb",
     "smysl.label",
     "smysl.measure",
     "smysl.open",
@@ -694,6 +715,7 @@ pub fn register(r: &mut Registry, opts: &crate::host::HostOptions) {
             WordKind::Sync,
         );
         r.register_native("smysl.query", smysl_query, leaving(2, MAP), WordKind::Sync);
+        r.register_native("smysl.kb", smysl_kb, leaving(2, MAP), WordKind::Sync);
         // D181: it leaves a CONDITIONAL of the type its runner is filed under.
         r.register_native(
             "smysl",

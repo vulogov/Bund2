@@ -6,7 +6,7 @@
 //! checks the family is its unit tests. Compiled only under the `smysl`
 //! feature (§S1); without it no `smysl.` word is registered.
 //!
-//! Built in the RFC's milestones, in order. So far, M2's to M7's:
+//! Built in the RFC's milestones, in order. So far, M2's to M8's:
 //!
 //! - [`handle`]: the handle MAP, its validation and canonicalisation, and
 //!   opening the library it names (§S2, §S3);
@@ -15,6 +15,7 @@
 //! - [`write`]: a guarded write (§S9): the process mutex, SMYSL's locks,
 //!   the re-open, and R25's snapshot, which decides whether a failed write
 //!   leaves the locks;
+//! - [`facts`]: `smysl.kb`'s scope and facts (§S7);
 //! - [`form`]: units, relations and labels, with their attestations,
 //!   decided under the locks as one batch, and retraction (§S4);
 //! - [`surface`]: what `smysl.parse` answers and `smysl.write` writes,
@@ -29,6 +30,7 @@
 //! - [`words`]: the words, and the `--noio` stubs of those that touch
 //!   disk (§S8, R11).
 
+pub mod facts;
 pub(crate) mod form;
 pub mod handle;
 pub mod map;
@@ -147,6 +149,8 @@ pub fn register(r: &mut bund2_api::Registry, opts: &crate::host::HostOptions) {
     words::register(r, opts);
 }
 
+#[cfg(test)]
+mod bridging_tests;
 #[cfg(test)]
 mod forming_tests;
 #[cfg(test)]
