@@ -210,7 +210,7 @@ pub fn depth(v: &BundValue, k: usize) -> Result<Option<u32>, Refusal> {
 
 /// The scope's name: the root's file stem, as SMYSL's `measure` names it,
 /// or the root whole when it has none (`smysl:src/main.rs:7355-7358`).
-fn scope_name(root: &Path) -> String {
+pub(crate) fn scope_name(root: &Path) -> String {
     root.file_stem().map_or_else(
         || root.to_string_lossy().into_owned(),
         |s| s.to_string_lossy().into_owned(),
@@ -219,7 +219,7 @@ fn scope_name(root: &Path) -> String {
 
 /// §S5's `Env`: the library's store, with its times and entities ports
 /// over `scope`, and no semantic port (`smysl:src/main.rs:6313-6315`).
-fn environment<'a>(library: &'a Library, scope: &'a LibraryScope<'a>) -> Env<'a> {
+pub(crate) fn environment<'a>(library: &'a Library, scope: &'a LibraryScope<'a>) -> Env<'a> {
     Env::new(library.store(), scope)
         .with_times(scope)
         .with_entities(scope)

@@ -5,7 +5,9 @@
 //! `smysl.parse`, `smysl.write` and `smysl.check`; and M5's, retraction
 //! and research: `smysl.retract`, `smysl.get`, `smysl.trace`,
 //! `smysl.status`, `smysl.salience` and `smysl.pack`; and M6's,
-//! `smysl.dossier` and `smysl.measure`, which append nothing.
+//! `smysl.dossier` and `smysl.measure`, which append nothing; and M7's,
+//! `smysl.query` and the constructor `smysl`, whose conditional's runner
+//! is [`super::query::run_smysl`].
 //!
 //! - **SM11 is the house text, unprefixed** (§S8). Every other refusal
 //!   begins `<W>: `, the word's name in capitals.
@@ -571,8 +573,32 @@ fn smysl_measure(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `handle text smysl.query` — one `sq/1` query's answer as §S6's MAP; its
+/// warnings are reported (§S6, §S8).
+fn smysl_query(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.query";
+    let [text, h] = <[BundValue; 2]>::try_from(operands(vm, W, 2)?)
+        .map_err(|_| Error::internal(format!("{W}: two operands were guarded and not pulled")))?;
+    let q = handle_at(&h, 2).and_then(|h| {
+        let text = string(&text, 1)?;
+        let (root, library) = handle::open(&h.root)?;
+        super::query::query(&library, &root, &text)
+    });
+    let q = q.map_err(|r| r.for_word(W))?;
+    warn_each(vm, W, &q.warnings);
+    vm.push(super::query::answer(&q.answer)?);
+    Ok(())
+}
+
+/// `smysl` — a CONDITIONAL of type `smysl`, to fill with `set` and run with
+/// `!` (§S6).
+fn smysl_word(vm: &mut dyn Vm) -> Result<(), Error> {
+    vm.push(crate::conditional::new_conditional("smysl"));
+    Ok(())
+}
+
 /// The words that touch disk, stubbed under `--noio` (R11).
-const ON_DISK: [&str; 18] = [
+const ON_DISK: [&str; 19] = [
     "smysl.append",
     "smysl.check",
     "smysl.create",
@@ -582,6 +608,7 @@ const ON_DISK: [&str; 18] = [
     "smysl.measure",
     "smysl.open",
     "smysl.pack",
+    "smysl.query",
     "smysl.rel",
     "smysl.retract",
     "smysl.salience",
@@ -600,6 +627,11 @@ pub fn register(r: &mut Registry, opts: &crate::host::HostOptions) {
         for name in ON_DISK {
             r.register_native(name, noio, StackEffect::opaque(0), WordKind::Sync);
         }
+        // The constructor reads nothing, and is stubbed with the handler,
+        // as D119 stubs `csv` and its handler: a CONDITIONAL built with
+        // `conditional` reaches the handler without the constructor (R11).
+        r.register_native("smysl", noio, StackEffect::opaque(0), WordKind::Sync);
+        r.register_conditional("smysl", |vm, _c| noio(vm));
     } else {
         r.register_native("smysl.create", smysl_create, handle(1), WordKind::Sync);
         r.register_native("smysl.open", smysl_open, handle(1), WordKind::Sync);
@@ -661,6 +693,15 @@ pub fn register(r: &mut Registry, opts: &crate::host::HostOptions) {
             leaving(3, LIST),
             WordKind::Sync,
         );
+        r.register_native("smysl.query", smysl_query, leaving(2, MAP), WordKind::Sync);
+        // D181: it leaves a CONDITIONAL of the type its runner is filed under.
+        r.register_native(
+            "smysl",
+            smysl_word,
+            StackEffect::fixed(0, 1).leaving(Leaves::Conditional("smysl")),
+            WordKind::Sync,
+        );
+        r.register_conditional("smysl", super::query::run_smysl);
     }
     r.register_native("smysl.agent", smysl_agent, handle(2), WordKind::Sync);
     r.register_native("smysl.parse", smysl_parse, leaving(1, LIST), WordKind::Sync);

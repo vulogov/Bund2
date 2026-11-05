@@ -2184,8 +2184,8 @@ impl<'a> Walker<'a> {
             }
             "tryexcept" => self.run_tryexcept(m, stack, at, level),
             // RFC-0013 §S11: `query` pushes a MAP per answer, as `sqlite`
-            // pushes one per row.
-            "csv" | "sqlite" | "query" => {
+            // pushes one per row; RFC-0014 §S6: `smysl` one per unit.
+            "csv" | "sqlite" | "query" | "smysl" => {
                 let body = match Self::slot(m, "lambda") {
                     Slot::Lambda(b) => b,
                     Slot::Absent => Rc::from(Vec::new()),

@@ -684,9 +684,10 @@ mod honesty_tests {
     // `UNVARIED` audit filters it too (RFC-0014 criterion 16): a gated
     // native with an operand the palette leaves at seven is in one build's
     // list and not the other's, as it would be in `PROMOTABLE.txt`.
-    const FEATURE_GATED: [&str; 22] = [
+    const FEATURE_GATED: [&str; 24] = [
         "string.grok",
         "string.grok.",
+        "smysl",
         "smysl.agent",
         "smysl.append",
         "smysl.check",
@@ -698,6 +699,7 @@ mod honesty_tests {
         "smysl.open",
         "smysl.pack",
         "smysl.parse",
+        "smysl.query",
         "smysl.rel",
         "smysl.retract",
         "smysl.salience",
@@ -1585,7 +1587,7 @@ mod honesty_tests {
     /// outside this crate (RFC-0005 assumption 24).
     #[test]
     fn every_reentering_function_is_named() {
-        const REENTERING: [&str; 34] = [
+        const REENTERING: [&str; 35] = [
             // RFC-0008 §W2: a line typed at a debugger stop, applied value by
             // value. Called from a safepoint and never from a native.
             "lib.rs: eval_line",
@@ -1652,6 +1654,10 @@ mod honesty_tests {
             // RFC-0013 §S11: `query` runs `lambda` once per answer, as
             // `sqlite`'s runner runs its lambda once per row.
             "kb/query.rs: run_query",
+            // RFC-0014 §S6: the `smysl` conditional runs `lambda` once per
+            // unit its answer names, as `query`'s runner does. Scanned in
+            // every build, though compiled only under `smysl`.
+            "smysl/query.rs: run_smysl",
         ];
         const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
         // `.apply_placed(` is `.apply(` for an included file's top level, and
