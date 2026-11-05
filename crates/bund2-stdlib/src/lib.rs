@@ -632,7 +632,7 @@ mod honesty_tests {
     // safety: the spawn had already happened by then, and a palette string
     // that happened to name a real command would have run it. Listed for
     // what it does, not for what it managed to do.
-    const ACTS_ON_HOST: [&str; 13] = [
+    const ACTS_ON_HOST: [&str; 15] = [
         "system.shell",
         "system.shell.",
         "fs.rm",
@@ -646,6 +646,10 @@ mod honesty_tests {
         "password",
         "bund.prompt",
         "save.model",
+        // RFC-0014's writing words (§S4), named here by the milestone that
+        // registers each, as well as in `FEATURE_GATED`.
+        "smysl.create",
+        "smysl.unit",
     ];
 
     // **Natives a feature gate may or may not have registered — F123.**
@@ -675,7 +679,14 @@ mod honesty_tests {
     // `UNVARIED` audit filters it too (RFC-0014 criterion 16): a gated
     // native with an operand the palette leaves at seven is in one build's
     // list and not the other's, as it would be in `PROMOTABLE.txt`.
-    const FEATURE_GATED: [&str; 4] = ["string.grok", "string.grok.", "smysl.agent", "smysl.open"];
+    const FEATURE_GATED: [&str; 6] = [
+        "string.grok",
+        "string.grok.",
+        "smysl.agent",
+        "smysl.create",
+        "smysl.open",
+        "smysl.unit",
+    ];
 
     /// **RFC-0005's assumption 23, scanned.** Criterion 28's palette varies a
     /// native's top two operands, or its top operand and the workbench for a

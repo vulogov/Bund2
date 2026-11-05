@@ -303,6 +303,10 @@ smysl = [
   "dep:smysl-text",
   "dep:smysl-measure",
 ]
+# **Test-only, and never in a shipped build** (RFC-0014 §S9): a probe the
+# crate's own tests arm, to make a write panic, or pause, at a named point.
+# As `panic-probe` gives `test.panic` (D220).
+smysl-panic-probe = ["smysl"]
 # **Measurement only, and unsound when used.** RFC-0013 criterion 16 asks for
 # the occurs check's share of naive reverse, and the per-inference guard
 # poll's. Both are unconditional (L7; S4's poll), so there is nothing to

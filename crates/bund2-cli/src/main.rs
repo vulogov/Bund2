@@ -61,6 +61,39 @@ fn features_built_in() -> String {
     on.join(",")
 }
 
+/// `bund2 smysl-unlock <root> [--yes]`: print each lock of the library at
+/// `<root>` with its holder, and with `--yes` break them, the shard locks
+/// first. The work is `bund2_stdlib::smysl::unlock::unlock`'s; this prints
+/// what it answers and nothing more (§S9).
+#[cfg(feature = "smysl")]
+fn smysl_unlock(args: &[String]) -> ExitCode {
+    let Some(root) = args.get(1).filter(|a| !a.starts_with("--")) else {
+        bund2_api::errln!("bund2: expected: bund2 smysl-unlock <root> [--yes]");
+        return ExitCode::from(2);
+    };
+    let breaking = args.iter().skip(2).any(|a| a == "--yes");
+    match bund2_stdlib::smysl::unlock::unlock(std::path::Path::new(root), breaking) {
+        Ok(found) if found.is_empty() => {
+            bund2_api::sayln!("no SMYSL locks at {root}");
+            ExitCode::SUCCESS
+        }
+        Ok(found) => {
+            for f in found {
+                let holder = f
+                    .holder
+                    .map_or_else(|| "an unreadable holder".to_owned(), |h| h.to_string());
+                let done = if breaking { "broke " } else { "" };
+                bund2_api::sayln!("{done}{}: held by {holder}", f.path.display());
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            bund2_api::errln!("bund2 smysl-unlock: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
 /// `reference/PINNED.txt` compacted to fit the container: each submodule's
 /// basename with its SHA's first twelve characters.
 fn pinned_summary() -> String {
@@ -236,6 +269,13 @@ fn run_cli() -> ExitCode {
             bund2_api::sayln!("{name}");
         }
         return ExitCode::SUCCESS;
+    }
+    // `bund2 smysl-unlock <root> [--yes]` — RFC-0014 §S9, R14: list a SMYSL
+    // library's locks with their holders, and with `--yes` break them. A
+    // subcommand and not a word, so breaking a lock stays an operator's act.
+    #[cfg(feature = "smysl")]
+    if args.first().map(String::as_str) == Some("smysl-unlock") {
+        return smysl_unlock(&args);
     }
     // `bund2 effects` — every native's declared arity, for `xtask effects`.
     if args.first().map(String::as_str) == Some("effects") {

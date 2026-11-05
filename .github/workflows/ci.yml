@@ -73,12 +73,17 @@ jobs:
         run: cargo nextest run -p bund2-cli --features jit,panic-probe --test panic_tier --profile ci
       # RFC-0014 §S1: the SMYSL words' tests run only under their feature, and
       # clippy's denied `unwrap`, `expect` and `panic` must see that code.
-      # The probe's two steps arrive with the probe (M3), and the demo's with
-      # the demo (M10).
+      # The demo's step arrives with the demo (M10).
       - name: the SMYSL words' own tests
         run: cargo nextest run -p bund2-stdlib --features smysl --profile ci
       - name: clippy over the SMYSL feature
         run: cargo clippy -p bund2-stdlib -p bund2-cli --all-targets --features smysl
+      # RFC-0014 §S9: the probe-gated tests, a write that panics or pauses
+      # at a named point, and clippy over the probe's code.
+      - name: the SMYSL words' probe-gated tests
+        run: cargo nextest run -p bund2-stdlib --features smysl,smysl-panic-probe --profile ci
+      - name: clippy over the SMYSL probe
+        run: cargo clippy -p bund2-stdlib --all-targets --features smysl,smysl-panic-probe
       # RFC-0005 criterion 15, asserted "so a later change cannot invert it
       # quietly": the mandatory vocabulary must not reach the optional tier or
       # the code generator, by any feature.

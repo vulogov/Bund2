@@ -6,18 +6,29 @@
 //! checks the family is its unit tests. Compiled only under the `smysl`
 //! feature (§S1); without it no `smysl.` word is registered.
 //!
-//! Built in the RFC's milestones, in order. So far, M2's:
+//! Built in the RFC's milestones, in order. So far, M2's and M3's:
 //!
 //! - [`handle`]: the handle MAP, its validation and canonicalisation, and
 //!   opening the library it names (§S2, §S3);
 //! - [`map`]: records read back as MAPs, and MAPs written as records
 //!   (§S2), as functions the later words call;
-//! - [`words`]: `smysl.open` and `smysl.agent`, and the `--noio` stub of
-//!   the one that touches disk (§S8, R11).
+//! - [`write`]: a guarded write (§S9): the process mutex, SMYSL's locks,
+//!   the re-open, and R25's snapshot, which decides whether a failed write
+//!   leaves the locks;
+//! - [`form`]: a unit and its attestation, decided under the locks (§S4);
+//! - [`unlock`]: what `bund2 smysl-unlock` does (§S9, R14);
+//! - [`probe`]: the test-only probe, under `smysl-panic-probe` (§S9);
+//! - [`words`]: `smysl.create`, `smysl.open`, `smysl.unit` and
+//!   `smysl.agent`, and the `--noio` stubs of those that touch disk (§S8,
+//!   R11).
 
+pub(crate) mod form;
 pub mod handle;
 pub mod map;
+pub mod probe;
+pub mod unlock;
 pub mod words;
+pub(crate) mod write;
 
 use bund2_api::Error;
 

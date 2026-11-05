@@ -1,5 +1,6 @@
 //! The `smysl.` natives registered so far (RFC-0014 §S4): M2's
-//! `smysl.open` and `smysl.agent`.
+//! `smysl.open` and `smysl.agent`, and M3's `smysl.create` and `smysl.unit`,
+//! the first that write.
 //!
 //! - **SM11 is the house text, unprefixed** (§S8). Every other refusal
 //!   begins `<W>: `, the word's name in capitals.
@@ -12,7 +13,7 @@ use bund2_value::{BundValue, MAP};
 use smysl_core::AgentId;
 
 use super::handle::{self, Handle};
-use super::{Code, Refusal, sm03};
+use super::{Code, Refusal, form, map, sm03};
 
 /// SM06's text, the house pattern of `bund SAVE.MODEL functions disabled
 /// with --noio` (`reference/Bund/src/stdlib/functions/bund/bund_models.rs:125`).
@@ -81,16 +82,90 @@ fn smysl_agent(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `root smysl.create` — create a library at `root`, or open the one there,
+/// as `Library::create` does (§S4).
+///
+/// The root's directory is made first, since a path that does not exist
+/// has no canonical form; a failure is SM01's `cannot reach`. Then the root
+/// is canonicalised, the process mutex taken under it, and only then
+/// `Library::create` called, which tolerates the directory
+/// (`smysl-text/src/library.rs:289`). It takes no SMYSL lock: there is
+/// nothing to lock before the marker exists.
+fn smysl_create(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.create";
+    let [root] = <[BundValue; 1]>::try_from(operands(vm, W, 1)?)
+        .map_err(|_| Error::internal(format!("{W}: one operand was guarded and not pulled")))?;
+    let answer = string(&root, 1).and_then(|root| {
+        let root = std::path::Path::new(&root);
+        std::fs::create_dir_all(root).map_err(|e| {
+            Refusal::new(Code::Sm01, format!("cannot reach {}: {e}", root.display()))
+        })?;
+        let canon = handle::canonical(root)?;
+        let _serial = super::write::serialise(&canon);
+        smysl_text::Library::create(&canon).map_err(super::sm02)?;
+        handle::opened(&canon)
+    });
+    vm.push(answer.map_err(|r| r.for_word(W))?);
+    Ok(())
+}
+
+/// The handle `#k` names, or SM00.
+fn handle_at(v: &BundValue, k: usize) -> Result<Handle, Refusal> {
+    Handle::from_value(v, k)
+}
+
+/// The record MAP `#k` holds, of the kind this word takes, or SM03.
+fn record_of(
+    v: &BundValue,
+    k: usize,
+    want: map::Kind,
+) -> Result<std::collections::BTreeMap<String, BundValue>, Refusal> {
+    let m = v.as_map().filter(|_| v.dt() == MAP).ok_or_else(|| {
+        sm03(format!(
+            "#{k} parameter must be MAP, found {}",
+            v.type_name()
+        ))
+    })?;
+    let kind = map::kind(m)?;
+    if kind != want {
+        return Err(sm03(format!(
+            "#{k} parameter is a {} MAP, not a {}",
+            kind.name(),
+            want.name()
+        )));
+    }
+    Ok(m.clone())
+}
+
+/// `handle unit smysl.unit` — append one unit written as §S2's MAP, with
+/// its attestation, and answer its uid (§S4).
+fn smysl_unit(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.unit";
+    let [unit, h] = <[BundValue; 2]>::try_from(operands(vm, W, 2)?)
+        .map_err(|_| Error::internal(format!("{W}: two operands were guarded and not pulled")))?;
+    let answer = handle_at(&h, 2).and_then(|h| {
+        let m = record_of(&unit, 1, map::Kind::Unit)?;
+        super::write::write(W, &h.root, |w| form::unit(w, &h.agent, &m))
+    });
+    vm.push(map::uid(&answer.map_err(|r| r.for_word(W))?));
+    Ok(())
+}
+
 fn noio(_vm: &mut dyn Vm) -> Result<(), Error> {
     Err(Refusal::new(Code::Sm06, NOIO).for_word("smysl"))
 }
 
 pub fn register(r: &mut Registry, opts: &crate::host::HostOptions) {
     let handle = |c| StackEffect::fixed(c, 1).leaving(Leaves::Tag(MAP));
+    let uid = |c| StackEffect::fixed(c, 1).leaving(Leaves::Tag(bund2_value::STRING));
     if opts.noio {
-        r.register_native("smysl.open", noio, StackEffect::opaque(0), WordKind::Sync);
+        for name in ["smysl.create", "smysl.open", "smysl.unit"] {
+            r.register_native(name, noio, StackEffect::opaque(0), WordKind::Sync);
+        }
     } else {
+        r.register_native("smysl.create", smysl_create, handle(1), WordKind::Sync);
         r.register_native("smysl.open", smysl_open, handle(1), WordKind::Sync);
+        r.register_native("smysl.unit", smysl_unit, uid(2), WordKind::Sync);
     }
     r.register_native("smysl.agent", smysl_agent, handle(2), WordKind::Sync);
 }
@@ -318,5 +393,393 @@ mod tests {
         )
         .unwrap();
         assert_eq!(field(&h, "agent"), "tool:other");
+    }
+
+    // --- M3: the first writes -------------------------------------------------
+
+    fn library(tag: &str) -> (Dir, String) {
+        let dir = Dir::fresh(tag);
+        smysl_text::Library::create(&dir.0).unwrap();
+        let canon = std::fs::canonicalize(&dir.0).unwrap();
+        let root = canon.to_str().unwrap().to_owned();
+        (dir, root)
+    }
+
+    fn handle_of(root: &str, agent: &str) -> BundValue {
+        let mut m = std::collections::BTreeMap::new();
+        m.insert("type".to_owned(), BundValue::str("smysl"));
+        m.insert("root".to_owned(), BundValue::str(root));
+        m.insert("agent".to_owned(), BundValue::str(agent));
+        BundValue::map(m)
+    }
+
+    fn unit_map(gist: &str) -> BundValue {
+        let mut m = std::collections::BTreeMap::new();
+        m.insert("schema".to_owned(), BundValue::str("claim"));
+        m.insert("gist".to_owned(), BundValue::str(gist));
+        m.insert("status".to_owned(), BundValue::str("speculative"));
+        BundValue::map(m)
+    }
+
+    /// `smysl.unit` of `unit` through a handle on `root` as `agent`.
+    fn append_unit(root: &str, agent: &str, unit: BundValue) -> Result<String, String> {
+        use bund2_api::Vm as _;
+        let mut i = interp(false);
+        i.push(handle_of(root, agent));
+        i.push(unit);
+        run_in(&mut i, "smysl.unit").map(|v| v.as_str().unwrap())
+    }
+
+    fn reopen(root: &str) -> smysl_text::Library {
+        smysl_text::Library::open(std::path::Path::new(root)).unwrap()
+    }
+
+    fn uid_of(s: &str) -> smysl_core::Uid {
+        smysl_core::Uid::parse(s).unwrap()
+    }
+
+    #[test]
+    fn create_makes_a_library_and_opens_one_already_there() {
+        let dir = Dir::fresh("create");
+        let h = run(&format!("{} smysl.create", quoted(&dir.0))).unwrap();
+        let canon = std::fs::canonicalize(&dir.0).unwrap();
+        assert_eq!(field(&h, "root"), canon.to_str().unwrap());
+        assert!(smysl_text::Library::is_library(&canon));
+        let again = run(&format!("{} smysl.create", quoted(&dir.0))).unwrap();
+        assert_eq!(again.display(), h.display());
+    }
+
+    /// 14: `smysl.create` of a root beneath a regular file, which
+    /// `create_dir_all` cannot make, is SM01's `cannot reach`.
+    #[test]
+    fn create_beneath_a_regular_file_cannot_reach_it() {
+        let dir = Dir::fresh("create-file");
+        std::fs::create_dir_all(&dir.0).unwrap();
+        let file = dir.0.join("plain");
+        std::fs::write(&file, b"x").unwrap();
+        let root = file.join("lib");
+        let err = run(&format!("{} smysl.create", quoted(&root))).unwrap_err();
+        assert!(
+            err.starts_with(&format!("SMYSL.CREATE: cannot reach {}: ", root.display())),
+            "{err}"
+        );
+    }
+
+    /// Criterion 4: for each unit of a `.smy` fixture, the uid `smysl.unit`
+    /// answers for it written as §S2's MAP is the uid SMYSL computes, by
+    /// `parse_surface` and `canonical_uid` called directly.
+    #[test]
+    fn uids_agree_with_smysls_own_parser() {
+        const FIXTURE: &str = r#"@schema x.text/v1 { version: 1, types: ["x.text/entity"], relations: [x.text/mentions] }
+
+@x.text/entity n/naomi { status: speculative, source: { kind: doc, ref: "alias:kjv/ruth" } }
+~ Naomi
+
+@x.text/entity n/noemin { status: speculative, lang: ru, source: { kind: doc, ref: "alias:synodal/ruth" } }
+~ Ноеминь
+
+@definition d/naomi { status: cited, source: { kind: doc, ref: "Ruth 1:2" } }
+~ Naomi is the wife of Elimelech, a woman of Bethlehem-judah.
+
+@claim c/empty { status: inferred, grounds: [o/return] }
+~ Naomi came back to Bethlehem with nothing.
+
+@observation o/return { status: cited, source: { kind: doc, ref: "Ruth 1:21" } }
+~ Naomi said: I went out full, and the LORD hath brought me home again empty.
+
+@question q/kinsman { status: speculative, n: 3, tags: ["kin", "field"] }
+~ Would Naomi's kinsman redeem the field of Elimelech?
+"#;
+        let parsed = smysl_core::surface::parse_surface(FIXTURE).unwrap();
+        assert!(!parsed.has_errors(), "{:?}", parsed.diagnostics);
+        let (_dir, root) = library("crit4");
+        let mut n = 0;
+        for r in &parsed.records {
+            let smysl_core::Record::Unit(core) = r else {
+                continue;
+            };
+            let mut m = super::map::unit(core, &[]).as_map().unwrap().clone();
+            m.remove("uid");
+            assert!(!m.contains_key("opaque"), "{m:?}");
+            let answered = append_unit(&root, "tool:bund2", BundValue::map(m)).unwrap();
+            assert_eq!(answered, smysl_core::canonical_uid(core).canonical());
+            n += 1;
+        }
+        assert_eq!(n, 6);
+    }
+
+    /// §S4's attestation (R15): one per unit, `Authored`, rung `Document`
+    /// for a cited unit and `Computed` otherwise, hop 0, no parents, the
+    /// handle's agent; a re-append adds nothing; another agent's unit gains
+    /// this agent's attestation.
+    #[test]
+    fn a_unit_is_written_with_one_attestation_and_once() {
+        use smysl_core::{Op, Rung};
+        let (_dir, root) = library("attest");
+        let u = uid_of(&append_unit(&root, "tool:bund2", unit_map("The well is dry")).unwrap());
+        let lib = reopen(&root);
+        assert!(lib.store().contains_uid(&u));
+        let a: Vec<_> = lib.store().attestations_of(&u).iter().cloned().collect();
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].agent.as_str(), "tool:bund2");
+        assert_eq!(
+            (a[0].op, a[0].rung, a[0].hop),
+            (Op::Authored, Rung::Computed, 0)
+        );
+        assert!(a[0].parents.is_empty());
+        let log = std::path::Path::new(&root).join(smysl_text::library::CATALOG);
+        let len = std::fs::metadata(&log).unwrap().len();
+
+        // Again, by the same agent: nothing reaches the log.
+        let again = append_unit(&root, "tool:bund2", unit_map("The well is dry")).unwrap();
+        assert_eq!(uid_of(&again), u);
+        assert_eq!(std::fs::metadata(&log).unwrap().len(), len);
+
+        // By another: one more attestation, and the unit once.
+        append_unit(&root, "tool:other", unit_map("The well is dry")).unwrap();
+        let lib = reopen(&root);
+        let agents: Vec<String> = lib
+            .store()
+            .attestations_of(&u)
+            .iter()
+            .map(|a| a.agent.as_str().to_owned())
+            .collect();
+        assert_eq!(agents.len(), 2, "{agents:?}");
+        assert!(agents.contains(&"tool:other".to_owned()));
+
+        // An agent's clocks never go backwards: the second attestation by
+        // `tool:bund2` advances from its first.
+        let second = uid_of(&append_unit(&root, "tool:bund2", unit_map("Another")).unwrap());
+        let lib = reopen(&root);
+        let first_ts = &lib
+            .store()
+            .attestations_of(&u)
+            .iter()
+            .find(|a| a.agent.as_str() == "tool:bund2")
+            .unwrap()
+            .ts;
+        let second_ts = &lib
+            .store()
+            .attestations_of(&second)
+            .iter()
+            .next()
+            .unwrap()
+            .ts;
+        assert!(second_ts > first_ts);
+    }
+
+    #[test]
+    fn a_cited_unit_is_attested_at_the_document_rung() {
+        let (_dir, root) = library("cited");
+        let mut m = unit_map("Naomi").as_map().unwrap().clone();
+        m.insert("status".to_owned(), BundValue::str("cited"));
+        let mut src = std::collections::BTreeMap::new();
+        src.insert("kind".to_owned(), BundValue::str("doc"));
+        src.insert("reference".to_owned(), BundValue::str("Ruth 1:2"));
+        m.insert("source".to_owned(), BundValue::map(src));
+        let u = uid_of(&append_unit(&root, "tool:bund2", BundValue::map(m)).unwrap());
+        let lib = reopen(&root);
+        let a = lib
+            .store()
+            .attestations_of(&u)
+            .iter()
+            .next()
+            .unwrap()
+            .clone();
+        assert_eq!(a.rung, smysl_core::Rung::Document);
+    }
+
+    /// SM02 on a write: a unit SMYSL refuses to build, here a gist of spaces
+    /// (`smysl-core/src/types/unit.rs:146-149`), carries SMYSL's reason,
+    /// writes nothing and leaves no lock.
+    #[test]
+    fn a_unit_smysl_refuses_is_sm02_and_leaves_no_lock() {
+        let (_dir, root) = library("sm02");
+        let err = append_unit(&root, "tool:bund2", unit_map("   ")).unwrap_err();
+        assert!(err.starts_with("SMYSL.UNIT: SMYSL refused it: "), "{err}");
+        assert!(!err.contains("left locked"), "{err}");
+        assert!(!std::path::Path::new(&root).join("lock").exists());
+        append_unit(&root, "tool:bund2", unit_map("then a real one")).unwrap();
+    }
+
+    /// SM08: a `grounds` entry naming an unbound label.
+    #[test]
+    fn an_unbound_label_in_grounds_is_sm08() {
+        let (_dir, root) = library("sm08");
+        let mut m = unit_map("Rests on nothing").as_map().unwrap().clone();
+        m.insert("status".to_owned(), BundValue::str("inferred"));
+        m.insert(
+            "grounds".to_owned(),
+            BundValue::list(vec![BundValue::str("d/nowhere")]),
+        );
+        assert_eq!(
+            append_unit(&root, "tool:bund2", BundValue::map(m)).unwrap_err(),
+            "SMYSL.UNIT: label d/nowhere binds 0 units"
+        );
+    }
+
+    #[test]
+    fn unit_refuses_a_relation_map_and_a_non_map() {
+        let (_dir, root) = library("kinds");
+        let mut rel = std::collections::BTreeMap::new();
+        for k in ["kind", "from", "to"] {
+            rel.insert(k.to_owned(), BundValue::str("x"));
+        }
+        assert_eq!(
+            append_unit(&root, "tool:bund2", BundValue::map(rel)).unwrap_err(),
+            "SMYSL.UNIT: #1 parameter is a relation MAP, not a unit"
+        );
+        assert_eq!(
+            append_unit(&root, "tool:bund2", BundValue::int(3)).unwrap_err(),
+            "SMYSL.UNIT: #1 parameter must be MAP, found Integer"
+        );
+    }
+
+    /// Criterion 15: with a lock file left as a crashed SMYSL process would
+    /// leave it, a write is SM07 naming the holder, and `smysl.open` of the
+    /// library succeeds.
+    #[test]
+    fn a_stale_lock_is_sm07_and_reads_still_succeed() {
+        let (_dir, root) = library("stale");
+        let lock = std::path::Path::new(&root).join("lock");
+        std::fs::write(&lock, "pid=4242\nhost=elsewhere\ncommand=smysl text add\n").unwrap();
+        let expected = smysl_core::LibError::Locked {
+            what: "library".to_owned(),
+            held_by: "pid 4242 on elsewhere running `smysl text add`".to_owned(),
+        };
+        assert_eq!(
+            append_unit(&root, "tool:bund2", unit_map("blocked")).unwrap_err(),
+            format!("SMYSL.UNIT: the library is locked: {expected}")
+        );
+        run(&format!("{root:?} smysl.open")).unwrap();
+        assert!(lock.exists());
+    }
+
+    /// Criterion 15: four VMs on four threads each append 250 units to one
+    /// library, through two spellings of its root, both absolute.
+    #[test]
+    fn four_threads_append_a_thousand_units() {
+        let (dir, root) = library("threads");
+        let canon = std::path::PathBuf::from(&root);
+        let other = canon.join("..").join(canon.file_name().unwrap());
+        let spellings = [root.clone(), other.to_str().unwrap().to_owned()];
+        let handles: Vec<_> = (0..4)
+            .map(|t| {
+                let root = spellings[t % 2].clone();
+                std::thread::spawn(move || {
+                    for n in 0..250 {
+                        append_unit(&root, "tool:bund2", unit_map(&format!("unit {t}/{n}")))
+                            .unwrap();
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        let lib = reopen(&root);
+        let units = lib
+            .store()
+            .iter()
+            .filter(|r| matches!(r, smysl_core::Record::Unit(_)))
+            .count();
+        assert_eq!(units, 1000);
+        drop(dir);
+    }
+
+    /// 18: `smysl.create` and `smysl.open` of the same new root on two
+    /// threads, repeated, never answer anything but a handle, SM01, or SM02
+    /// naming the layout.
+    #[test]
+    fn create_and_open_race_to_a_handle_or_a_named_refusal() {
+        for n in 0..25 {
+            let dir = Dir::fresh(&format!("race-{n}"));
+            let root = format!("{:?}", dir.0.to_str().unwrap());
+            // A value holds an `Rc`, so each thread answers its handle's
+            // type, not the handle.
+            let a = {
+                let root = root.clone();
+                std::thread::spawn(move || {
+                    run(&format!("{root} smysl.create")).map(|h| field(&h, "type"))
+                })
+            };
+            let b = std::thread::spawn(move || {
+                run(&format!("{root} smysl.open")).map(|h| field(&h, "type"))
+            });
+            for r in [a.join().unwrap(), b.join().unwrap()] {
+                match r {
+                    Ok(kind) => assert_eq!(kind, "smysl"),
+                    Err(e) => assert!(
+                        e.starts_with("SMYSL.OPEN: no SMYSL library at ")
+                            || e.starts_with("SMYSL.OPEN: cannot reach ")
+                            || (e.contains("SMYSL refused it: ") && e.contains("layout")),
+                        "{e}"
+                    ),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn under_noio_the_writing_words_are_sm06() {
+        assert_eq!(
+            run_in(&mut interp(true), "\"/nowhere\" smysl.create").unwrap_err(),
+            NOIO
+        );
+        assert_eq!(
+            run_over(&mut interp(true), handle_value("/nowhere"), "smysl.unit").unwrap_err(),
+            NOIO
+        );
+    }
+
+    /// Criterion 15, with the probe armed to `panic`: the write is reported
+    /// as `Error::internal`, leaves every lock it took, makes the next write
+    /// from a fresh VM on another thread SM07 naming this process, and
+    /// leaves `smysl.open` succeeding. `bund2 smysl-unlock`'s function then
+    /// lists each lock with its holder, breaks them, and a write succeeds.
+    #[cfg(feature = "smysl-panic-probe")]
+    #[test]
+    fn a_panic_inside_a_write_leaves_the_locks() {
+        use super::super::probe::{Action, arm};
+        use super::super::unlock::unlock;
+        let (_dir, root) = library("panic");
+        arm(std::path::Path::new(&root), Action::Panic);
+        let err = {
+            use bund2_api::Vm as _;
+            let mut i = interp(false);
+            i.push(handle_of(&root, "tool:bund2"));
+            i.push(unit_map("never written"));
+            let code = bund2_syntax::compile("smysl.unit").unwrap();
+            i.eval(&code).unwrap_err()
+        };
+        assert!(err.is_internal() || err.0.contains("internal"), "{}", err.0);
+        assert!(err.0.contains("smysl-panic-probe"), "{}", err.0);
+        let rootp = std::path::Path::new(&root);
+        assert!(rootp.join("lock").exists());
+        assert!(rootp.join("log").join("catalog.lock").exists());
+
+        let r = root.clone();
+        let next = std::thread::spawn(move || append_unit(&r, "tool:bund2", unit_map("later")))
+            .join()
+            .unwrap()
+            .unwrap_err();
+        assert!(
+            next.starts_with("SMYSL.UNIT: the library is locked: "),
+            "{next}"
+        );
+        assert!(
+            next.contains(&format!("pid {}", std::process::id())),
+            "{next}"
+        );
+        run(&format!("{root:?} smysl.open")).unwrap();
+
+        let found = unlock(rootp, false).unwrap();
+        assert_eq!(found.len(), 2);
+        for f in &found {
+            assert_eq!(f.holder.as_ref().unwrap().pid, std::process::id());
+            assert_eq!(f.holder.as_ref().unwrap().command, "bund2 smysl.unit");
+        }
+        unlock(rootp, true).unwrap();
+        append_unit(&root, "tool:bund2", unit_map("after the unlock")).unwrap();
     }
 }
