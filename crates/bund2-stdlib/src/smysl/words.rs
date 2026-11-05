@@ -1315,6 +1315,54 @@ mod tests {
         }
     }
 
+    /// Criterion 18's `--noio` case, complete (M10): each milestone tested
+    /// its own words' stubs, and this sweeps the family. Every name the
+    /// feature registers is registered under `--noio` too; each is SM06,
+    /// whatever the stack holds, but `smysl.parse` and `smysl.agent`, which
+    /// do no I/O; and a CONDITIONAL of type `smysl` built with
+    /// `conditional`, which reaches the handler without the constructor,
+    /// is SM06 and reads nothing.
+    #[test]
+    fn under_noio_every_word_that_touches_disk_is_sm06() {
+        let family = |i: &Interp| -> Vec<String> {
+            i.registry
+                .declared_effects()
+                .into_iter()
+                .map(|(n, _)| n)
+                .filter(|n| n == "smysl" || n.starts_with("smysl."))
+                .collect()
+        };
+        let full = family(&interp(false));
+        assert_eq!(full, family(&interp(true)));
+        assert_eq!(full.len(), ON_DISK.len() + 3, "{full:?}");
+        for name in &full {
+            let got = run_in(&mut interp(true), name);
+            match name.as_str() {
+                "smysl.parse" | "smysl.agent" => {
+                    assert_ne!(got, Err(NOIO.to_owned()), "{name}")
+                }
+                _ => assert_eq!(got, Err(NOIO.to_owned()), "{name}"),
+            }
+        }
+        let parsed = run_in(
+            &mut interp(true),
+            "\"@claim c/a { status: speculative }\n~ The river rose.\n\" smysl.parse",
+        )
+        .unwrap();
+        assert_eq!(parsed.as_list().map(<[BundValue]>::len), Some(2));
+        let h = run_over(
+            &mut interp(true),
+            handle_value("/nowhere/at/all"),
+            "\"tool:other\" smysl.agent",
+        )
+        .unwrap();
+        assert_eq!(field(&h, "agent"), "tool:other");
+        assert_eq!(
+            run_in(&mut interp(true), "conditional :type \"smysl\" set !").unwrap_err(),
+            NOIO
+        );
+    }
+
     #[test]
     fn under_noio_the_writing_words_are_sm06() {
         assert_eq!(

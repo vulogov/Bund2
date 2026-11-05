@@ -632,7 +632,7 @@ mod honesty_tests {
     // safety: the spawn had already happened by then, and a palette string
     // that happened to name a real command would have run it. Listed for
     // what it does, not for what it managed to do.
-    const ACTS_ON_HOST: [&str; 20] = [
+    const ACTS_ON_HOST: [&str; 21] = [
         "system.shell",
         "system.shell.",
         "fs.rm",
@@ -655,6 +655,7 @@ mod honesty_tests {
         "smysl.append",
         "smysl.text.add",
         "smysl.retract",
+        "smysl.prove",
     ];
 
     // **Natives a feature gate may or may not have registered — F123.**
@@ -712,6 +713,56 @@ mod honesty_tests {
         "smysl.unit",
         "smysl.write",
     ];
+
+    /// **RFC-0014 criterion 16, complete (M10).** Each milestone named its
+    /// own words in `FEATURE_GATED` and its writing words in `ACTS_ON_HOST`;
+    /// this asks the registry. Under the feature, every `smysl.` word and
+    /// the constructor `smysl` is in `FEATURE_GATED`, and nothing there
+    /// names a `smysl` word the feature does not register; every word that
+    /// appends to a library is in `ACTS_ON_HOST`. In the default build none
+    /// of them is registered.
+    #[test]
+    fn the_smysl_family_is_gated_and_its_writers_act_on_the_host() {
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        let registered: Vec<String> = i
+            .registry
+            .declared_effects()
+            .into_iter()
+            .map(|(n, _)| n)
+            .filter(|n| n == "smysl" || n.starts_with("smysl."))
+            .collect();
+        let gated: Vec<String> = FEATURE_GATED
+            .iter()
+            .filter(|n| **n == "smysl" || n.starts_with("smysl."))
+            .map(|n| (*n).to_owned())
+            .collect();
+        if cfg!(feature = "smysl") {
+            let mut sorted = registered.clone();
+            sorted.sort();
+            let mut want = gated.clone();
+            want.sort();
+            assert_eq!(sorted, want);
+        } else {
+            assert!(registered.is_empty(), "{registered:?}");
+        }
+        for w in [
+            "smysl.create",
+            "smysl.unit",
+            "smysl.rel",
+            "smysl.label",
+            "smysl.append",
+            "smysl.text.add",
+            "smysl.retract",
+            "smysl.prove",
+        ] {
+            assert!(
+                ACTS_ON_HOST.contains(&w),
+                "{w} writes and is not in ACTS_ON_HOST"
+            );
+            assert!(gated.iter().any(|g| g == w), "{w} is not in FEATURE_GATED");
+        }
+    }
 
     /// **RFC-0005's assumption 23, scanned.** Criterion 28's palette varies a
     /// native's top two operands, or its top operand and the workbench for a

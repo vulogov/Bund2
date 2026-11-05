@@ -1,0 +1,53 @@
+-- 1. forming, one MAP at a time
+a new library, written as  tool:bund2
+the claim rests on         2 units
+
+-- 2. forming from text
+records parsed:            4
+
+-- 3. researching
+the claim, as read back:   inferred
+what it rests on:
+  0 The wheel turns too slowly to grind a full day's grain.
+  1 The mill pond stood 40 cm below its mark all spring.
+  1 The oak axle of the wheel has split along the grain.
+most salient:              The miller writes that the stones were dressed and reset in March.
+
+-- 4. retracting
+retracted twice:           NODATA
+  The oak axle of the wheel has split along the grain. unfounded
+  The mill pond stood 40 cm below its mark all spring. unchanged
+  The wheel turns too slowly to grind a full day's grain. unchanged
+
+-- 5. querying
+units in the library:      5
+the observations:
+  The miller writes that the stones were dressed and reset in March.
+  The mill pond stood 40 cm below its mark all spring.
+  The oak axle of the wheel has split along the grain.
+
+-- 6. writing it out
+@observation mill/axle { status: cited, source: { kind: doc, ref: "Inspection log, 3 May" } }
+~ The oak axle of the wheel has split along the grain.
+
+@observation mill/pond { status: cited, source: { kind: doc, ref: "Keeper's book, April" } }
+~ The mill pond stood 40 cm below its mark all spring.
+
+@claim mill/slow { status: inferred, grounds: [mill/pond, mill/axle] }
+~ The wheel turns too slowly to grind a full day's grain.
+
+@observation o/letter { status: cited, source: { kind: doc, ref: Letter from the miller } }
+~ The miller writes that the stones were dressed and reset in March.
+
+@claim c/stones { status: inferred, grounds: [o/letter] }
+~ Badly set stones, not the wheel, slow the grinding.
+
+@rel c/stones --rebuts--> mill/slow
+
+@rel mill/axle --retracts--> mill/axle
+
+
+-- 7. reasoning
+proofs written:            1
+  finding inferred: [ doubtful "b3:f3fhfk4mn" ]
+units in the library now:  8

@@ -1,0 +1,158 @@
+//
+// A SMYSL library formed, researched, queried and reasoned over from Bund
+// (RFC-0014): why the old mill grinds slowly. Run it, in a directory with
+// no `mill` in it:
+//
+//   bund2 demo.bund
+//
+// It writes its library to `mill`, beside where it runs, and a second run
+// would find it there and answer otherwise: the retraction would already
+// be made. So run it from a fresh directory, or remove `mill` first; the
+// Makefile and the test both start from none. It prints no clock and no
+// path, so `expected.txt` beside this file is what a run must print.
+//
+// A unit is a MAP: a `schema`, a `gist`, a `status`, and the `source` a
+// cited unit needs or the `grounds` a derived or inferred one rests on. A
+// label (`mill/axle`) names a unit, and `grounds` may name one by its label.
+//
+
+//
+// 1. Forming, one MAP at a time. `smysl.create` makes the library, or
+//    opens the one already there, and answers a handle: a MAP of its root
+//    and the agent its writes are attested as. `smysl.unit` writes a unit
+//    and answers its uid; `smysl.label` binds a label to it.
+//
+"-- 1. forming, one MAP at a time" println
+:lib "mill" smysl.create var
+"a new library, written as  " print :lib var? :agent get println
+
+:axle :lib var?
+  dict :schema "observation" set
+       :gist   "The oak axle of the wheel has split along the grain." set
+       :status "cited" set
+       :source dict :kind "doc" set :reference "Inspection log, 3 May" set set
+  smysl.unit var
+:pond :lib var?
+  dict :schema "observation" set
+       :gist   "The mill pond stood 40 cm below its mark all spring." set
+       :status "cited" set
+       :source dict :kind "doc" set :reference "Keeper's book, April" set set
+  smysl.unit var
+:lib var? "mill/axle" :axle var? smysl.label
+:lib var? "mill/pond" :pond var? smysl.label
+:slow :lib var?
+  dict :schema "claim" set
+       :gist   "The wheel turns too slowly to grind a full day's grain." set
+       :status "inferred" set
+       :grounds [ "mill/axle" "mill/pond" ] set
+  smysl.unit var
+:lib var? "mill/slow" :slow var? smysl.label
+"the claim rests on         " print
+:lib var? :slow var? smysl.get :grounds get len print drop " units" println
+"" println
+
+//
+// 2. Forming from text. `smysl.parse` reads SMYSL's own syntax into the
+//    same MAPs, labels resolved, and `smysl.append` writes a LIST of them
+//    at once, answering each one's id. A single-quoted string keeps its
+//    double quotes. `smysl.rel` writes a relation between two units.
+//
+"-- 2. forming from text" println
+:doc '@observation o/letter { status: cited, source: { kind: doc, ref: "Letter from the miller" } }
+~ The miller writes that the stones were dressed and reset in March.
+
+@claim c/stones { status: inferred, grounds: [o/letter] }
+~ Badly set stones, not the wheel, slow the grinding.
+' var
+:parsed :doc var? smysl.parse var
+"records parsed:            " print :parsed var? len println drop
+:ids :lib var? :parsed var? smysl.append var
+:stones 2 :ids var? at var
+:lib var? dict :kind "rebuts" set :from :stones var? set :to :slow var? set smysl.rel drop
+"" println
+
+//
+// 3. Researching. `smysl.get` reads a unit back as a MAP; `smysl.trace`
+//    follows its grounds, to any depth with NODATA; `smysl.salience` ranks
+//    the library's units.
+//
+"-- 3. researching" println
+"the claim, as read back:   " print :lib var? :slow var? smysl.get :status get println
+"what it rests on:" println
+:lib var? :slow var? "grounds" ∅ smysl.trace
+  { "  " print dup :depth get print " " print :uid get :lib var? swap smysl.get :gist get println } loop
+"most salient:              " print
+:lib var? dict smysl.salience 1 swap at :uid get :lib var? swap smysl.get :gist get println
+"" println
+
+//
+// 4. Retracting. The inspector's crack was a line of paint. `smysl.retract`
+//    retracts the observation, as SMYSL's own `retract` does, and answers
+//    NODATA when it is already retracted. `smysl.status` answers each unit
+//    whose effective status retraction changed: under SMYSL's strict policy,
+//    only the unit retracted. The claim that rests on it keeps its status;
+//    section 7 finds it.
+//
+"-- 4. retracting" println
+:lib var? :axle var? smysl.retract drop
+"retracted twice:           " print :lib var? :axle var? smysl.retract println
+:changed :lib var? smysl.status var
+:effective {
+  :u swap var
+  "  " print :lib var? :u var? smysl.get :gist get print " " print
+  :has :changed var? :u var? ?key swap drop var
+  :has var? { :changed var? :u var? get println } if
+  :has var? not { "unchanged" println } if
+} register
+:axle var? effective
+:pond var? effective
+:slow var? effective
+"" println
+
+//
+// 5. Querying. `smysl.query` runs one SMYSL query and answers its MAP; the
+//    `smysl` conditional runs a lambda once for each unit a query names,
+//    with the unit's MAP on top.
+//
+"-- 5. querying" println
+"units in the library:      " print :lib var? "from library
+count" smysl.query :count get println
+"the observations:" println
+smysl
+  :handle :lib var? set
+  :query  "from library
+where kind = observation" set
+  :lambda { "  " print :gist get println } set
+!
+"" println
+
+//
+// 6. Writing it out. `smysl.write` gives the library back as SMYSL's
+//    syntax: units, relations and labels, the retraction among them.
+//
+"-- 6. writing it out" println
+:lib var? smysl.write println
+"" println
+
+//
+// 7. Reasoning. `smysl.kb` makes the library a knowledge base of facts,
+//    `unit`, `grounds`, `rel`, `effective` and the rest, to merge with
+//    rules. `smysl.prove` proves a goal and writes each proof back into
+//    the library: a `finding` for its conclusion, grounded on the units its
+//    facts stand for, at a status no stronger than they are.
+//
+"-- 7. reasoning" println
+:rules [
+  [ [ contested C ] ← [ rel rebuts R C ] ]
+  [ [ shaken C ]    ← [ grounds C G ] [ effective G unfounded ] ]
+  [ [ doubtful C ]  ← [ shaken C ] [ contested C ] ]
+] kb! var
+:kb :lib var? "from library" smysl.kb :rules var? kb.merge var
+:found :lib var? :kb var? [ doubtful C ] dict smysl.prove var
+"proofs written:            " print :found var? len println drop
+:found var? {
+  :lib var? swap smysl.get
+  "  " print dup :schema get print " " print dup :status get print ": " print :gist get println
+} loop
+"units in the library now:  " print :lib var? "from library
+count" smysl.query :count get println

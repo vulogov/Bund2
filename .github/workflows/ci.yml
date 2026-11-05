@@ -73,9 +73,12 @@ jobs:
         run: cargo nextest run -p bund2-cli --features jit,panic-probe --test panic_tier --profile ci
       # RFC-0014 §S1: the SMYSL words' tests run only under their feature, and
       # clippy's denied `unwrap`, `expect` and `panic` must see that code.
-      # The demo's step arrives with the demo (M10).
       - name: the SMYSL words' own tests
         run: cargo nextest run -p bund2-stdlib --features smysl --profile ci
+      # RFC-0014 criterion 17: `bund_examples/smysl_demo/` prints its
+      # `expected.txt`, run from a fresh directory.
+      - name: the SMYSL demo
+        run: cargo nextest run -p bund2-cli --features smysl --test smysl_demo --profile ci
       - name: clippy over the SMYSL feature
         run: cargo clippy -p bund2-stdlib -p bund2-cli --all-targets --features smysl
       # RFC-0014 §S9: the probe-gated tests, a write that panics or pauses
