@@ -82,7 +82,7 @@ impl Reporter for Kept {
 
 /// One VM, its warnings kept.
 pub(super) struct Run {
-    i: Interp,
+    pub(super) i: Interp,
     said: Rc<RefCell<Vec<String>>>,
 }
 
@@ -462,7 +462,7 @@ fn check_reports_rule_m_and_a_clean_library_has_no_error() {
 // --- criterion 15: locks are SMYSL's ---------------------------------------------
 
 /// `smysl.text.add` of `body` under `alias`, answering its MAP.
-fn add_text(d: &Dir, alias: &str, body: &str) -> BundValue {
+pub(super) fn add_text(d: &Dir, alias: &str, body: &str) -> BundValue {
     let spec = m(&[
         ("text", s(body)),
         ("reader", s("txt/1")),

@@ -6,7 +6,7 @@
 //! checks the family is its unit tests. Compiled only under the `smysl`
 //! feature (§S1); without it no `smysl.` word is registered.
 //!
-//! Built in the RFC's milestones, in order. So far, M2's to M5's:
+//! Built in the RFC's milestones, in order. So far, M2's to M6's:
 //!
 //! - [`handle`]: the handle MAP, its validation and canonicalisation, and
 //!   opening the library it names (§S2, §S3);
@@ -19,7 +19,8 @@
 //!   decided under the locks as one batch, and retraction (§S4);
 //! - [`surface`]: what `smysl.parse` answers and `smysl.write` writes,
 //!   with their warnings (§S4);
-//! - [`research`]: what the researching words answer (§S5);
+//! - [`research`]: what the researching words answer, dossiers and
+//!   measures among them, in §S5's environment;
 //! - [`text`]: `smysl.text.add`'s spec, and its input read (§S4);
 //! - [`unlock`]: what `bund2 smysl-unlock` does (§S9, R14);
 //! - [`probe`]: the test-only probe, under `smysl-panic-probe` (§S9);
@@ -92,6 +93,19 @@ pub(crate) fn sm03(text: impl Into<String>) -> Refusal {
     Refusal::new(Code::Sm03, text)
 }
 
+/// SM04 `the query was refused: <code> <message>`, one per diagnostic,
+/// joined by `; ` (§S8).
+pub(crate) fn sm04(diagnostics: &[smysl_core::Diagnostic]) -> Refusal {
+    let each: Vec<String> = diagnostics
+        .iter()
+        .map(|d| format!("{} {}", d.code.as_str(), d.message))
+        .collect();
+    Refusal::new(
+        Code::Sm04,
+        format!("the query was refused: {}", each.join("; ")),
+    )
+}
+
 /// SM05 `unknown <kind>: <value>`.
 pub(crate) fn sm05(kind: &str, value: &str) -> Refusal {
     Refusal::new(Code::Sm05, format!("unknown {kind}: {value}"))
@@ -132,5 +146,7 @@ pub fn register(r: &mut bund2_api::Registry, opts: &crate::host::HostOptions) {
 
 #[cfg(test)]
 mod forming_tests;
+#[cfg(test)]
+mod measuring_tests;
 #[cfg(test)]
 mod research_tests;

@@ -4,7 +4,8 @@
 //! `smysl.label`, `smysl.append`, `smysl.text.add`, `smysl.texts`,
 //! `smysl.parse`, `smysl.write` and `smysl.check`; and M5's, retraction
 //! and research: `smysl.retract`, `smysl.get`, `smysl.trace`,
-//! `smysl.status`, `smysl.salience` and `smysl.pack`.
+//! `smysl.status`, `smysl.salience` and `smysl.pack`; and M6's,
+//! `smysl.dossier` and `smysl.measure`, which append nothing.
 //!
 //! - **SM11 is the house text, unprefixed** (§S8). Every other refusal
 //!   begins `<W>: `, the word's name in capitals.
@@ -519,13 +520,66 @@ fn smysl_pack(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// Report each diagnostic as a warning, as SMYSL's `Display` writes it
+/// (§S8, D36): a run's warnings and a measure's diagnostics, whatever
+/// their severity.
+pub(crate) fn warn_each(vm: &mut dyn Vm, word: &str, diagnostics: &[smysl_core::Diagnostic]) {
+    for d in diagnostics {
+        warn(vm, word, &d.to_string());
+    }
+}
+
+/// `handle question smysl.dossier` — the dossier `ask` assembles, as
+/// `{ subject, entities, slots }`; its slots' warnings are reported, and
+/// nothing is appended (§S5).
+fn smysl_dossier(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.dossier";
+    let [question, h] = <[BundValue; 2]>::try_from(operands(vm, W, 2)?)
+        .map_err(|_| Error::internal(format!("{W}: two operands were guarded and not pulled")))?;
+    let asked = handle_at(&h, 2).and_then(|h| {
+        let question = string(&question, 1)?;
+        let (root, library) = handle::open(&h.root)?;
+        super::research::dossier(&library, &root, &h.agent, &question)
+    });
+    let asked = asked.map_err(|r| r.for_word(W))?;
+    warn_each(vm, W, &asked.warnings);
+    vm.push(asked.answer);
+    Ok(())
+}
+
+/// `handle ids scope smysl.measure` — one MAP per id, `{ id, ok, value,
+/// uid, diagnostics }`; each result's diagnostics are reported, and
+/// nothing is appended (§S5).
+fn smysl_measure(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.measure";
+    let [scope, ids, h] = <[BundValue; 3]>::try_from(operands(vm, W, 3)?)
+        .map_err(|_| Error::internal(format!("{W}: three operands were guarded and not pulled")))?;
+    let ran = handle_at(&h, 3).and_then(|h| {
+        let ids = super::research::ids(&ids, 2)?;
+        let scope = string(&scope, 1)?;
+        let (root, library) = handle::open(&h.root)?;
+        super::research::measure(&library, &root, &ids, &scope)
+    });
+    let ran = ran.map_err(|r| r.for_word(W))?;
+    let mut answers = Vec::with_capacity(ran.len());
+    for r in &ran {
+        let m = super::research::measured(r)?;
+        warn_each(vm, W, &m.warnings);
+        answers.push(m.answer);
+    }
+    vm.push(BundValue::list(answers));
+    Ok(())
+}
+
 /// The words that touch disk, stubbed under `--noio` (R11).
-const ON_DISK: [&str; 16] = [
+const ON_DISK: [&str; 18] = [
     "smysl.append",
     "smysl.check",
     "smysl.create",
+    "smysl.dossier",
     "smysl.get",
     "smysl.label",
+    "smysl.measure",
     "smysl.open",
     "smysl.pack",
     "smysl.rel",
@@ -595,6 +649,18 @@ pub fn register(r: &mut Registry, opts: &crate::host::HostOptions) {
             WordKind::Sync,
         );
         r.register_native("smysl.pack", smysl_pack, leaving(2, LIST), WordKind::Sync);
+        r.register_native(
+            "smysl.dossier",
+            smysl_dossier,
+            leaving(2, MAP),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "smysl.measure",
+            smysl_measure,
+            leaving(3, LIST),
+            WordKind::Sync,
+        );
     }
     r.register_native("smysl.agent", smysl_agent, handle(2), WordKind::Sync);
     r.register_native("smysl.parse", smysl_parse, leaving(1, LIST), WordKind::Sync);
