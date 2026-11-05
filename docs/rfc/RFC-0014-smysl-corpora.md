@@ -3153,3 +3153,55 @@ The owner chose A for each of S1–S3.
 | N2 fact order | No order is promised; the revision 20 answer table's N3 row stands corrected here |
 | N3 any writer | §S7 says any writer may append the ground |
 | N4 M8's first step | The M8 row names it |
+
+---
+
+## Implementation record (2026-11-05)
+
+Phase 1 is built: M1–M10, in order, each committed on the owner's word
+with `cargo xtask conform` at 143/159, CEILING 143/159, and `cargo xtask
+coverage` at IMPLEMENTED 597/602, COVERAGE 577/602, before and after.
+Neither moved, as D72 asks of a milestone that adds no golden. The design
+is unchanged by the building; what it raised is below.
+
+| Milestone | Commit | Where its criteria are tested |
+|---|---|---|
+| M1 | 003dda3 | `crates/bund2-stdlib/tests/smysl_spike.rs` (Q55's spike); `crates/bund2-cli/tests/cli_ux.rs` (`features_built_in`); §S1's first four CI steps |
+| M2 | cd78acd | `crates/bund2-stdlib/src/smysl/words.rs` and `crates/bund2-stdlib/src/smysl/map.rs`, their test modules |
+| M3 | ce85858 | `smysl/words.rs` and `smysl/write.rs`, their test modules; `crates/bund2-cli/tests/smysl_unlock.rs`; the probe's two CI steps |
+| M4 | 024401f | `smysl/forming_tests.rs` |
+| M5 | b54b14e | `smysl/research_tests.rs` |
+| M6 | 26b70c7 | `smysl/measuring_tests.rs` |
+| M7 | fc118a8 | `smysl/querying_tests.rs` |
+| M8 | 25f7c4b | `smysl/bridging_tests.rs` |
+| M9 | a62fd0d | `smysl/proving_tests.rs` |
+| M10 | f9a4995 | `crates/bund2-cli/tests/smysl_demo.rs` and §S1's demo step; `words.rs`'s `--noio` sweep; `crates/bund2-stdlib/src/lib.rs`'s registry audit of `FEATURE_GATED` and `ACTS_ON_HOST` |
+
+**What the building raised.**
+- **M1.** Criterion 2's `cargo deny` under the feature found three
+  advisories in crates SMYSL pins, none in the default build. On the
+  owner's choice each is ignored in `deny.toml` with its reason, noted on
+  D244. A `pulldown-cmark` bump and `fxhash`'s removal are to be asked of
+  SMYSL beside U1–U10.
+- **M8.** Its first step found that a `from texts` answer names every unit
+  of the library and never a part or manifest id, so assumption 5 holds
+  and §S7's rule needed nothing more.
+- **M9.** Three points §S7 and §S7.1 left open went to the owner as
+  **D246** and were ruled A: a LAMBDA in a goal renders as `{ items }`
+  (R26); an answer whose root becomes no single unit answers NODATA (R27);
+  `opts.facts "unfounded"` is SM03 (R28).
+- **M9, closed in M10.** `smysl.prove` appends, and M9 did not name it in
+  `ACTS_ON_HOST`, as the Preservation row on the palette audit asks of every
+  word that writes. It did not run on palette strings meanwhile, since
+  `FEATURE_GATED` already excluded it. M10 names it, and the registry audit
+  now fails for the next writing word left out.
+- **`PROMOTABLE.txt`** was regenerated after M10 on the owner's word, as the
+  Preservation row says: one `# feature-gated:` line per `smysl` word, the
+  promotable list unchanged. The generator also caught up on RFC-0013's
+  M9 and M10, which landed after the file's last regeneration: four more
+  fixed-effect natives in the header's count, and `kb.askable`,
+  `kb.table` and their `.` forms listed as not reached. The owner chose
+  to commit the file as generated.
+
+**What stays open:** Q51, Q54 and Q57, with the routes this RFC names;
+U1–U10 with SMYSL; Phase 2, as a later amendment (R1 A).
