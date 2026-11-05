@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 386 promotable of 395 reached, of 490 fixed-effect natives; 9 reached natives
+# 386 promotable of 395 reached, of 494 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -475,6 +475,8 @@ var-
 # not reached: json.path.
 # not reached: json.to_value
 # not reached: json.to_value.
+# not reached: kb.askable
+# not reached: kb.askable.
 # not reached: kb.assert
 # not reached: kb.assert.
 # not reached: kb.asserta
@@ -487,6 +489,8 @@ var-
 # not reached: kb.merge.
 # not reached: kb.retract
 # not reached: kb.retract.
+# not reached: kb.table
+# not reached: kb.table.
 # not reached: kb.word
 # not reached: lambda=
 # not reached: lambda=.
@@ -514,3 +518,27 @@ var-
 # exist at all (F123); never crossed by promotion:
 # feature-gated: string.grok
 # feature-gated: string.grok.
+# feature-gated: smysl
+# feature-gated: smysl.agent
+# feature-gated: smysl.append
+# feature-gated: smysl.check
+# feature-gated: smysl.create
+# feature-gated: smysl.dossier
+# feature-gated: smysl.get
+# feature-gated: smysl.kb
+# feature-gated: smysl.label
+# feature-gated: smysl.measure
+# feature-gated: smysl.open
+# feature-gated: smysl.pack
+# feature-gated: smysl.parse
+# feature-gated: smysl.prove
+# feature-gated: smysl.query
+# feature-gated: smysl.rel
+# feature-gated: smysl.retract
+# feature-gated: smysl.salience
+# feature-gated: smysl.status
+# feature-gated: smysl.text.add
+# feature-gated: smysl.texts
+# feature-gated: smysl.trace
+# feature-gated: smysl.unit
+# feature-gated: smysl.write
