@@ -250,3 +250,51 @@ impl<'s> Batch<'s> {
         Ok(uid)
     }
 }
+
+/// What `smysl.retract` decided: nothing to do, or the self-edge to write.
+pub(crate) enum Retraction {
+    /// The target was retracted directly already: nothing is written.
+    Already,
+    /// The `retracts` edge from the target to itself, unattested.
+    Edge(Relation),
+}
+
+/// Retract `target` as SMYSL's own `retract` does
+/// (`smysl:src/main.rs:4484-4505`), step for step, against the library as
+/// re-opened under the locks:
+///
+/// 1. retracted directly already, by `effective_status`'s strict test,
+///    which reads only `retracts` edges
+///    (`smysl-graph/src/merge/retraction.rs:42-45,83-88`): nothing to do,
+///    checked before authority as SMYSL checks it;
+/// 2. planned with `plan_retraction`, the handle's agent, `Strict` and
+///    `Origin` (`:181-191`);
+/// 3. a refused plan is SM09, carrying SMYSL's reason;
+/// 4. otherwise the self-edge, **unattested**, as SMYSL writes it (`:218`).
+pub(crate) fn retract(store: &Store, agent: &AgentId, target: Uid) -> Result<Retraction, Refusal> {
+    use smysl_graph::{RetractionAuthority, RetractionPolicy, effective_status, plan_retraction};
+    if effective_status(store, RetractionPolicy::Strict).is_retracted(&target) {
+        return Ok(Retraction::Already);
+    }
+    let plan = plan_retraction(
+        store,
+        target,
+        std::slice::from_ref(agent),
+        RetractionPolicy::Strict,
+        RetractionAuthority::Origin,
+    );
+    if !plan.authorised {
+        return Err(Refusal::new(
+            Code::Sm09,
+            format!(
+                "retraction refused: {}",
+                plan.refusal.as_deref().unwrap_or("refused")
+            ),
+        ));
+    }
+    Ok(Retraction::Edge(Relation::new(
+        RelKind::Retracts,
+        target,
+        target,
+    )))
+}

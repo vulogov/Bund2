@@ -19,10 +19,10 @@ use super::write::LEFT_LOCKED;
 // --- the harness ---------------------------------------------------------------
 
 /// A fresh directory under the system's temporary one, removed on drop.
-struct Dir(PathBuf);
+pub(super) struct Dir(pub(super) PathBuf);
 
 impl Dir {
-    fn fresh(tag: &str) -> Dir {
+    pub(super) fn fresh(tag: &str) -> Dir {
         static N: AtomicUsize = AtomicUsize::new(0);
         let p = std::env::temp_dir().join(format!(
             "bund2-smysl-m4-{}-{tag}-{}",
@@ -34,7 +34,7 @@ impl Dir {
     }
 
     /// A fresh library, its root canonical.
-    fn library(tag: &str) -> Dir {
+    pub(super) fn library(tag: &str) -> Dir {
         let d = Dir::fresh(tag);
         Library::create(&d.0).unwrap();
         let canon = std::fs::canonicalize(&d.0).unwrap();
@@ -44,21 +44,21 @@ impl Dir {
         Dir(canon)
     }
 
-    fn root(&self) -> &str {
+    pub(super) fn root(&self) -> &str {
         self.0.to_str().unwrap()
     }
 
-    fn open(&self) -> Library {
+    pub(super) fn open(&self) -> Library {
         Library::open(&self.0).unwrap()
     }
 
-    fn catalog_len(&self) -> u64 {
+    pub(super) fn catalog_len(&self) -> u64 {
         std::fs::metadata(self.0.join(smysl_text::library::CATALOG))
             .map(|m| m.len())
             .unwrap_or(0)
     }
 
-    fn no_lock(&self) -> bool {
+    pub(super) fn no_lock(&self) -> bool {
         super::unlock::unlock(&self.0, false).unwrap().is_empty()
     }
 }
@@ -81,13 +81,13 @@ impl Reporter for Kept {
 }
 
 /// One VM, its warnings kept.
-struct Run {
+pub(super) struct Run {
     i: Interp,
     said: Rc<RefCell<Vec<String>>>,
 }
 
 impl Run {
-    fn new(noio: bool) -> Run {
+    pub(super) fn new(noio: bool) -> Run {
         let said = Rc::new(RefCell::new(Vec::new()));
         let mut i = Interp::new();
         i.reporter = Box::new(Kept(Rc::clone(&said)));
@@ -103,7 +103,11 @@ impl Run {
 
     /// Push `operands`, run `word`, and answer the top of the stack (NODATA
     /// when the word leaves nothing) or the word's own error text.
-    fn call(&mut self, operands: Vec<BundValue>, word: &str) -> Result<BundValue, String> {
+    pub(super) fn call(
+        &mut self,
+        operands: Vec<BundValue>,
+        word: &str,
+    ) -> Result<BundValue, String> {
         let before = self.i.snapshot().len();
         for v in operands {
             self.i.push(v);
@@ -121,23 +125,26 @@ impl Run {
         }
     }
 
-    fn warnings(&self) -> Vec<String> {
+    pub(super) fn warnings(&self) -> Vec<String> {
         self.said.borrow().clone()
     }
 }
 
 /// `word` over `operands`, in a fresh VM: its answer and its warnings.
-fn call(operands: Vec<BundValue>, word: &str) -> (Result<BundValue, String>, Vec<String>) {
+pub(super) fn call(
+    operands: Vec<BundValue>,
+    word: &str,
+) -> (Result<BundValue, String>, Vec<String>) {
     let mut r = Run::new(false);
     let out = r.call(operands, word);
     (out, r.warnings())
 }
 
-fn s(v: &str) -> BundValue {
+pub(super) fn s(v: &str) -> BundValue {
     BundValue::str(v)
 }
 
-fn m(entries: &[(&str, BundValue)]) -> BundValue {
+pub(super) fn m(entries: &[(&str, BundValue)]) -> BundValue {
     BundValue::map(
         entries
             .iter()
@@ -146,15 +153,15 @@ fn m(entries: &[(&str, BundValue)]) -> BundValue {
     )
 }
 
-fn list(items: Vec<BundValue>) -> BundValue {
+pub(super) fn list(items: Vec<BundValue>) -> BundValue {
     BundValue::list(items)
 }
 
-fn handle(d: &Dir) -> BundValue {
+pub(super) fn handle(d: &Dir) -> BundValue {
     handle_as(d, "tool:bund2")
 }
 
-fn handle_as(d: &Dir, agent: &str) -> BundValue {
+pub(super) fn handle_as(d: &Dir, agent: &str) -> BundValue {
     m(&[
         ("type", s("smysl")),
         ("root", s(d.root())),
@@ -162,7 +169,7 @@ fn handle_as(d: &Dir, agent: &str) -> BundValue {
     ])
 }
 
-fn unit(gist: &str) -> BundValue {
+pub(super) fn unit(gist: &str) -> BundValue {
     m(&[
         ("schema", s("claim")),
         ("gist", s(gist)),
@@ -170,33 +177,33 @@ fn unit(gist: &str) -> BundValue {
     ])
 }
 
-fn rel(kind: &str, from: &str, to: &str) -> BundValue {
+pub(super) fn rel(kind: &str, from: &str, to: &str) -> BundValue {
     m(&[("kind", s(kind)), ("from", s(from)), ("to", s(to))])
 }
 
-fn text(v: &BundValue) -> String {
+pub(super) fn text(v: &BundValue) -> String {
     v.as_str().unwrap()
 }
 
-fn get(v: &BundValue, k: &str) -> BundValue {
+pub(super) fn get(v: &BundValue, k: &str) -> BundValue {
     v.as_map().unwrap()[k].clone()
 }
 
-fn items(v: &BundValue) -> Vec<BundValue> {
+pub(super) fn items(v: &BundValue) -> Vec<BundValue> {
     v.as_list().unwrap().to_vec()
 }
 
-fn uid(v: &str) -> Uid {
+pub(super) fn uid(v: &str) -> Uid {
     Uid::parse(v).unwrap()
 }
 
 /// `smysl.unit` of `u` as `tool:bund2`, answering its uid.
-fn add_unit(d: &Dir, u: BundValue) -> String {
+pub(super) fn add_unit(d: &Dir, u: BundValue) -> String {
     text(&call(vec![handle(d), u], "smysl.unit").0.unwrap())
 }
 
 /// The ids `smysl.append` answers, as a set of STRINGs.
-fn appended(d: &Dir, maps: Vec<BundValue>) -> Result<BTreeSet<String>, String> {
+pub(super) fn appended(d: &Dir, maps: Vec<BundValue>) -> Result<BTreeSet<String>, String> {
     call(vec![handle(d), list(maps)], "smysl.append")
         .0
         .map(|v| items(&v).iter().map(text).collect())
@@ -214,21 +221,21 @@ fn written(d: &Dir) -> (String, Vec<String>) {
 
 /// Append `records` through SMYSL's API, under no lock: the fixture's own
 /// writer, before any word runs.
-fn raw(d: &Dir, records: &[Record]) {
+pub(super) fn raw(d: &Dir, records: &[Record]) {
     d.open().append_records(records).unwrap();
 }
 
-fn agent(a: &str) -> AgentId {
+pub(super) fn agent(a: &str) -> AgentId {
     AgentId::new(a).unwrap()
 }
 
 /// A withdrawal of `rid` by `by`, its clock `clock`'s.
-fn withdrawal(rid: Uid, by: &str, clock: &str) -> Withdrawal {
+pub(super) fn withdrawal(rid: Uid, by: &str, clock: &str) -> Withdrawal {
     let c = agent(clock);
     Withdrawal::new(rid, agent(by), Hlc::now(&Hlc::zero(c.clone()), &c))
 }
 
-fn rid(kind: RelKind, from: &str, to: &str) -> Uid {
+pub(super) fn rid(kind: RelKind, from: &str, to: &str) -> Uid {
     Relation::new(kind, uid(from), uid(to)).uid()
 }
 

@@ -1,8 +1,10 @@
 //! The `smysl.` natives registered so far (RFC-0014 §S4): M2's
 //! `smysl.open` and `smysl.agent`; M3's `smysl.create` and `smysl.unit`,
-//! the first that write; and M4's, the rest of forming: `smysl.rel`,
+//! the first that write; M4's, the rest of forming: `smysl.rel`,
 //! `smysl.label`, `smysl.append`, `smysl.text.add`, `smysl.texts`,
-//! `smysl.parse`, `smysl.write` and `smysl.check`.
+//! `smysl.parse`, `smysl.write` and `smysl.check`; and M5's, retraction
+//! and research: `smysl.retract`, `smysl.get`, `smysl.trace`,
+//! `smysl.status`, `smysl.salience` and `smysl.pack`.
 //!
 //! - **SM11 is the house text, unprefixed** (§S8). Every other refusal
 //!   begins `<W>: `, the word's name in capitals.
@@ -422,16 +424,117 @@ fn noio(_vm: &mut dyn Vm) -> Result<(), Error> {
     Err(Refusal::new(Code::Sm06, NOIO).for_word("smysl"))
 }
 
+/// Operand `#k` as a uid, or SM03.
+fn uid_at(v: &BundValue, k: usize) -> Result<smysl_core::Uid, Refusal> {
+    let u = string(v, k)?;
+    smysl_core::Uid::parse(&u).map_err(|_| sm03(format!("uid {u} is not a uid")))
+}
+
+/// `handle uid smysl.retract` — retract a unit as SMYSL's `retract` does,
+/// and answer the rid of the self-edge written; NODATA when it was
+/// retracted directly already, and nothing is written (§S4). A plan
+/// `Origin` authority refuses is SM09.
+fn smysl_retract(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.retract";
+    let [uid, h] = <[BundValue; 2]>::try_from(operands(vm, W, 2)?)
+        .map_err(|_| Error::internal(format!("{W}: two operands were guarded and not pulled")))?;
+    let answer = handle_at(&h, 2).and_then(|h| {
+        let target = uid_at(&uid, 1)?;
+        super::write::write(W, &h.root, |w| {
+            match form::retract(w.library.store(), &h.agent, target)? {
+                form::Retraction::Already => Ok(None),
+                form::Retraction::Edge(rel) => {
+                    let rid = rel.uid();
+                    w.append(&[smysl_core::Record::Relation(rel)])?;
+                    Ok(Some(rid))
+                }
+            }
+        })
+    });
+    let answer = answer.map_err(|r| r.for_word(W))?;
+    vm.push(answer.as_ref().map_or_else(BundValue::nodata, map::uid));
+    Ok(())
+}
+
+/// `handle uid smysl.get` — the unit as §S2's MAP, NODATA if absent (§S5).
+fn smysl_get(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.get";
+    let [uid, h] = <[BundValue; 2]>::try_from(operands(vm, W, 2)?)
+        .map_err(|_| Error::internal(format!("{W}: two operands were guarded and not pulled")))?;
+    let answer = opened_at(&h, 2).and_then(|library| {
+        let uid = uid_at(&uid, 1)?;
+        Ok(super::research::get(library.store(), &uid))
+    });
+    vm.push(answer.map_err(|r| r.for_word(W))?);
+    Ok(())
+}
+
+/// `handle uid kind depth smysl.trace` — the lineage (§S5).
+fn smysl_trace(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.trace";
+    let [depth, kind, uid, h] = <[BundValue; 4]>::try_from(operands(vm, W, 4)?)
+        .map_err(|_| Error::internal(format!("{W}: four operands were guarded and not pulled")))?;
+    let answer = handle_at(&h, 4).and_then(|_| {
+        let root = uid_at(&uid, 3)?;
+        let walk = super::research::walk(&string(&kind, 2)?)?;
+        let depth = super::research::depth(&depth, 1)?;
+        let library = opened_at(&h, 4)?;
+        Ok(super::research::lineage(library.store(), root, walk, depth))
+    });
+    vm.push(answer.map_err(|r| r.for_word(W))?);
+    Ok(())
+}
+
+/// `handle smysl.status` — effective status under the strict policy, for
+/// every unit whose status changed (§S5).
+fn smysl_status(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.status";
+    let [h] = <[BundValue; 1]>::try_from(operands(vm, W, 1)?)
+        .map_err(|_| Error::internal(format!("{W}: one operand was guarded and not pulled")))?;
+    let library = opened_at(&h, 1).map_err(|r| r.for_word(W))?;
+    vm.push(super::research::status(library.store()));
+    Ok(())
+}
+
+/// `handle spec smysl.salience` — `{ uid, score }`, highest first (§S5).
+fn smysl_salience(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.salience";
+    let [spec, h] = <[BundValue; 2]>::try_from(operands(vm, W, 2)?)
+        .map_err(|_| Error::internal(format!("{W}: two operands were guarded and not pulled")))?;
+    let answer =
+        opened_at(&h, 2).and_then(|library| super::research::ranked(library.store(), &spec, 1));
+    vm.push(answer.map_err(|r| r.for_word(W))?);
+    Ok(())
+}
+
+/// `handle spec smysl.pack` — the uids `pack` selects to `spec.budget`
+/// tokens (§S5).
+fn smysl_pack(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.pack";
+    let [spec, h] = <[BundValue; 2]>::try_from(operands(vm, W, 2)?)
+        .map_err(|_| Error::internal(format!("{W}: two operands were guarded and not pulled")))?;
+    let answer =
+        opened_at(&h, 2).and_then(|library| super::research::packed(library.store(), &spec, 1));
+    vm.push(answer.map_err(|r| r.for_word(W))?);
+    Ok(())
+}
+
 /// The words that touch disk, stubbed under `--noio` (R11).
-const ON_DISK: [&str; 10] = [
+const ON_DISK: [&str; 16] = [
     "smysl.append",
     "smysl.check",
     "smysl.create",
+    "smysl.get",
     "smysl.label",
     "smysl.open",
+    "smysl.pack",
     "smysl.rel",
+    "smysl.retract",
+    "smysl.salience",
+    "smysl.status",
     "smysl.text.add",
     "smysl.texts",
+    "smysl.trace",
     "smysl.unit",
     "smysl.write",
 ];
@@ -474,6 +577,24 @@ pub fn register(r: &mut Registry, opts: &crate::host::HostOptions) {
             WordKind::Sync,
         );
         r.register_native("smysl.check", smysl_check, leaving(1, LIST), WordKind::Sync);
+        // A rid, or NODATA: no one tag.
+        let fixed = |c| StackEffect::fixed(c, 1);
+        r.register_native("smysl.retract", smysl_retract, fixed(2), WordKind::Sync);
+        r.register_native("smysl.get", smysl_get, fixed(2), WordKind::Sync);
+        r.register_native("smysl.trace", smysl_trace, leaving(4, LIST), WordKind::Sync);
+        r.register_native(
+            "smysl.status",
+            smysl_status,
+            leaving(1, MAP),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "smysl.salience",
+            smysl_salience,
+            leaving(2, LIST),
+            WordKind::Sync,
+        );
+        r.register_native("smysl.pack", smysl_pack, leaving(2, LIST), WordKind::Sync);
     }
     r.register_native("smysl.agent", smysl_agent, handle(2), WordKind::Sync);
     r.register_native("smysl.parse", smysl_parse, leaving(1, LIST), WordKind::Sync);

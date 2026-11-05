@@ -632,7 +632,7 @@ mod honesty_tests {
     // safety: the spawn had already happened by then, and a palette string
     // that happened to name a real command would have run it. Listed for
     // what it does, not for what it managed to do.
-    const ACTS_ON_HOST: [&str; 19] = [
+    const ACTS_ON_HOST: [&str; 20] = [
         "system.shell",
         "system.shell.",
         "fs.rm",
@@ -654,6 +654,7 @@ mod honesty_tests {
         "smysl.label",
         "smysl.append",
         "smysl.text.add",
+        "smysl.retract",
     ];
 
     // **Natives a feature gate may or may not have registered — F123.**
@@ -683,19 +684,25 @@ mod honesty_tests {
     // `UNVARIED` audit filters it too (RFC-0014 criterion 16): a gated
     // native with an operand the palette leaves at seven is in one build's
     // list and not the other's, as it would be in `PROMOTABLE.txt`.
-    const FEATURE_GATED: [&str; 14] = [
+    const FEATURE_GATED: [&str; 20] = [
         "string.grok",
         "string.grok.",
         "smysl.agent",
         "smysl.append",
         "smysl.check",
         "smysl.create",
+        "smysl.get",
         "smysl.label",
         "smysl.open",
+        "smysl.pack",
         "smysl.parse",
         "smysl.rel",
+        "smysl.retract",
+        "smysl.salience",
+        "smysl.status",
         "smysl.text.add",
         "smysl.texts",
+        "smysl.trace",
         "smysl.unit",
         "smysl.write",
     ];

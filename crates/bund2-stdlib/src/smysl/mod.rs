@@ -6,7 +6,7 @@
 //! checks the family is its unit tests. Compiled only under the `smysl`
 //! feature (§S1); without it no `smysl.` word is registered.
 //!
-//! Built in the RFC's milestones, in order. So far, M2's to M4's:
+//! Built in the RFC's milestones, in order. So far, M2's to M5's:
 //!
 //! - [`handle`]: the handle MAP, its validation and canonicalisation, and
 //!   opening the library it names (§S2, §S3);
@@ -16,9 +16,10 @@
 //!   the re-open, and R25's snapshot, which decides whether a failed write
 //!   leaves the locks;
 //! - [`form`]: units, relations and labels, with their attestations,
-//!   decided under the locks as one batch (§S4);
+//!   decided under the locks as one batch, and retraction (§S4);
 //! - [`surface`]: what `smysl.parse` answers and `smysl.write` writes,
 //!   with their warnings (§S4);
+//! - [`research`]: what the researching words answer (§S5);
 //! - [`text`]: `smysl.text.add`'s spec, and its input read (§S4);
 //! - [`unlock`]: what `bund2 smysl-unlock` does (§S9, R14);
 //! - [`probe`]: the test-only probe, under `smysl-panic-probe` (§S9);
@@ -29,6 +30,7 @@ pub(crate) mod form;
 pub mod handle;
 pub mod map;
 pub mod probe;
+pub mod research;
 pub mod surface;
 pub(crate) mod text;
 pub mod unlock;
@@ -130,3 +132,5 @@ pub fn register(r: &mut bund2_api::Registry, opts: &crate::host::HostOptions) {
 
 #[cfg(test)]
 mod forming_tests;
+#[cfg(test)]
+mod research_tests;
