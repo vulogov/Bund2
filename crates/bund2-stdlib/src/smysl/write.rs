@@ -211,10 +211,12 @@ impl Writer {
         self.call(|lib| lib.append_records(records))
     }
 
-    pub(crate) fn call(
+    /// One call that may write, `append_records` or `Library::add`, under
+    /// R25's snapshot.
+    pub(crate) fn call<T>(
         &mut self,
-        f: impl FnOnce(&mut Library) -> Result<(), LibError>,
-    ) -> Result<(), Refusal> {
+        f: impl FnOnce(&mut Library) -> Result<T, LibError>,
+    ) -> Result<T, Refusal> {
         if self.snapshot.is_none() {
             let (stamp_len, _) = self.library.stamp();
             let s = Snapshot::take(&self.root, stamp_len)
@@ -223,8 +225,8 @@ impl Writer {
         }
         super::probe::at_panic(&self.root);
         let failed = match f(&mut self.library) {
-            Ok(()) => return Ok(()),
-            Err(e) => e,
+            Ok(v) => return Ok(v),
+            Err(e) => super::shown(e),
         };
         let keep = match &self.snapshot {
             Some(s) => s.changed(&self.root).unwrap_or(true),

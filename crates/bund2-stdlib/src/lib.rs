@@ -632,7 +632,7 @@ mod honesty_tests {
     // safety: the spawn had already happened by then, and a palette string
     // that happened to name a real command would have run it. Listed for
     // what it does, not for what it managed to do.
-    const ACTS_ON_HOST: [&str; 15] = [
+    const ACTS_ON_HOST: [&str; 19] = [
         "system.shell",
         "system.shell.",
         "fs.rm",
@@ -650,6 +650,10 @@ mod honesty_tests {
         // registers each, as well as in `FEATURE_GATED`.
         "smysl.create",
         "smysl.unit",
+        "smysl.rel",
+        "smysl.label",
+        "smysl.append",
+        "smysl.text.add",
     ];
 
     // **Natives a feature gate may or may not have registered — F123.**
@@ -679,13 +683,21 @@ mod honesty_tests {
     // `UNVARIED` audit filters it too (RFC-0014 criterion 16): a gated
     // native with an operand the palette leaves at seven is in one build's
     // list and not the other's, as it would be in `PROMOTABLE.txt`.
-    const FEATURE_GATED: [&str; 6] = [
+    const FEATURE_GATED: [&str; 14] = [
         "string.grok",
         "string.grok.",
         "smysl.agent",
+        "smysl.append",
+        "smysl.check",
         "smysl.create",
+        "smysl.label",
         "smysl.open",
+        "smysl.parse",
+        "smysl.rel",
+        "smysl.text.add",
+        "smysl.texts",
         "smysl.unit",
+        "smysl.write",
     ];
 
     /// **RFC-0005's assumption 23, scanned.** Criterion 28's palette varies a
@@ -1338,7 +1350,7 @@ mod honesty_tests {
     /// descending into subdirectories as criterion 11's does.
     #[test]
     fn every_native_reporting_mid_body_is_named() {
-        const REPORTS: [&str; 14] = [
+        const REPORTS: [&str; 15] = [
             // A notice, when a TRY block left an error the EXCEPT arm runs.
             "conditional.rs: run_error",
             // A warning, when the exit code is not an integer and 0 is taken
@@ -1374,6 +1386,11 @@ mod honesty_tests {
             // F62's warning, shared with `register` (§S10): `eff(3, 0)`, and
             // in `promotable::REPORTS_MID_BODY` beside it.
             "kb/words.rs: kb_word",
+            // RFC-0014 §S4, §S8: every `smysl.` warning, the parse's, the
+            // writer's omissions, a withdrawn edge and a failed
+            // `write_index`, comes through this one function. No `smysl.`
+            // word is in `PROMOTABLE.txt`, so no crossing reaches it.
+            "smysl/words.rs: warn",
         ];
         const QUALIFIERS: [&str; 5] = ["pub", "const", "unsafe", "async", "extern"];
         const REPORTS_AT: [&str; 2] = ["Diagnostic::warning", "Diagnostic::notice"];

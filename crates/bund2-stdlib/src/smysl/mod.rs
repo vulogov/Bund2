@@ -6,7 +6,7 @@
 //! checks the family is its unit tests. Compiled only under the `smysl`
 //! feature (§S1); without it no `smysl.` word is registered.
 //!
-//! Built in the RFC's milestones, in order. So far, M2's and M3's:
+//! Built in the RFC's milestones, in order. So far, M2's to M4's:
 //!
 //! - [`handle`]: the handle MAP, its validation and canonicalisation, and
 //!   opening the library it names (§S2, §S3);
@@ -15,22 +15,28 @@
 //! - [`write`]: a guarded write (§S9): the process mutex, SMYSL's locks,
 //!   the re-open, and R25's snapshot, which decides whether a failed write
 //!   leaves the locks;
-//! - [`form`]: a unit and its attestation, decided under the locks (§S4);
+//! - [`form`]: units, relations and labels, with their attestations,
+//!   decided under the locks as one batch (§S4);
+//! - [`surface`]: what `smysl.parse` answers and `smysl.write` writes,
+//!   with their warnings (§S4);
+//! - [`text`]: `smysl.text.add`'s spec, and its input read (§S4);
 //! - [`unlock`]: what `bund2 smysl-unlock` does (§S9, R14);
 //! - [`probe`]: the test-only probe, under `smysl-panic-probe` (§S9);
-//! - [`words`]: `smysl.create`, `smysl.open`, `smysl.unit` and
-//!   `smysl.agent`, and the `--noio` stubs of those that touch disk (§S8,
-//!   R11).
+//! - [`words`]: the words, and the `--noio` stubs of those that touch
+//!   disk (§S8, R11).
 
 pub(crate) mod form;
 pub mod handle;
 pub mod map;
 pub mod probe;
+pub mod surface;
+pub(crate) mod text;
 pub mod unlock;
 pub mod words;
 pub(crate) mod write;
 
 use bund2_api::Error;
+use smysl_core::error::LibError;
 
 /// A refusal, before it is given its word: one of §S8's codes and the text
 /// that follows `<W>: `.
@@ -95,7 +101,32 @@ pub(crate) fn sm02(message: impl std::fmt::Display) -> Refusal {
     Refusal::new(Code::Sm02, format!("SMYSL refused it: {message}"))
 }
 
+/// SMYSL's error as Bund2 displays it: a `LibError::Limit` without the
+/// SMYSL CLI's flag for the cap, which Bund2 does not have (§S8), so it
+/// reads `SMY-E440: <cap> limit <limit> exceeded by <saw>`.
+pub(crate) fn shown(e: LibError) -> LibError {
+    match e {
+        LibError::Limit {
+            cap, limit, saw, ..
+        } => LibError::Limit {
+            cap,
+            limit,
+            saw,
+            flag: None,
+        },
+        other => other,
+    }
+}
+
+/// SM02 for a `LibError`, displayed as [`shown`] says.
+pub(crate) fn lib(e: LibError) -> Refusal {
+    sm02(shown(e))
+}
+
 /// Register the family's words, or their `--noio` stubs.
 pub fn register(r: &mut bund2_api::Registry, opts: &crate::host::HostOptions) {
     words::register(r, opts);
 }
+
+#[cfg(test)]
+mod forming_tests;

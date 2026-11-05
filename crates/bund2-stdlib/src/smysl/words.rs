@@ -1,15 +1,17 @@
 //! The `smysl.` natives registered so far (RFC-0014 §S4): M2's
-//! `smysl.open` and `smysl.agent`, and M3's `smysl.create` and `smysl.unit`,
-//! the first that write.
+//! `smysl.open` and `smysl.agent`; M3's `smysl.create` and `smysl.unit`,
+//! the first that write; and M4's, the rest of forming: `smysl.rel`,
+//! `smysl.label`, `smysl.append`, `smysl.text.add`, `smysl.texts`,
+//! `smysl.parse`, `smysl.write` and `smysl.check`.
 //!
 //! - **SM11 is the house text, unprefixed** (§S8). Every other refusal
 //!   begins `<W>: `, the word's name in capitals.
 //! - **Under `--noio`**, a word that touches disk is registered as a stub
 //!   that answers SM06, `opaque(0)`, as D119 stubs `csv` (R11).
-//!   `smysl.agent` touches nothing and is not stubbed.
+//!   `smysl.agent` and `smysl.parse` touch nothing and are not stubbed.
 
 use bund2_api::{Error, Leaves, Registry, StackEffect, Vm, WordKind};
-use bund2_value::{BundValue, MAP};
+use bund2_value::{BundValue, LIST, MAP, STRING};
 use smysl_core::AgentId;
 
 use super::handle::{self, Handle};
@@ -137,6 +139,50 @@ fn record_of(
     Ok(m.clone())
 }
 
+/// Report a warning: a `Warning`, one line on stderr, prefixed with the
+/// word's name in capitals (D36, §S8). Every `smysl.` warning comes
+/// through here.
+pub(crate) fn warn(vm: &mut dyn Vm, word: &str, text: &str) {
+    vm.report(bund2_api::diag::Diagnostic::warning(format!(
+        "{}: {text}",
+        word.to_uppercase()
+    )));
+}
+
+/// The withdrawn-edge warning (§S4), for each rid a forming word answered
+/// that `is_withdrawn` reports.
+fn withdrawn(vm: &mut dyn Vm, word: &str, rids: &[smysl_core::Uid]) {
+    for rid in rids {
+        warn(
+            vm,
+            word,
+            &format!(
+                "edge {} is withdrawn: nothing that interprets the graph follows it",
+                rid.canonical()
+            ),
+        );
+    }
+}
+
+/// Decide `items` as one batch under the locks, and append what it holds;
+/// answer each item's id and the withdrawn rids answered.
+fn formed(
+    word: &str,
+    h: &Handle,
+    decide: impl FnOnce(&mut form::Batch<'_>) -> Result<Vec<smysl_core::Uid>, Refusal>,
+) -> Result<(Vec<smysl_core::Uid>, Vec<smysl_core::Uid>), Refusal> {
+    super::write::write(word, &h.root, |w| {
+        let (ids, records, rids) = {
+            let mut b = form::Batch::new(w.library.store(), &h.agent);
+            let ids = decide(&mut b)?;
+            let (records, rids) = b.finish();
+            (ids, records, rids)
+        };
+        w.append(&records)?;
+        Ok((ids, rids))
+    })
+}
+
 /// `handle unit smysl.unit` — append one unit written as §S2's MAP, with
 /// its attestation, and answer its uid (§S4).
 fn smysl_unit(vm: &mut dyn Vm) -> Result<(), Error> {
@@ -145,9 +191,230 @@ fn smysl_unit(vm: &mut dyn Vm) -> Result<(), Error> {
         .map_err(|_| Error::internal(format!("{W}: two operands were guarded and not pulled")))?;
     let answer = handle_at(&h, 2).and_then(|h| {
         let m = record_of(&unit, 1, map::Kind::Unit)?;
-        super::write::write(W, &h.root, |w| form::unit(w, &h.agent, &m))
+        formed(W, &h, |b| Ok(vec![b.unit(&m)?]))
     });
-    vm.push(map::uid(&answer.map_err(|r| r.for_word(W))?));
+    let (ids, _) = answer.map_err(|r| r.for_word(W))?;
+    vm.push(map::uid(ids.first().ok_or_else(|| {
+        Error::internal(format!("{W}: one unit was decided and none answered"))
+    })?));
+    Ok(())
+}
+
+/// `handle relation smysl.rel` — append one relation, with its
+/// attestation, and answer its rid (§S4). A `retracts` relation is SM03
+/// (R23); an edge `is_withdrawn` reports is answered and warned of.
+fn smysl_rel(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.rel";
+    let [rel, h] = <[BundValue; 2]>::try_from(operands(vm, W, 2)?)
+        .map_err(|_| Error::internal(format!("{W}: two operands were guarded and not pulled")))?;
+    let answer = handle_at(&h, 2).and_then(|h| {
+        let m = record_of(&rel, 1, map::Kind::Relation)?;
+        formed(W, &h, |b| Ok(vec![b.relation(&m)?]))
+    });
+    let (ids, rids) = answer.map_err(|r| r.for_word(W))?;
+    withdrawn(vm, W, &rids);
+    vm.push(map::uid(ids.first().ok_or_else(|| {
+        Error::internal(format!("{W}: one relation was decided and none answered"))
+    })?));
+    Ok(())
+}
+
+/// `handle label uid smysl.label` — bind a label to a unit the library
+/// holds (§S4). Bound to another unit already is SM08; bound to this one
+/// already writes nothing.
+fn smysl_label(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.label";
+    let [uid, label, h] = <[BundValue; 3]>::try_from(operands(vm, W, 3)?)
+        .map_err(|_| Error::internal(format!("{W}: three operands were guarded and not pulled")))?;
+    let answer = handle_at(&h, 3).and_then(|h| {
+        let l = string(&label, 2)?;
+        let label = smysl_core::Label::new(l.as_str())
+            .map_err(|e| sm03(format!("label {l} is refused: {e}")))?;
+        let u = string(&uid, 1)?;
+        let uid = smysl_core::Uid::parse(&u).map_err(|_| sm03(format!("uid {u} is not a uid")))?;
+        formed(W, &h, |b| Ok(vec![b.label(label, uid)?]))
+    });
+    answer.map_err(|r| r.for_word(W))?;
+    Ok(())
+}
+
+/// `handle list smysl.append` — append a LIST of unit, relation and label
+/// MAPs, in order and under one acquisition of the locks, and answer each
+/// one's id (§S4). A refusal anywhere writes nothing of the LIST.
+fn smysl_append(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.append";
+    let [list, h] = <[BundValue; 2]>::try_from(operands(vm, W, 2)?)
+        .map_err(|_| Error::internal(format!("{W}: two operands were guarded and not pulled")))?;
+    let answer = handle_at(&h, 2).and_then(|h| {
+        let items = list
+            .as_list()
+            .filter(|_| list.dt() == bund2_value::LIST)
+            .ok_or_else(|| {
+                sm03(format!(
+                    "#1 parameter must be LIST, found {}",
+                    list.type_name()
+                ))
+            })?;
+        let maps = items
+            .iter()
+            .enumerate()
+            .map(|(i, v)| {
+                v.as_map()
+                    .filter(|_| v.dt() == MAP)
+                    .cloned()
+                    .ok_or_else(|| {
+                        sm03(format!(
+                            "list item {i} must be MAP, found {}",
+                            v.type_name()
+                        ))
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        formed(W, &h, |b| maps.iter().map(|m| b.record(m)).collect())
+    });
+    let (ids, rids) = answer.map_err(|r| r.for_word(W))?;
+    withdrawn(vm, W, &rids);
+    vm.push(BundValue::list(ids.iter().map(map::uid).collect()));
+    Ok(())
+}
+
+/// `handle spec smysl.text.add` — add a text through a reader, and answer
+/// `{ mid, parts, lossy, redacted }` from SMYSL's `Added`
+/// (`smysl-text/src/library.rs:160-187`).
+///
+/// As SMYSL's `text add` does, under the locks: `complete_index` before
+/// `add`, and `write_index` after it succeeds
+/// (`smysl:src/main.rs:12667,12680`). A failed `write_index` is a warning,
+/// as SMYSL prints it, since the sidecar is rebuilt on the next open.
+fn smysl_text_add(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.text.add";
+    let [spec, h] = <[BundValue; 2]>::try_from(operands(vm, W, 2)?)
+        .map_err(|_| Error::internal(format!("{W}: two operands were guarded and not pulled")))?;
+    let answer = handle_at(&h, 2).and_then(|h| {
+        let s = super::text::spec(&spec, 1)?;
+        super::write::write(W, &h.root, |w| {
+            w.library.complete_index();
+            let added = w.call(|lib| {
+                lib.add(
+                    &smysl_text::Input::new(&s.input),
+                    &s.spec,
+                    &smysl_text::Caps::default(),
+                )
+            })?;
+            let index = w.library.write_index().err();
+            Ok((added, index))
+        })
+    });
+    let (added, index) = answer.map_err(|r| r.for_word(W))?;
+    if let Some(e) = index {
+        warn(
+            vm,
+            W,
+            &format!("the index was not written ({e}); it will be rebuilt on open"),
+        );
+    }
+    let mut m = std::collections::BTreeMap::new();
+    m.insert("mid".to_owned(), BundValue::str(added.mid.canonical()));
+    m.insert(
+        "parts".to_owned(),
+        BundValue::list(
+            added
+                .parts
+                .iter()
+                .map(|t| BundValue::str(t.canonical()))
+                .collect(),
+        ),
+    );
+    m.insert("lossy".to_owned(), BundValue::boolean(added.lossy));
+    m.insert(
+        "redacted".to_owned(),
+        BundValue::int(i64::try_from(added.objects_redacted).unwrap_or(i64::MAX)),
+    );
+    vm.push(BundValue::map(m));
+    Ok(())
+}
+
+/// The library `#k`'s handle names, opened without a lock, for a word that
+/// only reads (§S3).
+fn opened_at(v: &BundValue, k: usize) -> Result<smysl_text::Library, Refusal> {
+    let h = handle_at(v, k)?;
+    let (_, library) = handle::open(&h.root)?;
+    Ok(library)
+}
+
+/// `handle smysl.texts` — each alias with its heads, a LIST of manifest ids
+/// (`Library::catalog`, `smysl-text/src/library.rs:1590-1601`).
+fn smysl_texts(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.texts";
+    let [h] = <[BundValue; 1]>::try_from(operands(vm, W, 1)?)
+        .map_err(|_| Error::internal(format!("{W}: one operand was guarded and not pulled")))?;
+    let library = opened_at(&h, 1).map_err(|r| r.for_word(W))?;
+    let catalog = library
+        .catalog()
+        .into_iter()
+        .map(|(alias, heads)| {
+            (
+                alias,
+                BundValue::list(
+                    heads
+                        .iter()
+                        .map(|m| BundValue::str(m.canonical()))
+                        .collect(),
+                ),
+            )
+        })
+        .collect();
+    vm.push(BundValue::map(catalog));
+    Ok(())
+}
+
+/// `text smysl.parse` — the surface syntax as §S2's MAPs (§S4). No I/O, so
+/// not stubbed under `--noio`. Warnings are reported before a refusal.
+fn smysl_parse(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.parse";
+    let [text] = <[BundValue; 1]>::try_from(operands(vm, W, 1)?)
+        .map_err(|_| Error::internal(format!("{W}: one operand was guarded and not pulled")))?;
+    let text = string(&text, 1).map_err(|r| r.for_word(W))?;
+    let parsed = super::surface::parse(&text);
+    for w in &parsed.warnings {
+        warn(vm, W, w);
+    }
+    let maps = parsed.answer.map_err(|r| r.for_word(W))?;
+    vm.push(BundValue::list(maps));
+    Ok(())
+}
+
+/// `handle smysl.write` — the surface syntax of the library's units,
+/// relations and labels, and a warning for each kind of record left out
+/// (§S4).
+fn smysl_write(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.write";
+    let [h] = <[BundValue; 1]>::try_from(operands(vm, W, 1)?)
+        .map_err(|_| Error::internal(format!("{W}: one operand was guarded and not pulled")))?;
+    let library = opened_at(&h, 1).map_err(|r| r.for_word(W))?;
+    let written = super::surface::write(library.store());
+    for w in &written.warnings {
+        warn(vm, W, w);
+    }
+    vm.push(BundValue::str(written.text));
+    Ok(())
+}
+
+/// `handle smysl.check` — every diagnostic of `check`'s store passes, as
+/// MAPs, under `CheckOptions::default()` [R19], so under the profile SMYSL
+/// derives from the library's views.
+fn smysl_check(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.check";
+    let [h] = <[BundValue; 1]>::try_from(operands(vm, W, 1)?)
+        .map_err(|_| Error::internal(format!("{W}: one operand was guarded and not pulled")))?;
+    let library = opened_at(&h, 1).map_err(|r| r.for_word(W))?;
+    let report = smysl_check::check(library.store(), smysl_check::CheckOptions::default());
+    let diagnostics = report
+        .diagnostics
+        .iter()
+        .map(map::diagnostic)
+        .collect::<Result<Vec<_>, _>>()?;
+    vm.push(BundValue::list(diagnostics));
     Ok(())
 }
 
@@ -155,19 +422,61 @@ fn noio(_vm: &mut dyn Vm) -> Result<(), Error> {
     Err(Refusal::new(Code::Sm06, NOIO).for_word("smysl"))
 }
 
+/// The words that touch disk, stubbed under `--noio` (R11).
+const ON_DISK: [&str; 10] = [
+    "smysl.append",
+    "smysl.check",
+    "smysl.create",
+    "smysl.label",
+    "smysl.open",
+    "smysl.rel",
+    "smysl.text.add",
+    "smysl.texts",
+    "smysl.unit",
+    "smysl.write",
+];
+
 pub fn register(r: &mut Registry, opts: &crate::host::HostOptions) {
-    let handle = |c| StackEffect::fixed(c, 1).leaving(Leaves::Tag(MAP));
-    let uid = |c| StackEffect::fixed(c, 1).leaving(Leaves::Tag(bund2_value::STRING));
+    let leaving = |c, tag| StackEffect::fixed(c, 1).leaving(Leaves::Tag(tag));
+    let handle = |c| leaving(c, MAP);
     if opts.noio {
-        for name in ["smysl.create", "smysl.open", "smysl.unit"] {
+        for name in ON_DISK {
             r.register_native(name, noio, StackEffect::opaque(0), WordKind::Sync);
         }
     } else {
         r.register_native("smysl.create", smysl_create, handle(1), WordKind::Sync);
         r.register_native("smysl.open", smysl_open, handle(1), WordKind::Sync);
-        r.register_native("smysl.unit", smysl_unit, uid(2), WordKind::Sync);
+        r.register_native("smysl.unit", smysl_unit, leaving(2, STRING), WordKind::Sync);
+        r.register_native("smysl.rel", smysl_rel, leaving(2, STRING), WordKind::Sync);
+        r.register_native(
+            "smysl.label",
+            smysl_label,
+            StackEffect::fixed(3, 0),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "smysl.append",
+            smysl_append,
+            leaving(2, LIST),
+            WordKind::Sync,
+        );
+        r.register_native(
+            "smysl.text.add",
+            smysl_text_add,
+            leaving(2, MAP),
+            WordKind::Sync,
+        );
+        r.register_native("smysl.texts", smysl_texts, leaving(1, MAP), WordKind::Sync);
+        r.register_native(
+            "smysl.write",
+            smysl_write,
+            leaving(1, STRING),
+            WordKind::Sync,
+        );
+        r.register_native("smysl.check", smysl_check, leaving(1, LIST), WordKind::Sync);
     }
     r.register_native("smysl.agent", smysl_agent, handle(2), WordKind::Sync);
+    r.register_native("smysl.parse", smysl_parse, leaving(1, LIST), WordKind::Sync);
 }
 
 #[cfg(test)]

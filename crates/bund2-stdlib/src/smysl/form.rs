@@ -1,36 +1,23 @@
-//! What a forming word writes (§S4): a record and its attestation, under
-//! the locks, deciding from the library as re-opened there.
+//! What a forming word writes (§S4): records and their attestations, under
+//! the locks, deciding from the library as re-opened there and from what
+//! the same word has already decided.
+//!
+//! A [`Batch`] holds one word's records until they are all decided, so a
+//! refusal anywhere writes nothing: `smysl.append`'s LIST is written under
+//! one acquisition of the locks, in order, or not at all.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bund2_value::BundValue;
 use smysl_core::{
-    AgentId, Attestation, Hlc, Label, Op, Record, Rung, Status, Uid, UnitCore, canonical_uid,
+    AgentId, Attestation, Hlc, Label, LabelBinding, Op, Record, RelKind, Relation, Rung, Status,
+    Uid, canonical_uid,
 };
 use smysl_graph::Store;
-use smysl_graph::labels::{LabelError, resolve_label};
+use smysl_graph::labels::label_bindings;
 
-use super::map;
-use super::write::Writer;
-use super::{Code, Refusal};
-
-/// SM08 for a label in `grounds` or `deps` bound to several units, or to
-/// none (`LabelError::Unbound`, `smysl-graph/src/labels.rs:20-29`).
-pub(crate) fn resolve(store: &Store, label: &Label) -> Result<Uid, Refusal> {
-    resolve_label(store, label).map_err(|e| {
-        let n = match &e {
-            LabelError::Unbound => 0,
-            LabelError::Ambiguous(uids) => uids.len(),
-            // A variant added after the pin names no count; SMYSL's text
-            // still says why.
-            _ => return Refusal::new(Code::Sm08, format!("label {} {e}", label.as_str())),
-        };
-        Refusal::new(
-            Code::Sm08,
-            format!("label {} binds {n} units", label.as_str()),
-        )
-    })
-}
+use super::map::{self, Kind};
+use super::{Code, Refusal, sm03};
 
 /// The clock an agent's next attestation takes (§S4): `Hlc::now` from the
 /// newest of this agent's clocks in the library as re-opened under the
@@ -64,49 +51,202 @@ impl Clock {
     }
 }
 
-/// Whether `agent` has attested `uid` in `store` already.
-pub(crate) fn attested(store: &Store, uid: &Uid, agent: &AgentId) -> bool {
-    store.attestations_of(uid).iter().any(|a| &a.agent == agent)
-}
-
-/// The attestation Bund2 writes for a unit it authors (R15): `Authored`,
-/// rung `Document` for a cited unit and `Computed` for every other, hop 0,
-/// no parents.
-pub(crate) fn attestation(uid: Uid, status: Status, agent: &AgentId, ts: Hlc) -> Attestation {
-    let rung = if status == Status::Cited {
-        Rung::Document
-    } else {
-        Rung::Computed
-    };
+/// The attestation Bund2 writes for a unit or a relation it authors (R15):
+/// `Authored`, rung `Document` for a cited unit and `Computed` for every
+/// other, hop 0, no parents.
+pub(crate) fn attestation(uid: Uid, rung: Rung, agent: &AgentId, ts: Hlc) -> Attestation {
     Attestation::new(uid, agent.clone(), Op::Authored, rung, ts)
 }
 
-/// Write one unit MAP under the locks, with its attestation, and answer its
-/// uid.
-///
-/// - Labels in `grounds` or `deps` are resolved against the library as
-///   re-opened under the locks (§S2).
-/// - A unit the library holds is not written again: SMYSL's `append` would
-///   skip it anyway (`smysl-graph/src/store/mod.rs:434-446`).
-/// - The attestation is written only if this agent has not attested that
-///   uid already, so a re-append adds nothing to the log (§S4).
-pub(crate) fn unit(
-    w: &mut Writer,
-    agent: &AgentId,
-    m: &BTreeMap<String, BundValue>,
-) -> Result<Uid, Refusal> {
-    let store = w.library.store();
-    let core: UnitCore = map::unit_core(m, &mut |l| resolve(store, l))?;
-    let uid = canonical_uid(&core);
-    let mut records = Vec::new();
-    let status = core.status;
-    if !store.contains_uid(&uid) {
-        records.push(Record::Unit(core));
+fn rung(status: Status) -> Rung {
+    if status == Status::Cited {
+        Rung::Document
+    } else {
+        Rung::Computed
     }
-    if !attested(store, &uid, agent) {
-        let ts = Clock::of(store, agent).next();
-        records.push(Record::Attestation(attestation(uid, status, agent, ts)));
+}
+
+/// One word's records, decided against the library as re-opened under the
+/// locks and against what the same word decided before.
+pub(crate) struct Batch<'s> {
+    store: &'s Store,
+    agent: AgentId,
+    clock: Clock,
+    records: Vec<Record>,
+    /// Units this batch writes.
+    units: BTreeSet<Uid>,
+    /// Uids and rids this batch attests.
+    attested: BTreeSet<Uid>,
+    /// Relations this batch writes, by rid.
+    relations: BTreeMap<Uid, Relation>,
+    /// Labels this batch binds.
+    labels: BTreeMap<Label, Uid>,
+    /// The rids answered that `is_withdrawn` reports, in order.
+    withdrawn: Vec<Uid>,
+}
+
+impl<'s> Batch<'s> {
+    pub(crate) fn new(store: &'s Store, agent: &AgentId) -> Batch<'s> {
+        Batch {
+            store,
+            agent: agent.clone(),
+            clock: Clock::of(store, agent),
+            records: Vec::new(),
+            units: BTreeSet::new(),
+            attested: BTreeSet::new(),
+            relations: BTreeMap::new(),
+            labels: BTreeMap::new(),
+            withdrawn: Vec::new(),
+        }
     }
-    w.append(&records)?;
-    Ok(uid)
+
+    /// The records decided, in order, and the withdrawn rids answered.
+    pub(crate) fn finish(self) -> (Vec<Record>, Vec<Uid>) {
+        (self.records, self.withdrawn)
+    }
+
+    /// Every uid a label binds, in the library and in this batch, sorted
+    /// and without repeats.
+    fn bindings(&self, label: &Label) -> Vec<Uid> {
+        let mut uids: BTreeSet<Uid> = label_bindings(self.store, label).into_iter().collect();
+        uids.extend(self.labels.get(label).copied());
+        uids.into_iter().collect()
+    }
+
+    /// The one unit a label in `grounds` or `deps` binds, or SM08 (§S2,
+    /// `smysl-graph/src/labels.rs:3-8,20-29`).
+    fn resolve(&self, label: &Label) -> Result<Uid, Refusal> {
+        match self.bindings(label).as_slice() {
+            [one] => Ok(*one),
+            many => Err(Refusal::new(
+                Code::Sm08,
+                format!("label {} binds {} units", label.as_str(), many.len()),
+            )),
+        }
+    }
+
+    fn holds_unit(&self, uid: &Uid) -> bool {
+        self.store.contains_uid(uid) || self.units.contains(uid)
+    }
+
+    /// Attest `uid` unless this agent already has, in the library or in
+    /// this batch (§S4).
+    fn attest(&mut self, uid: Uid, rung: Rung) {
+        let held = self
+            .store
+            .attestations_of(&uid)
+            .iter()
+            .any(|a| a.agent == self.agent);
+        if held || !self.attested.insert(uid) {
+            return;
+        }
+        let ts = self.clock.next();
+        self.records
+            .push(Record::Attestation(attestation(uid, rung, &self.agent, ts)));
+    }
+
+    /// One record MAP, of whichever kind its keys say (§S2), answering its
+    /// id: a unit's uid, a relation's rid, and for a label, the uid it binds.
+    pub(crate) fn record(&mut self, m: &BTreeMap<String, BundValue>) -> Result<Uid, Refusal> {
+        match map::kind(m)? {
+            Kind::Unit => self.unit(m),
+            Kind::Relation => self.relation(m),
+            Kind::Label => {
+                let b = map::label_of(m)?;
+                self.label(b.label, b.uid)
+            }
+        }
+    }
+
+    /// One unit MAP, with its attestation.
+    ///
+    /// - Labels in `grounds` or `deps` are resolved against the library and
+    ///   the labels this batch has bound (§S2).
+    /// - A unit the library or this batch holds is not written again:
+    ///   SMYSL's `append` would skip it anyway
+    ///   (`smysl-graph/src/store/mod.rs:434-446`).
+    /// - The attestation is written only if this agent has not attested that
+    ///   uid already, so a re-append adds nothing to the log (§S4).
+    pub(crate) fn unit(&mut self, m: &BTreeMap<String, BundValue>) -> Result<Uid, Refusal> {
+        let core = map::unit_core(m, &mut |l| self.resolve(l))?;
+        let uid = canonical_uid(&core);
+        let status = core.status;
+        if !self.holds_unit(&uid) {
+            self.units.insert(uid);
+            self.records.push(Record::Unit(core));
+        }
+        self.attest(uid, rung(status));
+        Ok(uid)
+    }
+
+    /// One relation MAP, with its attestation (§S4).
+    ///
+    /// - `retracts` is written only by `smysl.retract` (R23): SM03.
+    /// - An edge whose rid the library or this batch holds is not written
+    ///   again when its weight and note are the same, after SMYSL's clamping
+    ///   and quantising; with another weight or note it is SM03, since a
+    ///   second variant under one rid is a record no read sees.
+    /// - An edge `is_withdrawn` reports is answered, and said so by the word.
+    pub(crate) fn relation(&mut self, m: &BTreeMap<String, BundValue>) -> Result<Uid, Refusal> {
+        let rel = map::relation_of(m)?;
+        if rel.kind == RelKind::Retracts {
+            return Err(sm03("a retracts relation is written only by smysl.retract"));
+        }
+        let rid = rel.uid();
+        let held = self
+            .relations
+            .get(&rid)
+            .or_else(|| self.store.relation_by_id(&rid));
+        match held {
+            Some(h) if h.weight == rel.weight && h.note == rel.note => {}
+            Some(_) => {
+                return Err(sm03(format!(
+                    "rid {} is held with another weight or note",
+                    rid.canonical()
+                )));
+            }
+            None => {
+                self.relations.insert(rid, rel.clone());
+                self.records.push(Record::Relation(rel.clone()));
+            }
+        }
+        self.attest(rid, Rung::Computed);
+        if self.store.is_withdrawn(&rel) {
+            self.withdrawn.push(rid);
+        }
+        Ok(rid)
+    }
+
+    /// Bind `label` to `uid` (§S4).
+    ///
+    /// - `uid` must name a unit the library or this batch holds: SM03.
+    /// - A label the library or this batch binds to another unit is SM08,
+    ///   since nothing removes a binding (`smysl-graph/src/labels.rs:3-8`).
+    /// - A label already bound to the same unit writes nothing.
+    pub(crate) fn label(&mut self, label: Label, uid: Uid) -> Result<Uid, Refusal> {
+        if !self.holds_unit(&uid) {
+            return Err(sm03(format!(
+                "uid {} names no unit in the library",
+                uid.canonical()
+            )));
+        }
+        let bound = self.bindings(&label);
+        if let Some(other) = bound.iter().find(|u| **u != uid) {
+            return Err(Refusal::new(
+                Code::Sm08,
+                format!(
+                    "label {} is bound to {}, not {}",
+                    label.as_str(),
+                    other.canonical(),
+                    uid.canonical()
+                ),
+            ));
+        }
+        if bound.is_empty() {
+            self.labels.insert(label.clone(), uid);
+            self.records
+                .push(Record::LabelBinding(LabelBinding::new(label, uid)));
+        }
+        Ok(uid)
+    }
 }
