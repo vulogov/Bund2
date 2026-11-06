@@ -1,0 +1,3 @@
+Warning: SMYSL.PARSE: 1 manifest record(s) skipped: they have no unit, relation or label MAP
+Warning: SMYSL.PARSE: 1 schemadecl record(s) skipped: they have no unit, relation or label MAP
+Warning: SMYSL.MEASURE: warning: SMY-W485: T1 needs at least 10000 tokens and `from texts` has 59

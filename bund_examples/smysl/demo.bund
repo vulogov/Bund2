@@ -1,0 +1,437 @@
+//
+// SMYSL and logic programming in Bund, together: why the village well at
+// Ashby ran dry. A SMYSL library is formed from a text, from SMYSL's own
+// syntax and from Bund MAPs; it is checked, researched, measured and
+// queried; then it becomes a knowledge base, rules reason over it, and
+// smysl.prove writes each proof back into it as units a later query, rule
+// or proof can use. Run it from a directory with no `ashby` in it:
+//
+//   bund2 demo.bund
+//
+// It needs a bund2 built with `--features smysl`. It writes its library to
+// `ashby` beside where it runs; a second run would find the first's units
+// and proofs there and print otherwise, so the Makefile and the test both
+// start from none. It prints no clock and no path. `expected.txt` is what
+// it prints, and `expected.stderr.txt` the three warnings raised along
+// the way (sections 4 and 6).
+//
+
+//
+// 1. A library, and a text in it. `smysl.create` makes the library and
+//    answers its handle. `smysl.text.add` reads a Markdown text through
+//    SMYSL's `md/1` reader under an alias, and answers its manifest id,
+//    its parts, and whether anything was lost or withheld. Adding the same
+//    text again answers the same manifest. `smysl.texts` lists each alias.
+//
+"== 1. a library, and a text in it" println
+:lib "ashby" smysl.create var
+:survey_text "# Ashby water survey
+
+The village well at Ashby ran dry in August. The water table under the
+green fell by two metres over the summer.
+
+## The brewery
+
+The new brewery on the Ashby road draws from a borehole forty metres deep,
+and began pumping in June.
+
+## The weather
+
+Rainfall from May to August was half the ten-year mean.
+" var
+:survey :lib var?
+  dict :reader "md/1" set :alias "survey" set :licence "CC0-1.0" set :lang "en" set
+       :title "Ashby water survey" set :text :survey_text var? set
+  smysl.text.add var
+"parts read from the text:  " print :survey var? :parts get len println drop
+"lossy, redacted:           " print :survey var? :lossy get print ", " print :survey var? :redacted get println
+"aliases in the library:    " print :lib var? smysl.texts :survey get len println drop
+"added again, same manifest: " print
+:lib var?
+  dict :reader "md/1" set :alias "survey" set :licence "CC0-1.0" set :lang "en" set
+       :title "Ashby water survey" set :text :survey_text var? set
+  smysl.text.add :mid get :survey var? :mid get == println
+"" println
+
+//
+// 2. Forming from SMYSL's syntax. `smysl.parse` reads a document into the
+//    MAPs Bund2 uses for units, relations and labels, with the document's
+//    labels (`o/dry`) resolved; `smysl.append` writes the whole LIST under
+//    one acquisition of the library's locks, and answers each record's id.
+//    `x.text/entity` is SMYSL's entity type: section 6's dossier is built
+//    around one, through the units that mention it.
+//
+"== 2. forming from SMYSL's syntax" println
+:doc '@x.text/entity e/ashby { status: cited, source: { kind: doc, ref: "alias:survey" } }
+~ Ashby
+
+@question q/why { status: speculative }
+~ Why did the Ashby well run dry?
+
+@observation o/dry { status: cited, source: { kind: doc, ref: "Parish log, 28 August" } }
+~ The village well at Ashby ran dry in August.
+
+@observation o/table { status: cited, source: { kind: doc, ref: "Ashby water survey" } }
+~ The water table under the green fell two metres over the summer.
+
+@observation o/borehole { status: cited, source: { kind: doc, ref: "Brewery licence" } }
+~ The brewery borehole draws from forty metres down and began pumping in June.
+
+@observation o/rain { status: cited, source: { kind: doc, ref: "County rain gauge" } }
+~ Rainfall from May to August was half the ten-year mean.
+
+@claim c/drought { status: inferred, grounds: [o/rain, o/table] }
+~ The summer drought lowered the water table.
+
+@claim c/brewery { status: inferred, grounds: [o/borehole, o/table] }
+~ The brewery borehole drew the water table down.
+
+@claim c/weather { status: speculative }
+~ The weather alone dried the well.
+
+@rel c/drought --answers--> q/why
+@rel c/brewery --answers--> q/why
+@rel c/drought --causes--> o/dry
+@rel c/brewery --causes--> o/dry
+@rel c/brewery --rebuts--> c/weather
+@rel c/drought --elaborates--> c/weather
+@rel q/why --x.text/mentions--> e/ashby
+@rel o/dry --x.text/mentions--> e/ashby
+@rel o/table --x.text/mentions--> e/ashby
+@rel c/drought --x.text/mentions--> e/ashby
+@rel c/brewery --x.text/mentions--> e/ashby
+@rel c/weather --x.text/mentions--> e/ashby
+' var
+:records :doc var? smysl.parse var
+"records parsed:            " print :records var? len println drop
+"ids appended:              " print :lib var? :records var? smysl.append len println drop
+"" println
+
+//
+// 3. Forming from MAPs. The library's own facts (section 8) give each
+//    label's uid, gathered here into a MAP. A unit MAP may name its
+//    grounds by label; `smysl.label` binds one; `smysl.rel` writes an
+//    edge. `smysl.append` takes any LIST of MAPs, built here with `map`.
+//
+"== 3. forming from MAPs, naming units by label" println
+:labels dict var
+:lib var? "from library" smysl.kb [ label L U ] kb.query
+  { :b swap var :labels :labels var? :b var? :L get :b var? :U get set var } loop
+"labels the library binds:  " print :labels var? len println drop
+
+:refill :lib var?
+  dict :schema "observation" set
+       :gist   "The brewery stopped pumping on 1 September, and the well refilled within ten days." set
+       :status "cited" set
+       :source dict :kind "doc" set :reference "Parish log, 12 September" set set
+  smysl.unit var
+:lib var? "o/refill" :refill var? smysl.label
+:pumping :lib var?
+  dict :schema "claim" set
+       :gist   "Pumping at the brewery, more than the drought, emptied the well." set
+       :status "inferred" set
+       :grounds [ "o/borehole" "o/refill" "o/table" ] set
+  smysl.unit var
+:lib var? "c/pumping" :pumping var? smysl.label
+:lib var? dict :kind "rebuts" set :from :pumping var? set :to :labels var? "c/weather" get set smysl.rel drop
+:lib var? dict :kind "answers" set :from :pumping var? set :to :labels var? "q/why" get set smysl.rel drop
+
+"two more questions, one LIST of MAPs:" println
+:asked :lib var?
+  [ "Will the well fail again next summer?" "Should the brewery licence cap its pumping?" ]
+  { :g swap var dict :schema "question" set :gist :g var? set :status "speculative" set } map
+  smysl.append var
+:asked var? { "  " print :lib var? swap smysl.get :gist get println } loop
+"" println
+
+//
+// 4. Checking, and the library as text. `smysl.check` runs SMYSL's checks
+//    and answers each diagnostic as a MAP: none here. The `x.text` edges
+//    section 2 wrote would draw `SMY-W013` from an undeclared schema, but a
+//    batch that writes an `x.text` record carries SMYSL's declaration of
+//    it, as SMYSL's own text ingest does. `smysl.write` gives the library
+//    back as SMYSL's syntax, the declaration with it; parsing it again
+//    warns that the declaration and the text's manifest, records with no
+//    MAP form, are skipped.
+//
+"== 4. checking, and the library as text" println
+"diagnostics from SMYSL's checks: " print :lib var? smysl.check len println drop
+:lib var? smysl.check { "  " print dup :code get print " " print :message get println } loop
+:written :lib var? smysl.write var
+"lines of SMYSL's syntax:   " print :written var? string.tokenize.lines len println drop
+"records it parses back to: " print :written var? smysl.parse len println drop
+"" println
+
+//
+// 5. Researching. `smysl.trace` follows a unit's lineage: `rests-on` its
+//    premises, `dependents` what rests on it, to any depth with NODATA.
+//    `smysl.salience` ranks the units; `smysl.pack` chooses what fits a
+//    token budget.
+//
+"== 5. researching" println
+"what the brewery claim rests on:" println
+:lib var? :labels var? "c/brewery" get "rests-on" ∅ smysl.trace
+  { "  " print dup :depth get print " " print :uid get :lib var? swap smysl.get :gist get println } loop
+"what depends on the falling water table:" println
+:lib var? :labels var? "o/table" get "dependents" ∅ smysl.trace
+  { "  " print dup :depth get print " " print :uid get :lib var? swap smysl.get :gist get println } loop
+"the three most salient units:" println
+:lib var? dict smysl.salience 3 swap head
+  { "  " print :uid get :lib var? swap smysl.get :gist get println } loop
+"what fits in 60 tokens:" println
+:lib var? dict :budget 60 set smysl.pack
+  { "  " print :lib var? swap smysl.get :gist get println } loop
+"" println
+
+//
+// 6. A dossier, and measures. `smysl.dossier` asks SMYSL to gather what
+//    the library holds about a question's entity into named slots.
+//    `smysl.measure` runs SMYSL's measures over a scope: T1 needs more text
+//    than one survey, so it answers why it did not run, and SMYSL's reason
+//    is also a warning; A4 measures the spread of the claims' statuses.
+//
+"== 6. a dossier, and measures" println
+:dossier :lib var? "Why did the Ashby well run dry?" smysl.dossier var
+"the dossier's subject:     " print :dossier var? :subject get println
+:dossier var? :slots get
+  { "  " print dup :name get print ":" println
+    :units get { "    " print :lib var? swap smysl.get :gist get println } loop } loop
+:lib var? [ "T1" ] "from texts" smysl.measure
+  { "  " print dup :id get print " " print dup :ok get print ": " print :value get println } loop
+:lib var? [ "A4" ] "from library
+where kind = claim" smysl.measure
+  { "  " print dup :id get print " " print dup :ok get print ": " print :value get println } loop
+"" println
+
+//
+// 7. Querying. `smysl.query` runs one SMYSL query and answers a MAP whose
+//    `kind` says its shape: a count, groups, a ranking. The `smysl`
+//    conditional runs a lambda once for each unit a query names, with the
+//    unit's MAP on top.
+//
+"== 7. querying" println
+"units:                     " print :lib var? "from library
+count" smysl.query :count get println
+"by kind:" println
+:lib var? "from library
+group by kind" smysl.query :groups get
+  { "  " print dup :key get print " " print :units get len println drop } loop
+'ranked for "brewery":' println
+:lib var? 'from library
+find "brewery"' smysl.query dup :kind get "  answered as " print println
+  :hits get { "  " print :uid get :lib var? swap smysl.get :gist get println } loop
+"the claims, one at a time:" println
+smysl
+  :handle :lib var? set
+  :query  "from library
+where kind = claim" set
+  :lambda { "  " print dup :status get print " " print :gist get println } set
+!
+"" println
+
+//
+// 8. The library as a knowledge base. `smysl.kb` turns the units a query
+//    names into facts for the `kb.` words: `unit`, `gist`, `grounds`,
+//    `deps`, `label`, `rel`, `effective` and `rank`. A LIST of goals asks
+//    them together. `rank` facts are integers, so CLP(FD) constrains them.
+//    The `query` conditional runs a lambda per answer, here over a KB of
+//    the observations alone.
+//
+"== 8. the library as a knowledge base" println
+:facts :lib var? "from library" smysl.kb var
+"facts the library gives:   " print :facts var? kb.clauses len println drop
+"the claims, with their status, asked of the facts:" println
+:facts var? [ [ unit U claim S ] [ gist U G ] ] kb.query
+  { "  " print dup :S get print " " print :G get println } loop
+"does anything rebut a claim: " print :facts var? [ rel rebuts X Y ] kb.holds println
+"statuses ranked at least derived, by CLP(FD):" println
+:facts var? [ [ rank S R ] [ #>= R 3 ] ] kb.query { "  " print dup :S get print " " print :R get println } loop
+"the observations alone, through the query conditional:" println
+query
+  :kb     :lib var? "from library
+where kind = observation" smysl.kb set
+  :goal   [ gist U G ] set
+  :lambda { "  " print :G get println } set
+!
+"" println
+
+//
+// 9. Rules over the library. Rules merge with the facts as with any KB:
+//    - `rests_on` is left recursive, so it is tabled;
+//    - `is` brings a Bund value into a goal, and `kb.word` makes a
+//      predicate a word, NODATA (`∅`) standing for what it finds;
+//    - `test` keeps an answer when a Bund lambda says so, and `is` binds
+//      what a lambda answers;
+//    - `in` ranges over a LIST a lambda answers: here `smysl.trace`, so a
+//      rule reads the library live while it is being solved;
+//    - `kb.saturate` derives every fact the rules allow.
+//
+"== 9. rules over the library" println
+:rules [
+  [ [ rests_on U G ] ← [ grounds U G ] ]
+  [ [ rests_on U G ] ← [ rests_on U M ] [ grounds M G ] ]
+  [ [ explains C Q ] ← [ rel answers C Q ] ]
+  [ [ about_water U ] ← [ gist U G ] [ test { "*water*" G string.wildcard } ] ]
+  [ [ words U N ] ← [ gist U G ] [ is N { G string.tokenize len swap drop } ] ]
+  [ [ upstream U X ] ← [ in X { :lib var? U "grounds" ∅ smysl.trace { :uid get } map } ] ]
+] kb! :rests_on 2 kb.table var
+:kb :facts var? :rules var? kb.merge var
+:why :labels var? "q/why" get var
+:pumped :labels var? "c/brewery" get var
+
+"what the brewery claim rests on, tabled:" println
+:kb var? [ [ is P { :pumped var? } ] [ rests_on P G ] [ gist G T ] ] kb.query
+  { "  " print :T get println } loop
+"what answers why the well ran dry, through a word made of a predicate:" println
+:kb :explains 2 kb.word
+∅ :why var? explains { "  " print 1 swap at :lib var? swap smysl.get :gist get println } loop
+"units about water, by a Bund test inside a rule:" println
+:kb var? [ [ about_water U ] [ gist U G ] ] kb.query { "  " print :G get println } loop
+"each claim's length in words, a value a lambda answers:" println
+:kb var? [ [ unit U claim S ] [ words U N ] [ gist U G ] ] kb.query
+  { "  " print dup :N get print " " print :G get println } loop
+"upstream of the pumping claim, generated by smysl.trace inside a rule:" println
+:kb var? [ [ is P { :pumping var? } ] [ upstream P X ] [ gist X G ] ] kb.query
+  { "  " print :G get println } loop
+:closure :facts var? [
+  [ [ rests_on U G ] ← [ grounds U G ] ]
+  [ [ rests_on U G ] ← [ rests_on U M ] [ grounds M G ] ]
+] kb! kb.merge var
+"rests_on facts saturating derives: " print
+:closure var? kb.clauses len swap drop :closure var? kb.saturate kb.clauses len swap drop - println
+"" println
+
+//
+// 10. Asking what the library does not hold. `kb.askable` sends a goal no
+//     fact proves to an `ask` lambda, with replies remembered in `known`;
+//     both are seeded here, so nothing is read from the terminal.
+//     `smysl.prove` has no `ask` slot, so a proof that needs a reply is
+//     refused, and nothing is written.
+//
+"== 10. asking what the library does not hold" println
+:advice :facts var? [
+  [ [ act C ] ← [ rel answers C Q ] [ rel rebuts C W ] [ dry_summer ] ]
+] kb! kb.merge :dry_summer 0 kb.askable var
+:replies [ [ [ dry_summer ] true ] ] var
+query
+  :kb     :advice var? set
+  :goal   [ act C ] set
+  :known  :replies set
+  :ask    { "{0}? (y/n) " format input "y" == } set
+  :lambda { "  act on: " print :C get :lib var? swap smysl.get :gist get println } set
+!
+?try
+  :try    { :lib var? :advice var? [ act C ] dict smysl.prove println } set
+  :except { "smysl.prove has no one to ask: " print :context get println } set
+!
+"" println
+
+//
+// 11. Proofs written into the library. `smysl.prove` proves a goal against
+//     a KB and writes each proof back: a fact the library bears out stands
+//     for its units; a rule's conclusion becomes a claim grounded on what
+//     its premises became; the root is a `finding`. A conclusion is never
+//     stronger than its weakest ground, so a culprit resting on a
+//     speculative claim is speculative. A fact only the program holds,
+//     `licence_cap`, is written as a claim at the status `opts.facts`
+//     names, here `cited`, with the source `opts.source` gives.
+//
+"== 11. proofs written into the library" println
+:theory [
+  [ [ explains C Q ] ← [ rel answers C Q ] ]
+  [ [ culprit C ] ← [ explains C Q ] [ rel rebuts C W ] ]
+  [ [ grounded C ] ← [ unit C claim inferred ] [ once [ grounds C G ] [ unit G observation cited ] ] ]
+  [ [ open Q ] ← [ unit Q question S ] [ not [ rel answers C Q ] ] ]
+  [ [ needs_cap C ] ← [ culprit C ] [ licence_cap L ] ]
+  [ licence_cap 2000 ]
+] kb! var
+:show {
+  dup :schema get print " " print dup :status get print ": " print dup :gist get println
+} register
+:prove {
+  :goal swap var :opts swap var
+  :lib var? :lib var? "from library" smysl.kb :theory var? kb.merge :goal var? :opts var? smysl.prove
+  { :lib var? swap smysl.get "  " print show
+    :grounds get { :lib var? swap smysl.get "    on " print show drop } loop } loop
+} register
+"culprits, each a finding at the status its grounds allow:" println
+dict [ culprit C ] prove
+"claims grounded on a cited observation:" println
+dict [ grounded C ] prove
+"questions nothing answers, proved by negation:" println
+dict [ open Q ] prove
+"a program fact authored as cited, with its source:" println
+dict :facts "cited" set :source dict :kind "doc" set :reference "Brewery licence, clause 4" set set
+  [ needs_cap C ] prove
+"findings in the library now: " print :lib var? "from library
+where kind = finding
+count" smysl.query :count get println
+"" println
+
+//
+// 12. Reasoning over the proofs. The findings are units like any other:
+//     the next `smysl.kb` gives facts about them, a rule can rest on them,
+//     and the proof it writes is grounded on them.
+//
+"== 12. reasoning over the proofs" println
+:review [
+  [ [ settled Q ] ← [ rel answers C Q ] [ unit F finding S ] [ grounds F C ] [ gist F G ]
+                    [ test { "*culprit*" G string.wildcard } ] ]
+] kb! var
+"a question settled by a finding the last section wrote:" println
+:lib var? :lib var? "from library" smysl.kb :review var? kb.merge [ settled Q ] dict smysl.prove
+  { :lib var? swap smysl.get "  " print show
+    :grounds get { :lib var? swap smysl.get "    on " print show drop } loop } loop
+"" println
+
+//
+// 13. A retraction, and what the facts then say. `smysl.retract` retracts
+//     a unit as SMYSL's own `retract` does. Under SMYSL's strict policy
+//     only that unit's effective status changes, and `smysl.kb` gives it
+//     as an `effective` fact. A rule that reads it finds the claims the
+//     retraction shakes, and the proof is written. Until a retraction
+//     exists there is no `effective` fact, so the rules declare it.
+//
+"== 13. a retraction, and what the facts then say" println
+:shaken [
+  [ [ shaken C ] ← [ grounds C G ] [ effective G unfounded ] [ unit C claim S ] ]
+  [ [ effective U S ] ← [ fail ] ]
+] kb! var
+"before: is any claim shaken: " print
+:lib var? "from library" smysl.kb :shaken var? kb.merge [ shaken C ] kb.holds println
+"the licence shows a twenty-metre borehole; its record is retracted" println
+:lib var? :labels var? "o/borehole" get smysl.retract drop
+"units smysl.status says retraction changed: " print :lib var? smysl.status len println drop
+"the same, as effective facts:" println
+:lib var? "from library" smysl.kb [ [ effective U S ] [ gist U G ] ] kb.query
+  { "  " print dup :S get print " " print :G get println } loop
+"after: the claims it shakes, proved and written:" println
+:lib var? :lib var? "from library" smysl.kb :shaken var? kb.merge [ shaken C ] dict smysl.prove
+  { :lib var? swap smysl.get "  " print show drop } loop
+"" println
+
+//
+// 14. What the words refuse, each caught by `?try`: a label already bound
+//     to another unit (SM08), a `retracts` edge written by hand (SM03),
+//     an unknown trace kind (SM05), and a MAP that is not a handle (SM00).
+//
+"== 14. what the words refuse" println
+?try
+  :try    { :lib var? "o/dry" :refill var? smysl.label } set
+  :except { "a label bound elsewhere:   " print :context get println } set
+!
+?try
+  :try    { :lib var? dict :kind "retracts" set :from :refill var? set :to :refill var? set smysl.rel } set
+  :except { "a retracts edge by hand:   " print :context get println } set
+!
+?try
+  :try    { :lib var? :refill var? "sideways" ∅ smysl.trace } set
+  :except { "an unknown trace kind:     " print :context get println } set
+!
+?try
+  :try    { dict :root "ashby" set :refill var? smysl.get } set
+  :except { "a MAP that is no handle:   " print :context get println } set
+!
+"" println
+"units in the library at the end: " print :lib var? "from library
+count" smysl.query :count get println

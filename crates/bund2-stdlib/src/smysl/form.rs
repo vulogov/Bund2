@@ -84,6 +84,9 @@ pub(crate) struct Batch<'s> {
     labels: BTreeMap<Label, Uid>,
     /// The rids answered that `is_withdrawn` reports, in order.
     withdrawn: Vec<Uid>,
+    /// Whether the batch was given a unit whose schema, or a relation whose
+    /// kind, begins `x.text/`, written or already held (R29, D247).
+    text_schema: bool,
 }
 
 impl<'s> Batch<'s> {
@@ -98,11 +101,20 @@ impl<'s> Batch<'s> {
             relations: BTreeMap::new(),
             labels: BTreeMap::new(),
             withdrawn: Vec::new(),
+            text_schema: false,
         }
     }
 
     /// The records decided, in order, and the withdrawn rids answered.
-    pub(crate) fn finish(self) -> (Vec<Record>, Vec<Uid>) {
+    ///
+    /// A batch given an `x.text` unit or relation, over a library with no
+    /// `x.text/v1` declaration, carries SMYSL's declaration first,
+    /// unattested, as SMYSL's text ingest stages it (R29, D247).
+    pub(crate) fn finish(mut self) -> (Vec<Record>, Vec<Uid>) {
+        if self.text_schema && !declares_text(self.store) {
+            self.records
+                .insert(0, Record::SchemaDecl(smysl_core::schemas::text::decl()));
+        }
         (self.records, self.withdrawn)
     }
 
@@ -183,6 +195,7 @@ impl<'s> Batch<'s> {
         let core = map::unit_core(m, &mut |l| self.resolve(l))?;
         let uid = canonical_uid(&core);
         let status = core.status;
+        self.text_schema |= is_text(core.schema.as_str());
         if !self.holds_unit(&uid) {
             self.units.insert(uid);
             self.records.push(Record::Unit(core));
@@ -205,6 +218,7 @@ impl<'s> Batch<'s> {
             return Err(sm03("a retracts relation is written only by smysl.retract"));
         }
         let rid = rel.uid();
+        self.text_schema |= is_text(rel.kind.as_str());
         let held = self
             .relations
             .get(&rid)
@@ -261,6 +275,20 @@ impl<'s> Batch<'s> {
         }
         Ok(uid)
     }
+}
+
+/// Whether a schema or a relation kind is the `x.text` schema's: SMYSL's
+/// ingest test (`smysl-ingest/src/text/run.rs:734-740`).
+fn is_text(name: &str) -> bool {
+    name.starts_with("x.text/")
+}
+
+/// Whether the library holds the `x.text/v1` declaration, at any revision
+/// (`smysl-ingest/src/text/run.rs:743-748`).
+fn declares_text(store: &Store) -> bool {
+    store.iter().any(
+        |r| matches!(r, Record::SchemaDecl(d) if d.id.as_str() == smysl_core::schemas::text::ID),
+    )
 }
 
 /// What `smysl.retract` decided: nothing to do, or the self-edge to write.

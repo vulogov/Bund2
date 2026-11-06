@@ -17,6 +17,7 @@ explains it. They are not part of the conformance corpus; that lives under
 | [`logic_demo/`](logic_demo/) | RFC-0013's seven worked examples of logic programming, run unattended: facts and a rule asked three ways, bridges that run Bund inside a rule, a graph word as a generator, a predicate made into a word, an expert system whose replies are seeded, a left-recursive predicate tabled and a KB saturated, and SEND + MORE = MONEY by constraint propagation. `expected.txt` is what it prints, and a test compares the two. The example for `kb.` words. |
 | [`logic_programming/`](logic_programming/) | The Zebra Puzzle solved twice, by search over a list of houses and by CLP(FD) constraints over house numbers, with each part written in its own namespace, a named stack: `@lists` a small list library, `@search` and `@constraints` the two models, built from their stacks by `kb.consult*` and joined by `kb.merge`, and `@answers` where `move` brings both answers to be compared. `expected.txt` is what it prints, and a test compares the two. The example for named stacks with `kb.` words. |
 | [`smysl_demo/`](smysl_demo/) | A SMYSL library about why an old mill grinds slowly, formed from Bund one MAP at a time and from SMYSL's own syntax, researched by its grounds and salience, a ground retracted, queried with `smysl.query` and the `smysl` conditional, written back out as text, then made a knowledge base with `smysl.kb` and reasoned over with `smysl.prove`, which writes its proof into the library as a grounded `finding`. Needs a `bund2` built with `--features smysl`; each run starts from no library. `expected.txt` is what it prints, and a test compares the two. The example for SMYSL corpora. |
+| [`smysl/`](smysl/) | SMYSL and logic programming together, over why a village well ran dry: a library formed from a Markdown text, from SMYSL's own syntax and from Bund MAPs; checked, written out and parsed back; researched by lineage, salience and budget; a dossier and measures; every query shape; then the library as a knowledge base, with CLP(FD) over its ranks, tabled rules, a predicate as a word, bridges that call `smysl.trace` while solving, saturation and askable goals; `smysl.prove` writing findings, a proof by negation and a cited program fact back into the library, a rule resting on those findings, and a retraction the facts then show. Needs a `bund2` built with `--features smysl`. `expected.txt` and `expected.stderr.txt` are what it prints, and a test compares them. The long tour of SMYSL with `kb.` words. |
 
 ## Running an example
 
@@ -33,6 +34,7 @@ Any of them runs straight from its source, with `bund2` built:
     cd bund_examples/logic_demo && bund2 demo.bund
     cd bund_examples/logic_programming && bund2 zebra.bund
     cd bund_examples/smysl_demo && rm -rf mill && bund2 demo.bund   # a --features smysl build
+    cd bund_examples/smysl && rm -rf ashby && bund2 demo.bund       # a --features smysl build
 
 With the bare path, everything after it belongs to the program. The
 `script --file` form takes the program's arguments after `--`:

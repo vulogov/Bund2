@@ -207,6 +207,13 @@
     "go". No ruling changes. An answer's kind is the one `run` gives,
     with no list of the stages that change it; the `smysl` conditional
     skips a uid with no unit.
+  - *Amended 2026-11-05 (D247, R29 A)*, on the owner's "да, оформи D247,
+    рекомендую A", after Phase 1 was built. A Bund program that writes an
+    `x.text` unit or edge, as a dossier needs, could not declare the
+    schema, and every check of its library warned `SMY-W013`. A batch that
+    writes one now carries SMYSL's `x.text/v1` declaration when the
+    library lacks it, as SMYSL's text ingest does (§S4, "The `x.text`
+    schema"; §Preservation; criterion 18).
 - Depends on: RFC-0001 (values), RFC-0002 (words), RFC-0004 (effects),
   RFC-0005 (promotion), RFC-0007 (threads and the bus), RFC-0013
   (knowledge bases, proof trees)
@@ -1186,6 +1193,32 @@ the spec or has a default named here:
   refuses a larger file with SM02, carrying `SMY-E440`, before reading
   it. A `text` is checked the same way.
 
+**The `x.text` schema** [R29, D247]. SMYSL's text ingest declares the
+schema its records use. When a batch holds a unit whose schema, or a
+relation whose kind, begins `x.text/`, and the store holds no `SchemaDecl`
+with id `x.text/v1` at any revision, it stages
+`smysl_core::schemas::text::decl()` with the batch, once
+(`smysl-ingest/src/text/run.rs:505-517,734-748`). The declaration is the
+batch's first record (`smysl-ingest/src/stage.rs:89-96,221`) and is not
+attested: staging attests only units and relations (`:249-258`). Without
+it, every check of the library warns `SMY-W013`, treating each such kind
+as `elaborates` for closure (`smysl-check/src/passes/extension.rs:86-97`).
+SMYSL calls that state "correct and unactionable" (`:466-469`). A schema
+declaration has no §S2 form, so a Bund program cannot write one itself.
+- **Every batch Bund2 writes does what ingest does.** That covers
+  `smysl.unit`, `smysl.rel`, `smysl.append`, `smysl.label` and
+  `smysl.prove`, each deciding against the library as re-opened under the
+  locks (§S9).
+- **What is judged is what the batch is given, held or not,** as ingest
+  judges what it stages, whether or not the store holds it. A unit or
+  relation the library already holds is not written again (above), but it
+  counts. So a batch that re-appends an `x.text` record into a library
+  written without the declaration repairs that library.
+- **The declaration is unattested and comes first**, as in ingest.
+- **`smysl.parse` still skips** a document's own `@schema` record, and
+  says so. An authored schema of the program's own is §S2's to give a form
+  to, in Phase 2 or an amendment of its own (D247's option B).
+
 **Attestation** [R15]. Every unit and relation Bund2 writes is followed by
 one attestation, written as its own `Record::Attestation`. The retraction
 edge is the exception (below). The attestation has these fields:
@@ -2124,6 +2157,7 @@ half in M7, its `smysl.prove` half in M9.
 | Reading a library | **Not strictly read-only, as in SMYSL.** Every open, a read's included, unlinks the objects of redacted parts, without a lock (§Current, "The library") |
 | A library's layout | **May be raised.** A Bund2 write that creates a shard in a layout-1 library rewrites its marker to layout 2, as any SMYSL write does. SMYSL releases before 1.10.0 then no longer read it whole (§Current, "The library"). The marker is rewritten before the first log, so a write that then fails raises it with no new shard, and one that fails while writing it leaves a library nothing can open (`smysl-text/src/library.rs:304-319,1355-1362`). Either keeps the locks (§S9). U10 asks SMYSL to write it atomically |
 | Creating a library | **As SMYSL's, outside the locks.** `smysl.create` does what SMYSL's `text add` does before it locks, under Bund2's process mutex. An open that races a create can read an empty marker and is SM02; a create killed while writing the marker leaves it empty until an operator removes it (§S4) |
+| SMYSL's `x.text` schema | **Declared, as SMYSL's text ingest declares it** [R29, D247]. A batch that writes an `x.text` unit or edge into a library with no `x.text/v1` declaration carries SMYSL's declaration as its first record, unattested (§S4). Before the amendment, such a library warned `SMY-W013` on every check and Bund could not clear it. A library that already holds the declaration, at any revision, is unchanged |
 | SMYSL's index sidecar | **Kept current, as SMYSL's `text add` keeps it.** `smysl.text.add` completes the index under the locks and writes the sidecar after (§S4). The other writing words do not, as SMYSL's other appenders do not, so the next open rebuilds the catalog tables when the sidecar's stamp no longer matches (`smysl-text/src/library.rs:390-398`), which costs speed, not meaning (Q54) |
 | A parsed document | **Refused whole, or answered whole.** `smysl.parse` refuses a document SMYSL could not parse without skipping or dropping something, where SMYSL's own parser recovers and reports. So `smysl.parse` then `smysl.append` never writes a library that differs from its document by a record the parser lost (§S4). Comments and authored salience are not records, and are dropped with a `Warning` each, where SMYSL's `fmt` warns of the first and keeps the second. A document answered with a warning can still be refused by `smysl.append`: a relation of an unknown kind is SM05 there [R24] |
 | Units with no surface form | **Left out of `smysl.write`'s text, and counted.** SMYSL's writer omits them silently, and SMYSL's CLI prints one total; `smysl.write` reports a `Warning` per record kind, as `SMY-W428` describes. Bund2 can write such a unit itself, through a payload key named as a header field, so `smysl.write`, `smysl.parse` and `smysl.append` can copy a library short a unit and its labels, said by that `Warning` (§S4) |
@@ -2588,6 +2622,18 @@ No deviation from the reference is proposed.
       queries warn is SMYSL's to change.
     - A source whose `observed` is above `i64::MAX`, written from its
       STRING form, reads back as that STRING.
+    - **The `x.text` schema** [R29, D247].
+      - A `smysl.append` of an `x.text/entity` unit and an
+        `x.text/mentions` edge onto it writes SMYSL's `x.text/v1`
+        declaration once, as the batch's first record, with no
+        attestation. Afterwards `smysl.check` raises no `SMY-W013`.
+      - A second such write, and a batch over a library whose
+        declaration SMYSL's API wrote, add none.
+      - A batch with no `x.text` record adds none. A batch given an
+        `x.text` unit the library already holds, over a library with no
+        declaration, adds it.
+      - `smysl.rel` of an `x.text` edge and `smysl.unit` of an `x.text`
+        unit each declare it too, in a library that lacks it.
     - Data a later SMYSL may write reads back: a source of an unknown kind
       code, built with `SourceRef::with_unknown_kind`, with `kind` as that
       INT and `opaque = true`; an extension relation kind as its text; and
@@ -3202,6 +3248,13 @@ is unchanged by the building; what it raised is below.
   fixed-effect natives in the header's count, and `kb.askable`,
   `kb.table` and their `.` forms listed as not reached. The owner chose
   to commit the file as generated.
+
+- **After the record: D247.** The demo `bund_examples/smysl/` showed that a
+  library given `x.text` units and edges, as a dossier needs, warned
+  `SMY-W013` on every check, and Bund could not declare the schema. The
+  owner ruled R29 A, and the RFC is amended (§S4, "The `x.text` schema";
+  §Preservation; criterion 18). It is built in `smysl/form.rs`'s
+  `Batch::finish`, and tested in `smysl/forming_tests.rs`.
 
 **What stays open:** Q51, Q54 and Q57, with the routes this RFC names;
 U1–U10 with SMYSL; Phase 2, as a later amendment (R1 A).

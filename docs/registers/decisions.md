@@ -16810,3 +16810,64 @@ states two ways.
 | **R26** | A premise goal holding a LAMBDA. Every bridge goal (`test`, `is`) keeps its λ as written (RFC-0013 §S15), and §S7.1 makes a LAMBDA opaque, so SM03. §S7 gives the detail one line per premise, so a rule with a bridge premise could never be written, against criterion 12's written `:bridge` proof | **A** §S7.1 gains a row: a LAMBDA is `{ ` then each item rendered by the same table, separated by single spaces, then ` }`, the empty LAMBDA `{ }`; an item with no row is still SM03. Criterion 13 tests the row. **B** a premise whose goal has no text is listed by its node kind. **C** keep SM03 | **A** |
 | **R27** | What `smysl.prove` answers for an answer whose root becomes no single unit: a `:builtin`, `:bridge` or `:tabled` root, a `rank` fact, or a `rel` fact, which stands for two units | **A** NODATA; a fact standing for one unit answers that unit's uid. **B** a LIST of the uids. **C** leave the answer out | **A** |
 | **R28** | `opts.facts "unfounded"`: §S7's node table says any value but the five it names is SM05; §S8 files a status Bund2 cannot author under SM03, and SM05 under an unknown status | **A** SM03, `status unfounded cannot be authored`, as `smysl.unit` refuses it; SM05 stays for a status SMYSL does not know. **B** SM05 | **A** |
+
+## D247 — RFC-0014: declaring SMYSL's `x.text/v1` schema when a Bund write uses it
+
+**Raised 2026-11-05**, after RFC-0014's Phase 1 was built, by
+`bund_examples/smysl/`. That demo's `smysl.dossier` needs an
+`x.text/entity` unit and `x.text/mentions` edges onto it, and from then on
+`smysl.check` reports `SMY-W013 relation kind x.text/mentions is
+undeclared; treated as elaborates` on every check of the library.
+
+- **What SMYSL does.**
+  - `SMY-W013` is raised for every relation kind that is neither kernel
+    nor declared by a schema the store holds, and such a kind is treated
+    as `elaborates` for closure
+    (`smysl-check/src/passes/extension.rs:86-97`).
+  - SMYSL's own test calls that state, for the `x.text` kinds before their
+    declaration shipped, "correct and unactionable"
+    (`smysl-check/src/passes/extension.rs:466-469`).
+  - SMYSL's text ingest writes `smysl_core::schemas::text::decl()` itself.
+    It does so when a batch holds a unit whose schema, or a relation whose
+    kind, begins `x.text/`, and the store holds no `SchemaDecl` with id
+    `x.text/v1` at any revision. The declaration is staged with the batch,
+    once, not appended first (`smysl-ingest/src/text/run.rs:505-517,734-748`).
+- **What Bund2 does.**
+  - A schema declaration has no §S2 MAP form. `smysl.parse` skips one
+    with a `Warning`, as RFC-0014 §S4 says, and no `smysl.` word writes
+    one.
+  - So a library a Bund program gives `x.text` units or edges warns
+    `SMY-W013` on every check, and nothing Bund can do clears it.
+- **Not a defect in the build.** RFC-0014 (revision 21) designs the skip,
+  so changing it amends the Accepted RFC.
+
+- Blocks: the 0.54.0 release cut
+- Depends on: D244 (R1, Phase 2 a later amendment)
+- Status: **RESOLVED 2026-11-05.** The owner ruled R29 A ("да, оформи
+  D247, рекомендую A").
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **R29** | How a Bund program comes to declare the `x.text/v1` schema its `x.text` units and edges use | **A** as SMYSL's ingest does: `smysl.unit`, `smysl.rel` and `smysl.append` add `smysl_core::schemas::text::decl()` to the batch they write, under the same locks, when the batch holds a unit whose schema or a relation whose kind begins `x.text/` and the library, as re-opened under the locks, holds no `SchemaDecl` with id `x.text/v1`; once per batch, nothing when it is held. RFC-0014 is amended in §S4 and §Preservation, and a criterion asks that after such a write `smysl.check` raises no `SMY-W013` for an `x.text` kind and the library holds the declaration once. **B** §S2 gains a fourth MAP kind, a schema declaration, which `smysl.append` writes and `smysl.parse` answers, with SMYSL's `SMY-E012` refusal of one that redefines a kernel type or relation kind: general, and a design of its own. **C** no change; the warning is documented | **A**; B left to Phase 2 or its own amendment |
+
+*To settle in the amendment, from the source, before code:*
+- whether `stage::prepare_under` attests a staged `SchemaDecl`, so that
+  Bund2's batch does as SMYSL's does;
+- where the declaration goes among the batch's records.
+
+Neither changes the ruling.
+
+*Note 2026-11-05, the amendment,* on the owner's "amend RFC-0014 and
+implement it". Both points are settled from the source.
+- **Not attested.** `stage::prepare_under` attests only units and
+  relations (`smysl-ingest/src/stage.rs:249-258`).
+- **First.** The declaration is the staged batch's first record
+  (`:89-96,221`).
+- **Held records count.** Ingest judges what it stages, whether or not the
+  store holds it (`smysl-ingest/src/text/run.rs:514,734-740`). So Bund2
+  judges every unit and relation a batch is given, held or not. A batch
+  re-appending an `x.text` record therefore repairs a library written
+  without the declaration.
+
+RFC-0014 is amended in §S4 ("The `x.text` schema"), §Preservation and
+criterion 18. The rule is built in `smysl/form.rs`'s `Batch::finish`.

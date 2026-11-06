@@ -1498,3 +1498,174 @@ fn under_noio_m4s_words_are_sm06_and_parse_still_works() {
         .unwrap();
     assert_eq!(items(&out).len(), 2);
 }
+
+// --- criterion 18: the `x.text` schema (R29, D247) ---------------------------------
+
+/// `Naomi`, an `x.text/entity`, as a MAP: the unit SMYSL's
+/// `schemas::text::entity("Naomi", "kjv/ruth", None)` builds.
+fn naomi() -> BundValue {
+    m(&[
+        ("schema", s("x.text/entity")),
+        ("gist", s("Naomi")),
+        ("status", s("cited")),
+        (
+            "source",
+            m(&[("kind", s("doc")), ("reference", s("alias:kjv/ruth"))]),
+        ),
+    ])
+}
+
+/// The library's records, in the order `Store::iter` gives them.
+fn records(d: &Dir) -> Vec<Record> {
+    d.open().store().iter().cloned().collect()
+}
+
+/// How many `x.text/v1` declarations the library holds.
+fn text_decls(d: &Dir) -> usize {
+    records(d)
+        .iter()
+        .filter(|r| {
+            matches!(r, Record::SchemaDecl(x) if x.id.as_str() == smysl_core::schemas::text::ID)
+        })
+        .count()
+}
+
+/// The `SMY-W013` diagnostics `smysl.check` answers.
+fn w013(d: &Dir) -> usize {
+    let out = call(vec![handle(d)], "smysl.check").0.unwrap();
+    items(&out)
+        .iter()
+        .filter(|x| text(&get(x, "code")) == "SMY-W013")
+        .count()
+}
+
+/// The entity [`naomi`] is, built through SMYSL's API, and its uid.
+fn naomi_core() -> (smysl_core::UnitCore, String) {
+    let e = smysl_core::schemas::text::entity("Naomi", "kjv/ruth", None).unwrap();
+    let u = smysl_core::canonical_uid(&e).canonical();
+    (e, u)
+}
+
+/// Criterion 18, D247: a batch writing an `x.text` unit and edge declares
+/// the schema once, as the batch's first record and unattested, and
+/// `smysl.check` then raises no `SMY-W013`, where the same records written
+/// through SMYSL's API with no declaration warn. A second such batch adds
+/// none.
+#[test]
+fn an_x_text_batch_declares_the_schema_once() {
+    let (entity, e) = naomi_core();
+    let claim = smysl_core::UnitCoreBuilder::new(
+        smysl_core::KernelType::Claim,
+        "Naomi came home.",
+        smysl_core::Status::Speculative,
+    )
+    .build()
+    .unwrap();
+    let c = smysl_core::canonical_uid(&claim).canonical();
+
+    let bare = Dir::library("xtext-bare");
+    raw(
+        &bare,
+        &[
+            Record::Unit(entity),
+            Record::Unit(claim),
+            Record::Relation(Relation::new(
+                RelKind::parse(smysl_core::schemas::text::MENTIONS).unwrap(),
+                uid(&c),
+                uid(&e),
+            )),
+        ],
+    );
+    assert_eq!(text_decls(&bare), 0);
+    assert_eq!(w013(&bare), 1, "the fixture must show the warning first");
+
+    let d = Dir::library("xtext");
+    let before = records(&d).len();
+    appended(
+        &d,
+        vec![
+            unit("Naomi came home."),
+            naomi(),
+            rel("x.text/mentions", &c, &e),
+        ],
+    )
+    .unwrap();
+    let all = records(&d);
+    let batch = &all[before..];
+    assert!(
+        matches!(&batch[0], Record::SchemaDecl(x) if x.id.as_str() == "x.text/v1"),
+        "{:?}",
+        batch[0]
+    );
+    assert_eq!(text_decls(&d), 1);
+    let attested = batch
+        .iter()
+        .filter(|r| matches!(r, Record::Attestation(_)))
+        .count();
+    assert_eq!(
+        attested, 3,
+        "two units and one relation, not the declaration"
+    );
+    assert_eq!(w013(&d), 0);
+
+    // A second batch with another `x.text` edge adds no declaration.
+    let other = add_unit(&d, unit("Ruth stayed."));
+    appended(&d, vec![rel("x.text/mentions", &other, &e)]).unwrap();
+    assert_eq!(text_decls(&d), 1);
+    assert_eq!(w013(&d), 0);
+}
+
+/// Criterion 18, D247: no declaration is added over a library whose
+/// declaration SMYSL's API wrote, or by a batch with no `x.text` record. A
+/// batch given an `x.text` unit the library already holds declares it, as
+/// SMYSL's ingest judges what it stages, held or not, so a library written
+/// without the declaration is repaired. `smysl.rel` of an `x.text` edge
+/// and `smysl.unit` of an `x.text` unit each declare it in a library that
+/// lacks it.
+#[test]
+fn only_a_batch_that_writes_x_text_into_an_undeclaring_library_declares() {
+    let (entity, e) = naomi_core();
+
+    let declared = Dir::library("xtext-declared");
+    raw(
+        &declared,
+        &[Record::SchemaDecl(smysl_core::schemas::text::decl())],
+    );
+    appended(&declared, vec![naomi()]).unwrap();
+    assert_eq!(text_decls(&declared), 1);
+
+    let kernel = Dir::library("xtext-kernel");
+    let a = add_unit(&kernel, unit("The river rose."));
+    let b = add_unit(&kernel, unit("The bridge closed."));
+    appended(&kernel, vec![rel("causes", &a, &b)]).unwrap();
+    assert_eq!(text_decls(&kernel), 0);
+
+    let held = Dir::library("xtext-held");
+    raw(&held, &[Record::Unit(entity)]);
+    let n = records(&held).len();
+    assert_eq!(w013(&held), 0, "an entity alone has no edge to warn on");
+    assert_eq!(
+        appended(&held, vec![naomi()]).unwrap(),
+        BTreeSet::from([e.clone()])
+    );
+    assert_eq!(text_decls(&held), 1);
+    // The entity was held: the declaration and this agent's attestation of
+    // it are all that is new.
+    assert_eq!(records(&held).len(), n + 2);
+
+    let by_rel = Dir::library("xtext-rel");
+    raw(&by_rel, &[Record::Unit(naomi_core().0)]);
+    let c = add_unit(&by_rel, unit("Naomi came home."));
+    assert_eq!(text_decls(&by_rel), 0);
+    call(
+        vec![handle(&by_rel), rel("x.text/mentions", &c, &e)],
+        "smysl.rel",
+    )
+    .0
+    .unwrap();
+    assert_eq!(text_decls(&by_rel), 1);
+
+    let by_unit = Dir::library("xtext-unit");
+    assert_eq!(add_unit(&by_unit, naomi()), e);
+    assert_eq!(text_decls(&by_unit), 1);
+}
