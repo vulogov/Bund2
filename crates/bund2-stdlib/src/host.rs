@@ -2621,20 +2621,22 @@ mod tests {
         assert_eq!(lines(&write("e", b"solo\n")), ["solo", ""]);
         // Blank lines in the middle and at the end are data.
         assert_eq!(lines(&write("f", b"x\n\n\ny")), ["x", "", "", "y"]);
-        // A directory opens; what follows is the host's. `EasyReader::new`
-        // seeks to the end first, which macOS allows on a directory -- the
-        // first read then fails and the answer is empty -- and Linux refuses
-        // with EINVAL, which the reference reports as Bund2 does.
-        if cfg!(target_os = "linux") {
-            let mut i = interp(HostOptions::default());
-            let e = run(&mut i, &format!("\"{}\" io.textfile", d.display()))
-                .expect_err("Linux refuses the seek");
-            assert!(
+        // A directory opens; what follows is the host's, not the OS's.
+        // `EasyReader::new` seeks to the end first. Where the filesystem
+        // allows that on a directory (macOS, and the Linux runner CI moved
+        // to after 2e705b1) the first read then fails and the answer is
+        // empty; where it refuses with EINVAL the reference reports it as
+        // Bund2 does. Either is the reference's answer on that host.
+        let mut i = interp(HostOptions::default());
+        match run(&mut i, &format!("\"{}\" io.textfile", d.display())) {
+            Ok(()) => {
+                let v = i.pull().expect("a list");
+                assert!(v.as_list().expect("a LIST").is_empty(), "{v:?}");
+            }
+            Err(e) => assert!(
                 e.ends_with("IO.TEXTFILE returns error: Invalid argument (os error 22)"),
                 "{e}"
-            );
-        } else {
-            assert!(lines(&d).is_empty());
+            ),
         }
 
         let failure = |p: &std::path::Path| -> String {
