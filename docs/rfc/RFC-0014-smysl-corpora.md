@@ -14,6 +14,19 @@
   - Q50–Q58 as the Open questions leave them, each open one with the
     answer route this RFC names.
 
+  **Phase 2 Accepted** (2026-11-09) by the repository owner ("accept
+  Phase 2"), at revision 27, as the amendment R1 A called for. The fifth
+  review of it (`docs/rfc/reviews/RFC-0014-review-2026-11-09-r26.md`)
+  found nothing blocking; revision 27 answered its one should-fix finding
+  and its notes, and the owner accepted without a further review. The
+  last two reviews found nothing blocking. Accepting means:
+  - D248's R30–R48 as ruled, with the dated notes D248 carries;
+  - Phase 2 as designed in "Design — Phase 2", built as milestones
+    M11–M15 in order, each gated by the acceptance criteria it claims
+    (criteria 19–30);
+  - Q60 as the Open questions leave it, with the answer route it names;
+  - U11–U18 asked of SMYSL, none of them a precondition.
+
   The draft was written on the owner's
   request: "Create RFC for SMYSL project that will make it integrateable
   into Bund. The idea: use SMYSL ability to form, research and query SMYSL
@@ -214,6 +227,47 @@
     writes one now carries SMYSL's `x.text/v1` declaration when the
     library lacks it, as SMYSL's text ingest does (§S4, "The `x.text`
     schema"; §Preservation; criterion 18).
+  - *Revision 22 (2026-11-06), Draft: Phase 2.* On the owner's "Phase 2"
+    and "go ahead", after the owner held 0.54.0 for it and chose Ollama
+    and the hosted providers. "Design — Phase 2" adds three model steps
+    and a word to commit what they stage (§P1–§P10), with criteria
+    19–30, milestones M11–M15, rows in §Preservation, and **D248**,
+    points R30–R38, all OPEN. Phase 1 is Accepted and unchanged by it,
+    except §S10 and §S12, which now point to it. Q59 is raised; U11–U14
+    are asked of SMYSL.
+  - *Revision 23 (2026-11-06), Draft* answers the first review of Phase 2
+    (`docs/rfc/reviews/RFC-0014-review-2026-11-06.md`): B1–B5, S1–S9 and
+    N1–N14, in "Revision 23: the Phase 2 review answered", on the owner's
+    "go ahead with revision 23". D248 gains R39–R43, OPEN: attestation
+    against R15, what `smysl.commit` trusts, rule I, a thread writing
+    during a text ingest, and a licence. Q59 is answered from the source;
+    U15 and U16 are asked of SMYSL.
+  - *D248 ruled (2026-11-06).* The owner ruled R30–R43 A ("all A"), as
+    recommended; the Phase 2 design, drafted on those options, is
+    unchanged by it and stays Draft until it is reviewed again and
+    accepted.
+  - *Revision 24 (2026-11-09), Draft* answers the second review of Phase
+    2 (`docs/rfc/reviews/RFC-0014-review-2026-11-06-r23.md`): B1–B3,
+    S1–S7 and N1–N12, in "Revision 24: the second Phase 2 review
+    answered". Its blocking findings were put to the owner as D248's
+    R44–R46, ruled R44 B, R45 A and R46 A ("all as recommended"). U17 and
+    U18 are asked of SMYSL.
+  - *Revision 25 (2026-11-09), Draft* answers the third review of Phase 2
+    (`docs/rfc/reviews/RFC-0014-review-2026-11-09-r24.md`): B1, S1–S6 and
+    N1–N12, in "Revision 25: the third Phase 2 review answered". Its
+    blocking finding was put to the owner as D248's R47, ruled A ("R47
+    A"): a commit refuses only the errors its batch adds.
+  - *Revision 26 (2026-11-09), Draft* answers the fourth review of Phase 2
+    (`docs/rfc/reviews/RFC-0014-review-2026-11-09-r25.md`): S1–S3 and
+    N1–N7, in "Revision 26: the fourth Phase 2 review answered". Its
+    first should-fix finding went beyond R47's wording, so it was put to
+    the owner as D248's R48, ruled A ("R48 A"): the two reports are
+    compared as multisets, and a reference the batch adds to a missing
+    unit is refused by name.
+  - *Revision 27 (2026-11-09), Draft* answers the fifth review of Phase 2
+    (`docs/rfc/reviews/RFC-0014-review-2026-11-09-r26.md`), which found
+    nothing blocking: S1 and N1–N5, in "Revision 27: the fifth Phase 2
+    review answered". No ruling changes.
 - Depends on: RFC-0001 (values), RFC-0002 (words), RFC-0004 (effects),
   RFC-0005 (promotion), RFC-0007 (threads and the bus), RFC-0013
   (knowledge bases, proof trees)
@@ -2007,8 +2061,8 @@ fails with an I/O error from taking the lock, which is SM02, not SM07.
 
 ### S10. What is not in Phase 1
 
-- **A model.** Neither `ingest_text` nor dossier answering is included;
-  §S12 sets out what Phase 2 would need.
+- **A model.** Neither `ingest_text` nor dossier answering is included
+  in Phase 1; Phase 2 is designed in "Design — Phase 2" (§S12).
 - **Merging libraries.**
   - `smysl_graph::merge` works on a bare store (`smysl-graph/src/merge/mod.rs:100`).
   - A library's in-memory store writes nothing
@@ -2076,7 +2130,7 @@ let the subcommand of R14 be withdrawn.
   A temporary file renamed into place, as objects are written
   (`smysl-text/src/objects.rs:241-264`), would close that.
 
-### S12. Phase 2, not designed here
+### S12. Phase 2
 
 The steps that call a model are extracting units from a text
 (`ingest_text`) and answering a dossier (`smysl-ingest/src/answer.rs:1-3`).
@@ -2085,8 +2139,891 @@ The steps that call a model are extracting units from a text
   (`smysl-provider/Cargo.toml:39`).
 - Bund2 links no async runtime of that kind today.
 
-Whether it ever should, and behind which feature, is R1. If R1 rules
-Phase 2 in, it comes as an amendment with its own criteria.
+R1 A ruled that Phase 2 comes as an amendment with its own criteria.
+Revisions 22–27 draft it in "Design — Phase 2", below; the owner ruled
+D248's R30–R43 A on 2026-11-06, and R44 B, R45 A, R46 A, R47 A and R48 A
+on 2026-11-09.
+
+---
+
+## Design — Phase 2 (revision 27, Accepted 2026-11-09)
+
+*Drafted 2026-11-06 on the owner's word ("Phase 2", then "go ahead"),
+after Phase 1 was built and the owner held 0.54.0 for it, choosing Ollama
+and the hosted providers. Revision 23 answers the first review of it
+(`docs/rfc/reviews/RFC-0014-review-2026-11-06.md`), on the owner's "go
+ahead with revision 23", revision 24 the second
+(`docs/rfc/reviews/RFC-0014-review-2026-11-06-r23.md`), revision 25
+the third (`docs/rfc/reviews/RFC-0014-review-2026-11-09-r24.md`), and
+revision 26 the fourth
+(`docs/rfc/reviews/RFC-0014-review-2026-11-09-r25.md`), and revision 27
+the fifth (`docs/rfc/reviews/RFC-0014-review-2026-11-09-r26.md`). Phase 1
+above is Accepted and unchanged by this part, except where a section
+names this one. The rulings it needs are **D248**, points R30–R48:
+R30–R43 ruled A by the owner on 2026-11-06 ("all A"), R44 B, R45 A and
+R46 A on 2026-11-09 ("all as recommended"), and R47 A and R48 A the same
+day, the options the design was drafted on; it names the ruling where it rests on
+one. Grounded against SMYSL at
+4f5ecb9, as Phase 1 is.*
+
+### P1. What a model adds, and what it does not
+
+**Three of SMYSL's steps call a model** and are offered here [R30]:
+
+| Step | SMYSL's entry point | What it gives back |
+|---|---|---|
+| Ingesting a document | `Ingestor::ingest(store, input)` (`smysl-ingest/src/lib.rs:718-728`) | a `Staged` batch, which the caller writes |
+| Answering a dossier | `Ingestor::answer(store, members)` (`smysl-ingest/src/answer.rs:183-188`) | an `AnswerReport` holding a `Staged` batch, or none (`:56-73`) |
+| Ingesting a text of the library | `Ingestor::ingest_text(&mut TextIngest)` (`smysl-ingest/src/text/run.rs:195-204`) | a `TextReport`; the batches are already written, one per window (`:544-552`) |
+
+- **Not offered:** writing a query from a question (`q --from-question`).
+  Its translator, `ProviderTranslator`, lives in SMYSL's facade crate
+  (`smysl:src/lib.rs:348-409`), which Bund2 does not link (§Alternatives);
+  the trait it implements is `smysl-query`'s (`smysl-query/src/nl.rs:41`).
+  R30 B and C name the other scopes.
+- **Not offered:** SMYSL's other model passes, `attest`, `link`,
+  `summarise` and `same-as`. Each is a later amendment.
+
+**No async enters Bund2.** SMYSL's `Provider` trait is synchronous
+(`smysl-provider/src/lib.rs:12-18,450-480`). Its HTTP client is blocking,
+and its one tokio runtime is current-thread, on a dedicated OS thread
+created on first use, which callers reach through a channel and wait on
+(`smysl-provider/src/runtime.rs:1-14,27-48,54-63`). Every mapper sends
+through `runtime::run` (`smysl-provider/src/map/ollama.rs:274,296`, and
+likewise in the others). So a model word blocks the VM that calls it until
+the model answers, as `io.textfile` blocks on a read. Two consequences:
+- **Model calls are serialised across the process.** There is one
+  provider thread, so two VMs calling model words at once are answered one
+  after the other.
+- **A word can wait a long time.** Each request has the provider's
+  `timeout_secs`, 120 by default (`smysl-provider/src/config.rs:50`). On a
+  429, 503 or 529 SMYSL waits the response's `Retry-After`, read as whole
+  seconds with no upper bound, or a backoff, and tries again, up to three
+  attempts (`smysl-provider/src/http.rs:21,110-111,160-177`). U15 asks
+  SMYSL for a cap.
+
+**SMYSL's rule I: a model's failure degrades, it does not fail.** When a
+provider call fails, `ingest` and `ingest_text` turn the chunk or window
+into one opaque prose unit holding its text, at no more than `speculative`,
+and report `SMY-W304` (`smysl-ingest/src/lib.rs:985-1022`;
+`smysl-ingest/src/repair.rs:338-361`). A model answer that cannot be
+repaired degrades the same way (`smysl-ingest/src/lib.rs:1155-1167`). Only
+`answer` returns a provider error to its caller
+(`smysl-ingest/src/answer.rs:228`). What Bund2 does about it is §P6 [R41].
+
+**What SMYSL's rule S asks, and how Bund keeps it** [R34]. "Rule S says
+model output is staged and confirmed" (`smysl:src/main.rs:10761-10764`).
+SMYSL's commands write model output to a staging file and exit 10 unless
+given `--yes` (`:14135-14192`), and `merge --staged` confirms it later
+(`:4187-4200`). In Bund the program is the one that confirms:
+- `smysl.ingest` and `smysl.answer` write nothing. Each answers a
+  **staged value** (§P4), which the program reads, and writes with
+  `smysl.commit` or drops. Bund2 writes no `.smysl/staged.smy`.
+- `smysl.ingest.text` writes as it goes, as SMYSL's `ingest --text` must:
+  a window's journal entry is written after its batch, so a staged run
+  could keep no journal, and SMYSL refuses `--text` without `--yes`
+  (`smysl:src/main.rs:10765-10771,10796-10800`). Calling the word is the
+  program's `--yes`.
+
+### P2. The build
+
+- **Features** [R36], on `bund2-stdlib` and forwarded by `bund2-cli` as
+  `smysl` is (§S1):
+  - `smysl-model = ["smysl", "dep:smysl-ingest", "dep:smysl-provider"]`.
+    `smysl-ingest` is taken with `default-features = false` and the
+    features `model` and `text` (`smysl-ingest/Cargo.toml:20,25,38`);
+    `text` adds `smysl-text` and `smysl-pack`, which Phase 1 already links.
+    Under those two features all three entry points are compiled: `answer`
+    and `Ingestor` are gated on `model`, and the text run on `model` and
+    `text` (`smysl-ingest/src/lib.rs:57-58,99-100,705-716`). `smysl-provider`
+    is named directly only so that Bund2 can build a registry; it is the
+    same crate `model` brings in.
+  - `smysl-ollama`, `smysl-anthropic`, `smysl-openai`, `smysl-gemini` and
+    `smysl-deepseek`, each `["smysl-model", "smysl-ingest/<name>"]`,
+    mirroring SMYSL's own (`smysl-ingest/Cargo.toml:28-32`), which turn on
+    the mapper of that name (`smysl-provider/Cargo.toml:29-33`).
+  - A build with `smysl-model` and no mapper compiles, and every provider
+    its configuration names is "not compiled into this build"
+    (`smysl-provider/src/map/mod.rs:118-143`), reported as §P3 says.
+- **What each links.** Versions are whatever Bund2's own `Cargo.lock`
+  resolves; SMYSL's lock is cited only to show the chain.
+  - `smysl-model`: `tokio`, with `rt`, `sync` and `macros`
+    (`smysl:Cargo.toml:46`; `smysl-provider/Cargo.toml:39`). No HTTP client.
+  - `smysl-ollama`: adds `ureq` 2 without default features
+    (`smysl:Cargo.toml:47`; `smysl-provider/Cargo.toml:23,29,40`). No TLS,
+    so an `ollama` provider at an `https://` endpoint fails as
+    `Unreachable` in a build with no hosted mapper.
+  - each hosted mapper: adds `ureq`'s `tls` (`smysl-provider/Cargo.toml:26,30-33`),
+    which is `webpki-roots`, `rustls` and `rustls-pki-types` (`ureq`
+    2.12.1's `Cargo.toml:237-241`), `rustls` with the `ring` crypto
+    provider (`:156-163`). In SMYSL's lock `ring` depends on `cc`
+    (`smysl:Cargo.lock:1849-1861`): it compiles C and assembly. SMYSL's
+    `tls-pure`, documented as selecting rustls-rustcrypto, is an empty
+    feature at 4f5ecb9 (`smysl-provider/Cargo.toml:34-35`).
+- **No C compiler, kept where it can be** [R36]. R18 set criterion 3 for
+  `smysl`, and D10 forbids a C compiler "below `bund2 build`" while
+  allowing a feature that is off by default to need one, as `grok` does
+  (D40). D54 deferred `https://` in `use` and `url` on this same ground.
+  - Recommended (R36 A): `smysl-model` and `smysl-ollama` build without a C
+    compiler, which criterion 21 checks. The four hosted mappers may
+    compile C, as `grok` may: they are off by default, named in
+    `features_built_in`, and never in the default build. SMYSL is asked for
+    a working `tls-pure` (U11), and when it has one the hosted mappers move
+    to it in a commit of their own and join criterion 21.
+  - D54 is not changed: `use` and `url` still refuse `https://`. A hosted
+    mapper's TLS is SMYSL's, reached only through a provider.
+- **A licence `deny.toml` does not allow** [R43]. `webpki-roots`, which
+  every hosted mapper links, is `CDLA-Permissive-2.0` (0.26.11, which
+  SMYSL's lock holds, re-exports 1.0.9, and both declare it,
+  `smysl:Cargo.lock:2784-2800`). Allowing a licence has been the owner's
+  ruling before (D152, D216). Recommended (R43 A): add it to
+  `deny.toml`'s `allow` list with a comment naming D248 and saying it
+  enters only through the hosted mappers.
+- **`features_built_in`** (`crates/bund2-cli/src/main.rs`,
+  `features_built_in`) records `smysl-model` and each mapper, from
+  constants `bund2-stdlib` exports beside `SMYSL_BUILT_IN`
+  (`crates/bund2-stdlib/src/lib.rs`, `SMYSL_BUILT_IN`).
+- **CI** gains, in the `check` job: the Phase 2 suites under
+  `smysl-model,smysl-model-probe,smysl-panic-probe` (§P8), the last for
+  Phase 1's `pause`, which criterion 27 uses; clippy over the same; a build of
+  `bund2-cli` with `smysl-ollama` and `CC` and `CXX` set to `false`; and a
+  `cargo check` with every mapper. The `deny` job, which is its own job,
+  gains a run with every mapper. `--all-features` now needs a C compiler,
+  for the hosted mappers.
+
+### P3. Configuration and routing
+
+**Where the configuration comes from** [R31]. SMYSL's own file, found as
+SMYSL's CLI finds it, so that a library has one configuration whichever
+tool calls the model:
+- `opts.config`, when given, names the file. It must be an absolute path,
+  as a handle's root must (§S2), or it is SM03. A file named and absent is
+  SM13, as SMYSL treats a `-C` file it cannot read as a usage error
+  (`smysl:src/main.rs:10685-10696`).
+- Otherwise `.smysl/config.hjson` (`smysl-provider/src/config.rs:338-339`)
+  in the directory that holds the library's root: SMYSL takes the store's
+  parent (`smysl:src/main.rs:10605-10611,10648-10656`). For a library at
+  `/p/lib`, that is `/p/.smysl/config.hjson`. No Phase 1 word reads
+  outside a library's root; these words do.
+- When that file is absent, `Config::local_default()`: one Ollama at
+  `http://127.0.0.1:11434`, model `llama3.2`, every task routed to it,
+  "a default that reached a hosted provider would mean a first run
+  egressing content nobody asked to send"
+  (`smysl-provider/src/config.rs:310-336`; `smysl:src/main.rs:10697-10699`).
+- The file is parsed by `Config::load`, which refuses an unknown task, a
+  route or fallback to an unconfigured provider, and any provider field
+  named `api_key`, `key`, `token`, `secret` or `password`
+  (`smysl-provider/src/config.rs:129-308`). Its refusal is SM13.
+
+**The file's other keys are honoured as SMYSL's commands honour them**, so
+that a Bund2 run and a SMYSL run under one file extract alike and record
+the same recipe. The configuration holds `ingest.prompt`, `ingest.path`,
+`ingest.temperature` and `ask.log` (`smysl-provider/src/config.rs:89-117`):
+
+| Key | `smysl.ingest` | `smysl.ingest.text` | `smysl.answer` |
+|---|---|---|---|
+| `ingest.path` | used when `opts` has no `path` (`smysl:src/main.rs:11252-11259`) | not read, as `--text` does not (`:10773-10915`) | not read |
+| `ingest.temperature` | used when `opts` has no `temperature` (`:11290-11303`) | not read (`:10896-10902`) | not read |
+| `ingest.prompt` | the prompt override, from a path relative to the project for the sidecar, which is the directory that holds the library's root, and to the file's own directory for `opts.config`, as SMYSL resolves it under `-C` (`:10597-10611,10669-10674,10703-10726,11317-11324`; `smysl-provider/src/config.rs:90-91`) | the same (`smysl:src/main.rs:10906-10913`) | not read (`:14194-14212`) |
+| `ask.log` | not read | not read | not read: it serves `ask --misses`, which is not offered |
+
+A prompt override is a further file a model word reads, and it can name
+more: each `<key>_file` it holds is read relative to the override's own
+directory, or from anywhere when absolute, and its text is sent to the
+model (`smysl-ingest/src/prompt.rs:897-935`). A missing or invalid
+override, or a `*_file` that cannot be read, is SM13, as SMYSL's
+`load_prompt` refuses it (`smysl:src/main.rs:10717-10725`).
+
+**The registry** is built as SMYSL's `load_registry_at` builds it
+(`smysl:src/main.rs:10739-10759`): each configured provider through
+`smysl_provider::map::build` (`smysl-provider/src/map/mod.rs:123`), which
+SMYSL's facade re-exports as `build_provider` (`smysl:src/lib.rs:292-293`),
+the routes, the
+fallback chain, and `offline` (§P5). A provider this build cannot drive is
+skipped with a `Warning` naming it, where SMYSL prints a line and skips it
+(`smysl:src/main.rs:10746-10753`). Two things are Bund2's own:
+- each provider is wrapped in a Bund2 adaptor that implements `Provider`
+  by delegating every method, and counts the calls that returned a
+  `ProviderError`, by kind (§P6, R41). The trait is public and its types
+  can be built outside SMYSL (`smysl-provider/src/lib.rs:310-313,343-362,374-394,429-448,450-480`);
+- under `smysl-model-probe`, a provider of kind `bund2-script` is built by
+  Bund2 before `map::build` is asked (§P8).
+
+**Routing is SMYSL's.** All three steps ask for the `content-ingest` task
+through `for_task`, which takes the routed provider alone
+(`smysl-ingest/src/lib.rs:768`; `smysl-ingest/src/answer.rs:190`;
+`smysl-ingest/src/text/run.rs:227`; `smysl-provider/src/registry.rs:92-104`).
+Fallback, which fires only on `Unreachable` (`:1-13,132-173`), is never
+reached by them.
+
+**Keys** [R32]. A configuration never holds a key: only the name of an
+environment variable, `api_key_env`, or a command that prints one,
+`api_key_cmd` (`smysl-provider/src/config.rs:6-9,30-33`). SMYSL resolves
+it when the provider is used: from the variable when `api_key_env` is
+configured, an unset one being a configuration error, and otherwise from
+the command, run without a shell, its stderr never reported
+(`smysl-provider/src/map/auth.rs:48-106`). A hosted mapper resolves it on
+every call (`smysl-provider/src/map/anthropic.rs:67-72,291-292`, and
+likewise the others), so `api_key_cmd` runs once per model call: for a
+text ingest, once per window and pass. A hosted probe resolves it too
+(`smysl-provider/src/map/anthropic.rs:318-322`, and likewise), so it runs
+once more for the probe before each word (§P6).
+- Recommended (R32 A): Bund2 adds nothing. A key never becomes a Bund
+  value, no word answers a configuration, and SMYSL's `Secret` prints as
+  `***` (`smysl-provider/src/map/auth.rs:21-23`).
+- R32 B refuses a configuration with `api_key_cmd`, SM13, so that no
+  program runs as a side effect of a model word.
+
+**Proxies.** SMYSL's client is built with `ureq::AgentBuilder::new()`
+(`smysl-provider/src/http.rs:137-140`), which reads a proxy from the
+environment only under `ureq`'s `proxy-from-env` feature
+(`ureq` 2.12.1's `Cargo.toml:234`), which SMYSL does not turn on. So a
+model call goes direct, where Bund2's own `url` honours `http_proxy`
+(D124). There is no reference behaviour to deviate from; the README says
+it.
+
+### P4. Words
+
+| Word | Operands → result | Does |
+|---|---|---|
+| `smysl.ingest` | handle input opts → staged | extracts units from `input`, a STRING, with `Ingestor::ingest` over the library's store, and answers the batch staged (below). Writes nothing |
+| `smysl.answer` | handle question opts → staged | assembles the dossier for `question` as `smysl.dossier` does (§S5), asks the model to answer it with `Ingestor::answer`, and answers the dossier's records and the answer staged together [R37]. Writes nothing |
+| `smysl.ingest.text` | handle target opts → MAP | ingests one text of the library window by window with `Ingestor::ingest_text`, under the locks for the whole call (§P6), and answers its report (below) |
+| `smysl.commit` | handle staged → LIST | checks a staged value against the library as re-opened under the locks, writes it as one batch with Bund2's attestations (§P7), and answers the uids of the units it wrote that the library did not hold |
+
+Each has a fixed effect, `fixed(3, 1)` but `smysl.commit`'s `fixed(2, 1)`,
+and none re-enters evaluation. Each is in `FEATURE_GATED`
+(`crates/bund2-stdlib/src/lib.rs`, the test module's `FEATURE_GATED`) and,
+since each reaches the network or the disk, in `ACTS_ON_HOST`.
+
+**`opts`** is a MAP. A key it does not name is SM03, a value of the wrong
+type is SM03, and every key may be absent. A key that is absent is not
+passed to SMYSL, so SMYSL's own default, or the configuration's (§P3),
+applies:
+
+| Key | Type | Meaning | When absent |
+|---|---|---|---|
+| `config` | STRING, absolute | the configuration file (§P3) | beside the library |
+| `offline` | BOOL | refuse a provider that is not local, before anything is sent (§P5) | `false` |
+| `model` | STRING | the model asked for (`IngestOptions::model`, `smysl-ingest/src/lib.rs:399`) | the provider's |
+| `temperature` | FLOAT, 0.0 to 2.0 | not `smysl.ingest.text` (below): `IngestOptions::temperature` (`:370`). The range is Bund2's own check, SM03, as it is SMYSL's CLI's and not its library's (`smysl:src/main.rs:11298-11300`) | the configuration's for `smysl.ingest` (§P3), else `0.0` (`smysl-ingest/src/lib.rs:647`) |
+| `path` | STRING | `smysl.ingest` only: `surface` or `json-ast` (`IngestPath::parse`, `:298-304`); `auto`, one of the configuration's values (`smysl-provider/src/config.rs:95-96`), which SMYSL's `--path` and the configuration take to mean no override (`smysl:src/main.rs:11252-11259`), is SM03 here, since leaving `path` out means the same (Preservation) | the configuration's, else SMYSL's choice |
+| `max_output` | INT ≥ 0 | `IngestOptions::max_output`, 0 for the provider's (`smysl-ingest/src/lib.rs:397,513-520`) | `0` |
+| `granularity` | STRING | not `smysl.answer`, SM03, since SMYSL stages an answer under no profile (`smysl-ingest/src/answer.rs:283`): `coarse`, `default` (or `standard`) or `fine`, passed through `with_granularity` (`smysl-ingest/src/lib.rs:532-566`) | not named, so a document ingest applies no profile (`smysl-ingest/src/lib.rs:767`) |
+| `source` | MAP | `smysl.ingest` only: §S2's source MAP, given to units that name none, under `SourcePolicy::FillMissing` as SMYSL's `ingest` gives a named file (`IngestOptions::source`, `:416-420`; `smysl:src/main.rs:11307-11316`) | none |
+| `level` | STRING | `smysl.ingest.text` only: the structure level windows are filled with (`TextIngest::window_level`, `smysl-ingest/src/text/run.rs:63-64`); one `Level::new` refuses is SM03, as SMYSL's flag is a usage error (`smysl:src/main.rs:10819-10826`) | the reading's leaves (below) |
+| `reextract` | BOOL | `smysl.ingest.text` only: ignore the journal (`smysl-ingest/src/text/run.rs:65-66`) | `false` |
+| `digest` | INT ≥ 0 | `smysl.ingest.text` only: the digest's budget in tokens (`:67-68`) | `512` (`:80`) |
+
+- The rest of `IngestOptions` keeps its default
+  (`smysl-ingest/src/lib.rs:629-658`), except the attestation's fields
+  (§P7) and, for `smysl.ingest.text`, two passes per window, which is
+  SMYSL's default for that step and no other (`Passes::TEXT`,
+  `smysl:src/main.rs:10851-10857`).
+- A granularity or prompt override SMYSL refuses is SM13, as SMYSL
+  reports it before anything is sent
+  (`smysl-ingest/src/text/run.rs:205-219`; `smysl-ingest/src/lib.rs:729-762`).
+- **`smysl.ingest.text` takes no `temperature`**, SM03 as a key it does
+  not name. Its two passes are `Passes::TEXT`, and SMYSL refuses any
+  temperature above 0 with two passes, telling the caller to "Pass
+  `--single-pass`" (`smysl-ingest/src/consensus.rs:44,67-77`;
+  `smysl-ingest/src/text/run.rs:212-215`), which Bund2 does not offer.
+- **The default level** is SMYSL's `default_level`: the head manifest's
+  first part, its structure, and the most numerous leaf level by
+  `leaf_level` (`smysl:src/main.rs:11108-11151`;
+  `smysl-ingest/src/text/window.rs:196-201`). `leaf_level` is public;
+  Bund2 writes only the dozen lines that find the structure. A structure
+  that cannot be read, because the part's reader is not in this build
+  (R12) or for any other reason, is SM02 with SMYSL's error; one with no
+  nodes is SM02 `that reading has no nodes to window`.
+
+**`smysl.ingest.text`'s `target`** is an alias STRING, or a MAP
+`{ manifest: <id> }` for one manifest by id (`Target`,
+`smysl-ingest/src/text/run.rs:44-52`). An alias or manifest the library
+does not hold is SM13, since SMYSL refuses it as a configuration error
+before egress (`:221-225`). With no `level`, the default level reads the
+alias's head first, as SMYSL's command does (`smysl:src/main.rs:11117-11122`),
+so an absent alias is refused there; it is SM13 either way.
+
+**A staged value is a MAP:**
+
+| Key | Value |
+|---|---|
+| `type` | `"smysl.staged"` |
+| `root` | the canonical root of the library it was staged against |
+| `step` | `"ingest"` or `"answer"`; it chooses the rung §P7 attests at |
+| `granularity` | STRING, the profile `opts.granularity` named, or NODATA when none was, and always for an answer, so that step 6 checks under what staging checked under (`smysl-ingest/src/stage.rs:169-187`) |
+| `records` | BIN: the batch's records in SMYSL's CBOR, `to_cbor_seq` (`smysl-core/src/lib.rs:28`; `smysl-core/src/cbor/envelope.rs:634`), in the order `Staged::records` gives them (`smysl-ingest/src/stage.rs:89-111`), after the dossier's for an answer |
+| `units`, `relations`, `labels` | LISTs of §S2's MAPs of the batch's units, relations and label bindings, the dossier's included: what a program reads to decide |
+| `clean` | BOOL: the staging adds no error to those the library already had, judged by step 6's comparison [R47, R48] and step 7's references, with the library as staging read it and the staged records, less an answer's `Thread` and `View`, as the batch; and no model call failed (§P6). Where the library had none, that is `Staged::has_errors` false (`smysl-ingest/src/stage.rs:80`). Where it had some, one `Warning` gives their count, as at commit |
+| `diagnostics` | LIST of §S2's diagnostic MAPs: the staging report's and the step's |
+| `provider`, `model` | STRINGs: who answered |
+| `recipe`, `family` | STRINGs, the run's recipe and family hashes in hex |
+| `usage` | MAP `{ input, output, estimated, retries }` (`smysl-provider/src/lib.rs:325-341`) |
+| `counts` | MAP: `ingest`'s `chunks`, `calls`, `degraded`, `repaired` and `failed`; `answer`'s `proposed`, `dropped` and `lowered` (`smysl-ingest/src/answer.rs:56-73`), `capped` (R45) and `failed` |
+
+- A staged value is plain data. It saves and travels as any MAP does, and
+  names its library by `root`, as a handle does.
+- **Nothing in it is trusted at commit** [R40]. `records` is what
+  `smysl.commit` writes from, and every record in it is checked again as
+  `smysl.append` checks a MAP, against the library as it is then. The
+  views are there to be read, not believed.
+- **What a commit takes as given.** These are the program's statement,
+  as everything `smysl.unit` writes is: `step`, which chooses the rung
+  (§P7); `recipe` and `family`, which go on the attestations; `clean`;
+  an answer's `Thread`'s `id`, `schema`, `owner`, `gist`, `ts` and
+  `extra`, and its steps' roles and notes, and its `View`'s `id`,
+  `threads`, `intent`, `lang` and `extra`
+  (`smysl-core/src/types/thread.rs:375,423-430`;
+  `smysl-core/src/types/view.rs:222-232`); and a label binding added to
+  `records` by hand, which step 5 or 7 drops with a `Warning` like a
+  model's rather than refusing with SM08. A `View`'s `granularity` and
+  `requires` are not taken as given: step 7 holds them to what a dossier
+  writes, since a `View`'s profile bounds every later check of the
+  library. A program that edits the first two states another
+  provenance for content it could have authored with `smysl.unit`; step 5
+  still holds each unit to the ceiling of the rung it chose. `clean` false
+  for a failed call (§P6) is advice the program can override by setting
+  it true, as `--yes` overrides SMYSL's own: step 6 cannot re-derive a
+  failed call, since the degraded unit is a valid prose unit
+  (`smysl-ingest/src/repair.rs:341-361`). Step 6 re-derives `clean`'s
+  other half, the errors.
+- **An answer with nothing to keep.** When `answer` stages nothing,
+  because the model's answer did not parse or every unit was dropped
+  (`smysl-ingest/src/answer.rs:65-66,232-240,265-267`), SMYSL stages
+  nothing (`smysl:src/main.rs:9607-9610`). `smysl.answer` then answers a
+  staged value with empty `records`, `units`, `relations` and `labels`,
+  `clean` false, and the diagnostics, so `smysl.commit` refuses it and no
+  dossier is saved without an answer.
+- The step's warnings are reported as `Warning`s too (D36).
+- **An answer is capped at its rung** [R45]. SMYSL's answer template asks
+  the model for `status: derived` (`smysl-ingest/src/prompt.rs:685-689`),
+  and the `Model` rung's ceiling is `inferred`
+  (`smysl-core/src/types/provenance.rs:218-224`;
+  `smysl-core/src/types/epistemics.rs:21-29`). `answer` checks no rung
+  (`smysl-ingest/src/answer.rs:247-284`), and `prepare_under`'s check
+  sees no attestation for the batch (`smysl-ingest/src/stage.rs:221-224`;
+  `smysl-check/src/passes/trust.rs:22-29`), so the answer stages clean.
+  Committed and attested at `Model`, it would then be `SMY-E033` in every
+  later check of the library. So `smysl.answer` does to the `Staged` that
+  `answer` returns what SMYSL's document ingest does after parse
+  (`smysl-ingest/src/repair.rs:165-183`):
+  1. `ceiling::apply` at `Model` to each answer unit
+     (`smysl-ingest/src/ceiling.rs:53-118`);
+  2. `smysl_graph::relink::resettle` over the units and relations
+     (`smysl-graph/src/relink.rs:74-78`), with the labels following the
+     remap it returns. SMYSL's ingest reaches it as `monotone::resettle`,
+     but `monotone` is private to `smysl-ingest`
+     (`smysl-ingest/src/lib.rs:31-33`);
+  3. `prepare_under` again, against the same in-memory store `answer` was
+     given, which holds the dossier (§P6), since the answer grounds on the
+     question unit the library does not hold. That store holds the
+     dossier's declaration, units and relations, not its `Thread` and
+     `View` (§P6), so both stagings check under the library's own
+     granularity profile, as step 6 does.
+
+  The order is rule M, then the cap, where SMYSL's ingest caps first
+  (`smysl-ingest/src/repair.rs:166-174`, then `smysl-ingest/src/stage.rs:192`). The final
+  uids are the same, but the counts differ: a `derived` unit over an
+  `inferred` member is lowered by rule M (`SMY-W036`) and not capped, and
+  only a unit still above `inferred` after rule M, one grounded on a
+  `derived` or `cited` member such as the question unit
+  (`smysl-query/src/dossier/mod.rs:977-991`), is capped (`SMY-E033`). The
+  second staging lowers nothing further, so:
+  - `diagnostics` holds the step's, then the first staging's report, then
+    the caps' `SMY-E033`s, then the second staging's report;
+  - `counts.lowered` is `AnswerReport::lowered`, and `counts.capped`
+    counts the caps.
+
+  `SMY-E033` is an error-severity code (`smysl-core/src/diag.rs:223`).
+  Here it reports a cap already applied, as in SMYSL's ingest, whose
+  rule T `E033`s go to the run's diagnostics and not to the staged
+  report (`smysl-ingest/src/repair.rs:171-172`), so it does not make
+  `clean` false, and Bund2 delivers it as a `Warning` (D36); a program
+  reads `clean`, not the codes. `ceiling::apply` returns the unit
+  uncapped only when it cannot rebuild it (`smysl-ingest/src/ceiling.rs:83-92`),
+  which cannot happen for an answer unit: `admit` keeps only grounded
+  units (`smysl-ingest/src/answer.rs:127-131`), and `inferred` needs only
+  grounds (`smysl-ingest/src/ceiling.rs:129`). U17 asks SMYSL to cap an
+  answer itself.
+
+**`smysl.commit`** [R39, R40] checks, then writes. Steps 1–4 need no lock:
+1. the handle's root, canonicalised (§S2), is the staged value's `root`,
+   or SM03 `staged batch belongs to <root>`;
+2. `clean` is true, or SM03 `staged batch did not check clean`, as SMYSL's
+   `stage_or_commit` refuses (`smysl:src/main.rs:14149-14155`);
+3. `records` decodes whole: `from_cbor_seq` succeeds and the offset it
+   stops at is the BIN's length, since it stops silently at a truncated
+   tail (`smysl-core/src/cbor/envelope.rs:2010-2029`); otherwise SM03
+   `records do not decode`;
+4. every record is of a kind the step makes (below), or SM03 naming it.
+
+Then, under the mutex, the locks and the re-open of §S9:
+
+5. **Phase 1's write checks that do not depend on a uid**, on every
+   decoded unit and relation, as `smysl.append` makes them on a MAP
+   (§S2, §S4): a status Bund2 cannot author (SM03, `measured` among
+   them); a relation kind `RelKind::parse` refuses (SM05); `retracts`
+   (SM03, R23). And **rule T**: a unit above the ceiling of the rung §P7
+   attests it at is SM03 `<uid> exceeds the <rung> ceiling`, as
+   `check_local` judges it (`smysl-ingest/src/repair.rs:566-580`), so no
+   commit leaves a `SMY-E033` behind (R45). Rule M only lowers, so step 6
+   cannot undo this. Staged `Attestation` records are dropped: §P7
+   writes its own. And **labels, first** [R46]: a binding the library
+   holds for another unit than the one staged is dropped here, as step 7
+   drops one, so that step 6 checks under only the labels that can be
+   written. Step 7 judges the rest again after the remap. This pass
+   judges uids from before rule M, so it can err both ways, and both are
+   stated rather than handled; each needs a unit rule M lowers:
+   - a label kept here and dropped at step 7, because rule M moved its
+     unit onto a uid other than the library's, was in step 6's label map,
+     and an error the check reports through it can refuse a commit step 7
+     would have written unlabelled;
+   - a label dropped here whose unit rule M then lowers onto the very uid
+     the library binds it to loses nothing, since the library already
+     holds that binding, but its `Warning` names a collision there is
+     not.
+6. **Rule M and SMYSL's checks, again** [R47]. The units, relations,
+   labels and schema declarations go through `stage::prepare_under`
+   against the re-opened library, under the staged value's `granularity`
+   (`smysl-ingest/src/stage.rs:179-230`). That sees a ground absent at
+   staging and held now. It does not see a retraction or a supersession
+   [R44 B]: rule M reads a ground's declared status
+   (`smysl-ingest/src/monotone.rs:61-74`;
+   `smysl-check/src/passes/epistemics.rs:63-70`), and only
+   `effective_status` honours a `retracts` edge
+   (`smysl-graph/src/merge/retraction.rs:70-73`), so SMYSL's
+   `merge --staged` does not see one either.
+   - `prepare_under`'s check runs over the whole library and the batch
+     (`smysl-ingest/src/stage.rs:224-230`), and always runs the integrity
+     pass (`smysl-check/src/lib.rs:307-310`), which reports a reference to
+     a unit the store does not hold as `SMY-E060`, an error
+     (`smysl-graph/src/store/mod.rs:1019-1030`;
+     `smysl-core/src/diag.rs:198`). Such an error cannot be mended, since
+     only a unit hashing to the missing uid would fill it, and Phase 1's
+     `smysl.unit` and SMYSL's text ingest can both leave one.
+   - So under the same locks Bund2 also checks the library alone, under
+     the same `CheckOptions` as `prepare_under`'s: the staged value's
+     granularity, or none in both, and the same label map. That map is
+     the labels step 5 kept, moved by `prepare_under` to their units'
+     new uids before it checks (`smysl-ingest/src/stage.rs:206-211,226`),
+     which `Staged::labels` returns; staging's comparison uses the map
+     its own `prepare_under` returns in the same way. It
+     refuses only for an error the batch adds [R47, R48]. The two
+     reports' error-severity diagnostics are compared as multisets keyed
+     by code, subject and message, and an error the batch's report holds
+     more often than the library's is added. A whole-store error has
+     `Subject::Store` (`smysl-core/src/diag.rs:510-523,540-548`), and its
+     message tells two apart. A message is a function of what it
+     reports: an `SMY-E020` names its offender
+     (`smysl-check/src/passes/closure.rs:99-106`), an `SMY-E022` its
+     profile, the same in both checks (`smysl-check/src/passes/shape.rs:45-50`),
+     and a cycle's `SMY-E061` lists its members in uid order, since dense
+     ids are assigned in ascending uid order in every store
+     (`smysl-check/src/passes/integrity.rs:94-100`;
+     `smysl-graph/src/adjacency.rs:276-285`). So a message differs only
+     where the batch changed what it reports, and that is an error the
+     batch adds. That includes an error the library had, re-worded: an
+     `SMY-E030` names the weakest ground present
+     (`smysl-check/src/passes/epistemics.rs:38-50,63-70`), so a batch
+     that supplies a missing ground weaker than the one named turns the
+     library's `E030` into another and is refused, where the error's
+     unit and code are unchanged. SMYSL refuses the same batch. That is SM03 `staged batch no longer checks clean`, with
+     the added errors as `Warning`s. The library's own errors are not the
+     commit's to report; one `Warning` gives their count, and
+     `smysl.check` lists them.
+   - The comparison cannot see a reference the batch adds to a uid the
+     library already lacks: `SMY-E060` is reported once per missing uid,
+     however many units refer to it (`smysl-graph/src/adjacency.rs:393-395`;
+     `smysl-graph/src/store/read.rs:368-379`), so both reports hold it
+     once. Step 7 refuses such a reference by name [R48].
+7. **The checks that depend on a uid**, on what step 6 gives back, after
+   its remap, since rule M may have moved a unit:
+   - **references** [R48]: every ground and dep of a batch unit, and
+     every relation's ends and note, names a unit of the batch or of the
+     library, or SM03 `<uid> refers to <ref>, which the library does not
+     hold`; these are the references the integrity pass sees
+     (`smysl-graph/src/adjacency.rs:286-298`). SMYSL's
+     `stage_or_commit` refuses the same batch, as it refuses any error of
+     the store;
+   - **labels** [R46]: a binding step 5 kept that the library holds for
+     another unit, now that rule M may have moved its unit, is dropped
+     rather than refused. Its unit is written without it, and a
+     `Warning` names the label and both uids, as SMYSL's `ingest` stages a
+     colliding label's unit "without a name" with `SMY-W054`
+     (`smysl-ingest/src/lib.rs:847-864`). Labels a program binds through
+     Phase 1's words keep SM08;
+   - **an edge re-written** with another weight or note: SM03, as Phase
+     1 refuses it;
+   - **an answer's `Thread` and `View`**: every uid a `Step::unit` or
+     `View::roots` names (`smysl-core/src/types/thread.rs:374-377`;
+     `smysl-core/src/types/view.rs:222-225`) is a unit of the batch or of
+     the library, or SM03 naming the record. A uid that step 6 moved is
+     SM03 `staged dossier changed under the library`; the remap is
+     computed by position, since `prepare_under` keeps the batch's units
+     in order (`smysl-ingest/src/monotone.rs:49-54`;
+     `smysl-ingest/src/stage.rs:245,260-261`). No value a word staged
+     meets this: a dossier's records name only the `cited` question
+     unit, saved-query units and library units, none of which rule M
+     moves. The `View`'s `granularity` is `View::new`'s default and its
+     `requires` the two schemas a dossier names
+     (`smysl-core/src/types/view.rs:236-246`;
+     `smysl-query/src/dossier/mod.rs:1124-1141`), or SM03 naming the
+     `View`: `check` bounds a library by the widest profile of its views
+     (`smysl-check/src/lib.rs:259-290`), so an edited one would loosen
+     every later check.
+8. D247's rule, for an `x.text` record (§S4).
+9. **Write** what step 6 gives back, as step 7 left it, and an answer's
+   `Thread` and `View`, with §P7's attestations, through Phase 1's batch,
+   in one `append_records` call, with §S9's snapshot and R25's rule for a
+   failure.
+
+**The kinds a step makes** (Q59, answered by reading):
+- `Staged::records` gives `SchemaDecl`, `Unit`, `LabelBinding`,
+  `Relation`, its proposals and `Attestation`, in that order
+  (`smysl-ingest/src/stage.rs:89-111`); `prepare_under` leaves the
+  proposals empty (`:268`), and document ingest and the answer stage no
+  schema (`smysl-ingest/src/lib.rs:908-916`;
+  `smysl-ingest/src/answer.rs:282-283`).
+- A dossier's records are its question `Unit`, the units and `Relation`s
+  of its saved queries, a `Thread` and a `View`
+  (`smysl-query/src/dossier/mod.rs:929-930,991,1147-1148`), and `ask`
+  adds the `x.query/v1` `SchemaDecl` before them when the store lacks it
+  (`smysl:src/main.rs:6668-6674`).
+- So step 4 admits, for `ingest`, `Unit`, `LabelBinding`, `Relation` and
+  `Attestation`; and for `answer`, those and `Thread`, `View`, and a
+  `SchemaDecl` whose id is `x.query/v1`. M11's spike confirms the list
+  against fixtures.
+
+### P5. Offline, `--noio`, and what leaves the machine
+
+- **`--noio`** stubs all four words with SM06 [R33]. Each reads the disk,
+  and three send the library's content to a model.
+- **`opts.offline`** is SMYSL's `--offline`: `Registry::offline(true)`
+  (`smysl-provider/src/registry.rs:62-66`). A provider whose endpoint is
+  not loopback is then refused before any socket is opened, as SMYSL's
+  `OfflineViolation`, `SMY-E301` (`:5-8,106-112`;
+  `smysl-core/src/error.rs:611-620`), which is SM13. Whether an endpoint
+  is local is decided from its host, not declared
+  (`smysl-provider/src/config.rs:54-80`;
+  `smysl-provider/src/map/ollama.rs:226,263`).
+- **What is sent.** Every task SMYSL routes "sends unit content off the
+  machine" unless its provider is local (`smysl-provider/src/lib.rs:126-134`).
+  `smysl.ingest` sends its `input`; `smysl.answer` sends each dossier
+  member's role, uid, status and gist (`smysl-ingest/src/answer.rs:75-95`);
+  `smysl.ingest.text` sends the text's windows and a digest of what was
+  extracted before (`smysl-ingest/src/text/run.rs:1-27`). The README of
+  the example says so, and that `offline` is how a program keeps it
+  local.
+- **What is read from the host**: the configuration and a prompt
+  override outside the library's root (§P3), every `*_file` the override
+  names, anywhere on the host, whose text is then sent to the model, and
+  the environment variable `api_key_env` names.
+- **No CLI flag** is added [R33 A]. R33 B adds `--offline` to `bund2`,
+  setting `offline` for every model word of the run.
+
+### P6. Writes, failures, and the text ingest's locks
+
+**Where the locks are taken.**
+- `smysl.ingest` and `smysl.answer` open the library to read it, call the
+  model with no lock and no mutex held, and close it. Only `smysl.commit`
+  takes §S9's mutex and locks, so a model's minutes never hold a library.
+- **`smysl.ingest.text` holds the library for the whole run.**
+  `ingest_text` commits each window through `append_records` itself
+  (`smysl-ingest/src/text/run.rs:544-552`), and then its reply edges
+  (`:618-642`), with no lock of its own; it is one of R22's six (§S9).
+  Bund2 runs it inside §S9's sequence: the mutex, the locks, the re-open,
+  whose `Library` is the one given to `TextIngest` (`:57-61`), and the
+  snapshot before the call.
+- **Who waits** [R42]. Another process that writes the library meanwhile
+  gets SM07, as against any Bund2 write. Another thread of this process
+  would, under R13, wait on the mutex for the whole run, with no timeout
+  and no way to `?try` it. Recommended (R42 A): while a text ingest runs,
+  Bund2's mutex table marks its root, and a writer in this process that
+  finds the mark answers SM07 naming `bund2 smysl.ingest.text`, instead of
+  waiting; every other write keeps R13's wait. R42 B keeps R13's wait.
+  Today `serialise` takes a root's mutex from the table, releases the
+  table, and blocks on the mutex (`crates/bund2-stdlib/src/smysl/write.rs`,
+  `serialise`), so a mark set while a writer blocks would not be seen.
+  Under R42 A the per-root mutex is replaced:
+  - the table holds, per root, a `held` flag and an optional mark naming
+    the run that set it, all guarded by the table's one lock, with one
+    condition variable beside it;
+  - a writer takes the table's lock and loops: a mark another run set is
+    SM07 `the library is locked: bund2 smysl.ingest.text is writing it in
+    this process`; otherwise, if the root is not `held`, it sets `held`
+    and proceeds; otherwise it waits on the condition variable, which
+    releases the table's lock;
+  - a guard releases the root on every exit, unwinding included: it
+    takes the table's lock, clears `held`, and notifies every waiter.
+    So no wakeup falls between a waiter's test and its wait, and a
+    writer that panics does not leave the root held, as today's
+    `MutexGuard` does not (`crates/bund2-stdlib/src/smysl/write.rs`,
+    `Serial`); Phase 1's `panic` and `pause` probes panic while it is
+    held;
+  - a text ingest, under the table's lock, finds a mark another run set
+    (SM07, as above) or sets its own and notifies, so a writer already
+    waiting wakes, finds the mark and answers SM07; it then waits for
+    `held` like any writer, passing its own mark;
+  - a guard clears the run's own mark, and only its own, on every exit,
+    unwinding included, and notifies. So a panic leaves SMYSL's locks
+    (R20) but not the mark, and the next writer's SM07 is the lock's own
+    text, which names the holder "running `bund2 smysl.ingest.text`"
+    with its pid (`smysl-graph/src/lock.rs:44-52`). The table's lock is
+    held only to test and set these fields, never while a word runs, so a
+    panicking thread never holds it (D49); a poisoned lock is taken as it
+    is, as `serialise` takes it today.
+
+  Every writer, Phase 1's included, now waits on the condition variable
+  rather than on a mutex, and is woken at each release and each mark to
+  test again.
+  R13's meaning is otherwise unchanged: a writer still waits for a write
+  under way, and only a text ingest's mark refuses.
+
+**"Whole or nothing" does not hold for `smysl.ingest.text`, by design.** A
+run that stops part way leaves the windows it committed, and its journal
+(`smysl-ingest/src/text/journal.rs:47,226-231,274-290`), written in the
+library's root after each window's batch, lets the next run skip them
+(`smysl-ingest/src/text/run.rs:333-359`). That is SMYSL's resume property,
+and the word keeps it.
+
+**A failed commit inside the run.** `ingest_text` reports a failed
+`append_records` as `SMY-E001` and goes on to the next window, without
+journalling the failed one (`:544-552,637-640`). The code alone does not
+identify it: a model answer with no units is also `SMY-E001`
+(`smysl-ingest/src/lib.rs:1090-1105`). So Bund2 matches the two messages
+SMYSL writes, `the batch could not be committed: ` and `the reply edges
+could not be committed: `, and only those. If it finds one it applies R25
+as for a failed call: a changed log keeps the locks, and the word is SM02
+with the "left locked" suffix. Since earlier windows wrote, that is the
+usual outcome. U13 asks SMYSL to return a commit failure as a value, so
+that Bund2 need not match a message. SMYSL goes on to the next window
+after the failure (`smysl-ingest/src/text/run.rs:551`), and that window's
+append cuts any torn tail the failure left
+(`smysl-text/src/shards.rs:376-379`), so the operator who breaks the
+locks may find less than the failure itself left.
+
+A journal entry that could not be written is SMYSL's `SMY-W304`
+(`smysl-ingest/src/text/run.rs:577-585`), reported as a `Warning`; the next
+run extracts that window again.
+
+**When the model fails** [R41]. Rule I (§P1) means a model that is down
+does not stop a step: `smysl.ingest` would stage the input as prose, and
+`smysl.ingest.text` would commit every window as prose and journal it as
+done, so that the next run skips it. Recommended (R41 A):
+1. **Before anything is sent**, after Bund2's own `opts` checks and
+   before a text ingest's mark, mutex and locks, each word takes the
+   routed provider with `for_task`, which applies `offline`
+   (`smysl-provider/src/registry.rs:92-112`), and then asks its `probe`,
+   which sends no content (`smysl-provider/src/lib.rs:416-448,478-479`).
+   A probe that fails, or answers `reachable` false, is SM13, and nothing
+   is staged or written. The configuration errors SMYSL refuses inside
+   the step, before egress (`smysl-ingest/src/lib.rs:729-767`;
+   `smysl-ingest/src/text/run.rs:205-225`), come after the probe, so a
+   hosted probe has been sent by then.
+   - A probe can answer `reachable` with the model missing. Bund2 judges
+     the model only where the mapper's own probe does, and as it does:
+     - `ollama`, by prefix (`smysl-provider/src/map/ollama.rs:384-395`),
+       an empty list being "not installed", since `parse_tags` gives one
+       when nothing is (`:165-185`);
+     - `openai`, `gemini` and `deepseek`, exactly
+       (`smysl-provider/src/map/openai.rs:234-248`;
+       `smysl-provider/src/map/gemini.rs:469-481`;
+       `smysl-provider/src/map/deepseek.rs:232-242`);
+     - not `anthropic`, whose probe reports a count and judges no model
+       (`smysl-provider/src/map/anthropic.rs:344-350`).
+
+     The model asked for is `opts.model`, else the provider's
+     `caps().model` (`smysl-provider/src/lib.rs:185-191`). One missing is
+     SM13 naming the model and the probe's detail. A list that does not
+     show a model the provider would accept, by pagination or an alias, is
+     a refusal where SMYSL's commands would try [UNGROUNDED: Q60].
+   - A hosted probe is a request, with the key, to the provider, and
+     resolves the key (§P3).
+   - A text ingest probes even when every window is journalled, so a
+     rerun with nothing to do needs a reachable provider, where SMYSL's
+     command would skip every window.
+2. **During the step**, Bund2's adaptor (§P3) counts the calls that
+   returned a `ProviderError`, reported as `counts.failed`.
+   - `smysl.ingest`: a failed call makes the staged value's `clean` false,
+     with a diagnostic naming it, so `smysl.commit` refuses the batch
+     unless the program overrides `clean` (§P4); the program may stage
+     again.
+   - `smysl.answer`: `answer` returns the error (`smysl-ingest/src/answer.rs:228`),
+     which is SM13.
+   - `smysl.ingest.text`: the windows a failed call degraded are already
+     committed and journalled inside `ingest_text`, and Bund2 cannot stop
+     that. Nor can it name them: the adaptor sees requests, not windows,
+     and the degraded unit's `SMY-W304` names a uid that the text's
+     attachment may then change (`smysl-ingest/src/repair.rs:358-359`;
+     `smysl-ingest/src/text/run.rs:445-453`). So the report's `failed`
+     counts the failed calls, and a `Warning` gives the count and says
+     that `reextract` extracts the text again, every window of it, since
+     `reextract` forgets the whole alias (`:333-336`). U16 asks SMYSL not
+     to journal a window whose call failed at the provider.
+
+R41 B passes rule I through: the counts and SMYSL's `SMY-W304`s only.
+
+**A panic** inside a model call happens on SMYSL's provider thread when
+the mapper sends through `runtime::run`. The caller then panics where it
+waits (`smysl-provider/src/runtime.rs:54-63`), which D49 reports as
+`Error::internal`, and §S9 leaves the locks of a write in progress. The
+provider thread does not survive it, so every later model call in the
+process panics the same way when it sends (`:79-84`). U12 asks SMYSL to
+keep the thread alive.
+
+**The answer's dossier** [R37]. `answer` reads a store that holds the
+dossier's records, and grounds each unit it keeps on dossier members
+(`smysl-ingest/src/answer.rs:12-15,97-107,183-188`). SMYSL's `ask` appends
+the dossier, with the `x.query/v1` declaration when the store lacks it,
+to a copy of the store before answering, and `--answer` runs only after
+`--save` has saved it (`smysl:src/main.rs:6668-6681,6697-6723`). The
+members are the thread's steps that are not gaps (`:9553-9579`).
+- Recommended (R37 A): `smysl.answer` does the same in memory, and its
+  staged value carries the declaration if needed, then the dossier's
+  records, then the answer's. `smysl.commit` writes all of them as one
+  batch, so an answer is never written without the units it grounds on.
+  That amends R17 for this word only: `smysl.dossier` still saves nothing.
+- The copy holds the declaration and the dossier's units and relations,
+  not its `Thread` and `View`, where SMYSL's holds all of them. `answer`
+  reads only member units (`smysl-ingest/src/answer.rs:97-107`), and a
+  `View` in the copy would widen the profile its stagings check under
+  (`smysl-check/src/lib.rs:259-302`) beyond the one step 6 checks under.
+  The staged records still carry both.
+- The copy is of the library's whole store, as SMYSL's is
+  (`smysl:src/main.rs:6677`), so each call costs memory in the size of the
+  library; that bears on Q54.
+- R37 B: `smysl.answer` refuses unless the dossier has been saved, which
+  needs a way to save one, R17's amendment in another form.
+
+**`smysl.ingest.text`'s report is a MAP:**
+
+| Key | Value, from `TextReport` (`smysl-ingest/src/text/run.rs:96-156`) |
+|---|---|
+| `alias`, `manifest`, `lang`, `path` | STRINGs; `path` NODATA when no call was made |
+| `windows`, `skipped`, `calls`, `passes`, `units`, `entities`, `replies`, `spanned`, `spanless`, `degraded`, `repaired`, `retries`, `pivoted`, `pivot_missing`, `pivot_calls` | INTs, as SMYSL counts them |
+| `failed` | INT: calls that returned a `ProviderError` (R41) |
+| `usage` | MAP, as the staged value's |
+| `recipe`, `family` | STRINGs in hex, NODATA when no call was made |
+| `diagnostics` | LIST of §S2's diagnostic MAPs |
+
+`agreement` and `verdicts` are SMYSL's measurement figures and are left
+out; a later amendment can map them.
+
+### P7. Attestation of model output
+
+[R35, R39] Phase 1's R15 attests every unit and relation Bund2 writes
+once, `Authored`, with a clock advanced from this agent's newest in the
+library under the locks, and not where this agent has attested the uid
+already (§S4). SMYSL attests a staged batch differently: every unit and
+relation with one `Attest`, `Op::Imported`, one clock for the batch
+(`smysl-ingest/src/stage.rs:245-258,339-357`). Its reason for
+`Imported`: "ingest transcribes a document, and claiming authorship would
+misattribute the content to the tool" (`:341-343`). `Imported` raises a
+unit's ceiling to `measured` only at the `Computed` rung, and ingest's
+rungs stay capped (`smysl-core/src/types/provenance.rs:309-331`).
+
+Recommended (R39 A), for `smysl.ingest` and `smysl.answer`, whose records
+`smysl.commit` writes:
+- the staged attestations are dropped, and `smysl.commit` writes Phase 1's
+  own through Phase 1's batch: one per unit and relation, skipping a uid
+  this agent has already attested, each clock advanced from the one
+  before, under the locks;
+- for the model's units and relations, the operation is `Imported`, the
+  rung is SMYSL's for the step, and the staged `recipe` and `family` are
+  set on each, as the public fields allow
+  (`smysl-core/src/types/provenance.rs:249-269`). That amends R15's
+  operation for model output only;
+- the rung is `Document` for an ingest, which is what `ingest` uses unless
+  given `--rung` (`smysl:src/main.rs:11209-11215`), and `Model` for an
+  answer, as `ask --answer` uses (`:9587,14194-14212`); of `Model`, SMYSL
+  says it means "a model's reading is the evidence" (`:14196-14198`). An
+  answer is capped at `Model`'s ceiling before it is staged, and step 5
+  refuses a unit above its rung's ceiling (§P4, R45);
+- the dossier's units and relations are attested as R15 attests Bund2's
+  own, `Authored`, where SMYSL's `ask --save` leaves them unattested;
+- the agent is the handle's `agent` (R15) [R35 A]. SMYSL names it
+  `tool:smysl-ingest` for an ingest (`smysl-ingest/src/lib.rs:631`) and
+  `tool:smysl-<pass>` for an answer (`smysl:src/main.rs:14201`); R35 B
+  takes those.
+
+**`smysl.ingest.text` cannot be re-attested.** `ingest_text` commits
+inside SMYSL (`smysl-ingest/src/text/run.rs:546`), with the attestation it
+builds from the options (`:323-331`): `Imported`, one clock for the run,
+every unit, held or not. Bund2 gives it the handle's agent [R35], rung
+`Document` (`smysl:src/main.rs:10845-10850`), and a clock that is §S4's
+for the agent at the start of the run, so the run's attestations do not
+go back in time; within the run they share it. R39 A states this as
+SMYSL's for this word, and R39 B would refuse to offer the word.
+
+R39 B, for the other two: keep SMYSL's staged attestations as they are,
+amending R15 in all four ways for model output.
+
+### P8. Testing without a model
+
+A model's answers cannot be fixed, so the criteria do not call one [R38].
+- The `Provider` trait is public, and a `Completion`, its `Usage` and a
+  `Probe` can be built outside SMYSL (§P3). `Capabilities`, which
+  `caps()` and `Probe::reachable` need, is `#[non_exhaustive]` with no
+  constructor, so `bund2-script` builds one from `Default` and sets its
+  public fields (`smysl-provider/src/lib.rs:181-214`).
+- Recommended (R38 A): a test-only feature `smysl-model-probe`, in no
+  shipped build, as `smysl-panic-probe` is (§S9).
+  - It adds a provider of kind `bund2-script`, which Bund2's registry
+    builder makes itself before `map::build` is asked (§P3), from a
+    provider entry in the configuration file like any other.
+  - It answers from a queue the crate's own tests arm. A queued answer is
+    text, a `ProviderError`, a panic, or a pause that waits, as §S9's
+    `pause` probe waits, until the test removes a file it names. It
+    counts its calls, and can run a test's action on its n-th call.
+  - It reports `offline` as SMYSL's mappers do, from its configured
+    endpoint's host (`smysl-provider/src/config.rs:54-80`), so a test can
+    configure it local or not.
+  - Its probe answers the `models` the test sets, and Bund2 judges them
+    by `ollama`'s rule (§P6), so the criteria can test both an absent
+    model and an empty list.
+  - It answers on the calling thread, not through `runtime::run`, so its
+    panic tests D49's report and not U12's thread.
+  - CI runs the Phase 2 suites with it.
+- A test against a running Ollama exists and is `#[ignore]`d. It is run
+  by hand, and the implementation record names when it last passed.
+- R38 B ships `bund2-script` to users, for their own tests.
+
+### P9. Refusals
+
+One code is added:
+
+| Code | When | Text after `<W>: ` |
+|---|---|---|
+| SM13 | the model layer refused: a configuration file that is named and absent, or that `Config::load` refuses; a prompt override SMYSL cannot load, or a file it names; a probe that fails, or that does not offer the model asked for (R41); a `ProviderError` a step returns (`smysl-core/src/error.rs:581-609`), `OfflineViolation` among them; an option SMYSL refuses before egress; a target the library does not hold | `the model refused it: <message>`, where `<message>` is SMYSL's error as its `Display` writes it, with its code where `ProviderError::code` gives one (`SMY-E300`, `SMY-E301`, `SMY-E302`, `SMY-W303`, `:611-620`) |
+
+- A step whose model answered badly is not a refusal. SMYSL keeps what it
+  can and says why in diagnostics (`smysl-ingest/src/lib.rs:718-723`;
+  `smysl-ingest/src/answer.rs:28-31`), and the word answers what it got.
+- SM00, SM01, SM02, SM03, SM05, SM06, SM07, SM08 and SM11 keep §S8's
+  meanings.
+
+### P10. What SMYSL should change, for Phase 2
+
+- **U11. A working `tls-pure`.** It is declared and empty
+  (`smysl-provider/Cargo.toml:34-35`), so every hosted mapper links `ring`.
+- **U12. A provider thread that survives a panic.** One panic in a job
+  ends it, and every later call panics (`smysl-provider/src/runtime.rs:27-48,54-63,79-84`).
+- **U13. A commit failure in `ingest_text` as a value**, not a diagnostic
+  among others (`smysl-ingest/src/text/run.rs:546-551,637-640`).
+- **U14. `ProviderTranslator` outside the facade**, so an embedder can
+  offer `q --from-question` without linking the facade.
+- **U15. A cap on `Retry-After`** (`smysl-provider/src/http.rs:110-111,177`).
+- **U16. No journal entry for a window whose call failed at the
+  provider**, so a rerun extracts it (`smysl-ingest/src/text/run.rs:544-586`).
+- **U17. An answer capped at its rung**, as `ingest` caps a chunk
+  (`smysl-ingest/src/repair.rs:165-183`): `answer` stages the template's
+  `derived` at the `Model` rung, whose ceiling is `inferred`, so SMYSL's
+  own `ask --answer --yes` leaves a library that fails rule T (R45).
+- **U18. A text ingest's labels checked against the library.** Each
+  window binds its labels with no check against the store
+  (`smysl-ingest/src/text/run.rs:439-441,519-529`), so a run can bind one
+  label to several units (R46).
 
 ---
 
@@ -2137,6 +3074,36 @@ half in M7, its `smysl.prove` half in M9.
 - **Q51** stays open through M4. If M4's failed-append test shows a
   library that SMYSL cannot read back, that is an amendment for a repair
   step.
+
+### Phase 2 (revision 27, Accepted 2026-11-09)
+
+Every milestone ends as Phase 1's do, and also passes clippy under
+`smysl-model,smysl-model-probe,smysl-panic-probe`. Each word arrives with its `--noio` stub
+and its `FEATURE_GATED` and `ACTS_ON_HOST` entries.
+
+| Milestone | Builds | Criteria |
+|---|---|---|
+| M11 | §P2's features and their forwarding; the constants `features_built_in` reads; §P2's CI steps and the `deny.toml` entry (R43); the configuration, its other keys and the registry (§P3) as a function of `bund2-stdlib`, with Bund2's adaptor; the probe feature and `bund2-script`. **First, the spike:** in a test, drive `Ingestor::ingest`, `Ingestor::answer` and `Ingestor::ingest_text` through a registry built by that function over `bund2-script`, and confirm §P4's list of record kinds (Q59) against what each stages | 19, 20, 21, 22 |
+| M12 | `smysl.ingest`, the staged value, `smysl.commit` with its checks in §P4's order, rule T, the comparison with the library alone (R47, R48), the batch's references (R48) and the label rule before step 6 and after the remap (R45, R46), and Phase 1's attestations (§P4, §P7); the probe after `for_task`, with each mapper's model rule, and the adaptor's `failed` count (R41); SM13 | 23's `smysl.ingest` case, 24, 25; 28 for `smysl.ingest` |
+| M13 | `smysl.answer`, with the dossier in memory and in the staged records (§P6, R37), the cap at its rung (R45), its `Thread` and `View` checks, and its empty staged value | 23's and 28's `smysl.answer` cases, 26 |
+| M14 | `smysl.ingest.text` under §S9's sequence for the whole call; the mutex table's `held` flags, marks with their owners, condition variable and the mark's guard (R42), which every writer then uses; the default level, the report MAP, and R25 over the report's commit failures (§P6) | 23's and 28's `smysl.ingest.text` cases, 27 |
+| M15 | `bund_examples/smysl_model/`, run by hand against Ollama, whose README says what each word sends, how `offline` keeps it local, that model calls ignore `http_proxy`, and that an `ollama` provider at `https://` needs a hosted mapper's TLS; the `#[ignore]`d test; the release notes' Phase 2 section | 29 complete, 30 |
+
+**What may stop a milestone.**
+- **M11.** If the spike finds a step that cannot be driven from outside
+  SMYSL through the public API, M11 stops and the gap goes to SMYSL beside
+  U11–U16, or to the amendment.
+- **M11.** If the spike finds a record kind §P4 does not list, the list is
+  amended before M12, and if it is a kind of a dossier's, R37 goes to the
+  owner again.
+- **M11.** The spike also commits an answer whose script says `derived`
+  and grounds on the question unit, into two fresh libraries: into the
+  first as SMYSL stages it, through SMYSL's `append_records` directly,
+  since `smysl.commit` would refuse it; into the second capped (R45). It
+  checks each: `SMY-E033` in the first, none in the second. If the first
+  shows none, §P4's cap is unneeded and R45 goes back to the owner.
+- **R36.** Until U11, the hosted mappers compile C, and criterion 21 names
+  only `smysl-ollama`.
 
 ---
 
@@ -2189,6 +3156,39 @@ half in M7, its `smysl.prove` half in M9.
 | Process-wide state | **One table that only grows.** The mutex table (§S9) gains an entry per canonical root written, and none is removed. It holds a path and a mutex per entry, and outlives every VM |
 | RFC-0013's words and engine | **Preserved exactly.** `smysl.kb` builds a KB through `kb!`'s validation, and `smysl.prove` reads proofs as §S15 gives them. No clause and no source is added to a proof |
 | `q` | **Preserved exactly** (D32). No status becomes a `q` |
+| Phase 1's build, `smysl` | **Unchanged by Phase 2.** Nothing of §P1–§P10 is compiled without `smysl-model`, and criterion 2 still holds (criterion 19) |
+| The network | **Reached, by a feature and a configuration.** A `smysl-model` build sends library content to the provider its configuration routes `content-ingest` to (§P5). The default configuration is a local Ollama, and `opts.offline` refuses any other before anything is sent |
+| Proxies | **Not used by a model call.** SMYSL's client reads no proxy variable (§P3), where Bund2's `url` honours `http_proxy` (D124). No reference behaviour applies |
+| A C compiler | **Needed for a hosted mapper, until U11** [R36]. `smysl-model` and `smysl-ollama` build without one (criterion 21); `smysl-anthropic`, `smysl-openai`, `smysl-gemini` and `smysl-deepseek` link `ring`, as `grok` links C (D10, D40). All are off by default. `--all-features` therefore needs one |
+| `deny.toml` | **One licence more** [R43]. `CDLA-Permissive-2.0`, for `webpki-roots`, reached only through the hosted mappers; the `deny` job gains a run with every mapper |
+| `https://` in `use`, `url` and `file` | **Unchanged** (D54). A hosted mapper's TLS is SMYSL's, reached only through a provider |
+| Files read | **Outside the library's root, for the first time.** The configuration beside the library, or the one `opts.config` names; a prompt override it names; and every `*_file` the override names, anywhere on the host, whose text is sent to the model (§P3). No Phase 1 word reads outside `root` |
+| Keys and the environment | **Keys are never Bund values** [R32]. A configuration names a variable or a command, SMYSL resolves it on every call to a hosted provider, and no word answers a configuration. The variable `api_key_env` names is read |
+| Running a program | **Once per model call, and once per word for the probe, through a configuration** [R32 A]. A hosted provider's `api_key_cmd` is run without a shell each time the provider is called or probed (§P3, §P6): for a text ingest, per window and pass. `--noio` stubs every model word, so it runs nothing then |
+| The probe | **One request per word, before any content** [R41]. To a hosted provider it carries the key. A text ingest probes even when every window is journalled, so a rerun with nothing to do needs a reachable provider, where SMYSL's command would skip every window. Bund2 refuses where SMYSL's commands would try: an Ollama with no model installed, and a model the `openai`, `gemini` or `deepseek` list does not show, which may be a model the provider accepts (Q60) (§P6) |
+| `--noio` | **Extended by four words** [R33], each SM06 |
+| SMYSL's rule S | **Kept, with the program confirming** [R34]. `smysl.ingest` and `smysl.answer` stage; only `smysl.commit` writes, and no `.smysl/staged.smy` is written. `smysl.ingest.text` writes as it goes, as SMYSL's `ingest --text --yes` does |
+| What `smysl.commit` writes | **Only what `smysl.append` would accept** [R40], with an answer's `Thread` and `View`, which no Phase 1 word writes, checked to name only units the batch or the library holds. A staged value is re-checked against the library under the locks, with Phase 1's write checks, rule T, rule M and SMYSL's checks, so a value edited or built by hand gains nothing, and one committed late is judged as the library now stands, but for retraction (below) |
+| A ground retracted or superseded before commit | **Not seen, as in SMYSL** [R44 B]. Rule M reads declared statuses, so neither staging nor commit lowers a unit whose ground was retracted; SMYSL's `merge --staged` does the same, and so does Phase 1's `smysl.unit`. `smysl.status` and `smysl.kb`'s `effective` facts show the retraction (§P4) |
+| What a commit takes as given | **`step`, `recipe`, `family`, `clean`, a `Thread`'s id, schema, owner, gist, clock, extra, roles and notes, a `View`'s id, threads, intent, language and extra, and a label binding added by hand**, the program's statement (§P4). A `View`'s profile and `requires` must be a dossier's. Editing `step` changes the rung an ingest or an answer is attested at, within that rung's ceiling; editing `clean` commits a batch a failed call degraded, as `--yes` would in SMYSL; a label added by hand is dropped with a `Warning` when it collides, not refused with SM08 |
+| The check at commit | **Refuses only what the batch adds** [R47, R48]. Bund2 checks the library alone and with the batch, under the locks and the same options, and refuses for an error the second holds more often than the first, by code, subject and message, and for a reference of the batch to a unit neither holds, where SMYSL's `stage_or_commit` refuses on any error of the whole store. A library holding an error that cannot be mended, a dangling ground that Phase 1's `smysl.unit` or SMYSL's text ingest left, so still takes model commits. The cost is two full checks per commit and per staging (Q54) |
+| An answer's status | **Capped at the `Model` rung's ceiling** [R45], `inferred` where SMYSL's template asks `derived`, with `SMY-E033` reported. Its uids are therefore not the ones SMYSL's `ask --answer` would give, until U17. Bund2 applies rule M before the cap, where SMYSL's ingest caps first, so its `lowered` and `capped` counts can differ from what SMYSL would report for the same unit; the uids do not |
+| The mutex table and R13's wait | **Changed for every writer** [R42]. A root's mutex becomes a `held` flag and an owned mark under the table's lock, with one condition variable; every writer, Phase 1's included, waits on it and is woken at each release and each mark to test again, rather than queueing on a mutex. A guard releases `held` on unwinding, as the mutex's guard does. A writer still waits for a write under way; only a text ingest's mark refuses (§P6) |
+| A dossier's `View` | **Written, with `View::new`'s profile, as SMYSL's `ask --save` writes it** [R37]. `check` bounds a library by the widest profile of its views, so on a library whose views use another profile a committed answer loosens every later check, as a saved dossier does in SMYSL. Bund2's stagings and commit check under the library's profile, leaving the `View` out (§P4, §P6) |
+| `opts.path` `auto` | **SM03, where SMYSL's `--path auto` proceeds** with no override (`smysl:src/main.rs:11252-11259`). Leaving `path` out means the same (§P4) |
+| A model's label the library binds elsewhere | **Dropped, with a `Warning`** [R46], judged after step 6's remap; the unit is written unlabelled, as SMYSL's `ingest` drops a label two chunks share (`SMY-W054`). A label a program binds through Phase 1's words keeps SM08 |
+| Labels a text ingest writes | **As SMYSL writes them** [R46]. `smysl.ingest.text` binds each window's labels inside SMYSL, with no SM08, so a run can bind one label to several units, which Phase 1 refuses to create; a Phase 1 word resolving that label is then SM08 `binds <n> units`. U18 asks SMYSL to check them |
+| `opts.temperature` on a text ingest | **Not taken** (SM03). SMYSL refuses a temperature above 0 with two passes, and Bund2 offers no single pass (§P4) |
+| R15, attestation | **Amended for model output** [R39]. A model's units and relations are attested `Imported`, at SMYSL's rung for the step, with its recipe; otherwise as R15 says. `smysl.ingest.text`'s are SMYSL's own, one clock for the run, every unit (§P7) |
+| R17, saving dossiers | **Amended for `smysl.answer` only** [R37]. A committed answer writes the dossier it grounds on with it, attested as Bund2's; an answer with nothing to keep saves nothing |
+| SMYSL's rule I | **Reported, not hidden** [R41]. A provider that cannot be probed, or does not offer the model asked for, refuses the step; a failed call makes a staged batch unclean, which a program may override, and is counted in a text ingest's report, whose degraded windows SMYSL has journalled |
+| Whole or nothing | **Not for `smysl.ingest.text`**, by SMYSL's design: each window is its own batch, and the journal resumes a run (§P6). Every other word keeps §S4's rule |
+| `ingest --text`'s locks | **Stricter than SMYSL's.** SMYSL's command writes without locks (R22); `smysl.ingest.text` holds the mutex and the locks for the whole run. Another process's write is SM07 meanwhile, and so is another thread's [R42 A], where R13 would make it wait |
+| Process-wide state | **One thread more, shared.** SMYSL's provider thread starts on the first model call and lives until the process ends (`smysl-provider/src/runtime.rs:27-48`). Every model call in the process runs on it, one at a time. A panic on it ends it, and every later model call in the process is `Error::internal` (U12) |
+| How long a word blocks | **For every call it makes, up to three attempts of `timeout_secs` each, plus any `Retry-After` a server sends**, which SMYSL does not cap (§P1, U15). A word makes a call per chunk or window, per pass, and per repair turn, and a text ingest holds the library through all of them |
+| Determinism | **Not of a model's answers.** Criteria 19–29 use `bund2-script`; criterion 30 asserts only that a real model's steps return |
+| SMYSL's journal | **Written in the library's root**, as SMYSL writes it (§P6), so a Bund2 run and SMYSL's `ingest --text` under one configuration resume each other when their recipes agree |
+| `PROMOTABLE.txt`, the editor syntax file, bundles, the palette and `REENTERING` audits, `bund2 check` | **As Phase 1's rows say, extended to the new features.** Four more `# feature-gated:` lines when the owner regenerates `PROMOTABLE.txt` (D72); the syntax file is generated from a default build; `features_built_in` names six more features; the words are fixed-effect, so `bund2 check` and `REENTERING` need nothing new |
 
 No deviation from the reference is proposed.
 
@@ -2230,6 +3230,36 @@ No deviation from the reference is proposed.
   Datalog-shaped, and RFC-0013 could express them. Rejected, because most
   of SMYSL is not logic: identity by BLAKE3 over a deterministic CBOR,
   the library and its readers, and `sq/1`.
+- **The facade crate `smysl`, for Phase 2.** It would bring
+  `ProviderTranslator` and `q --from-question` (§P1). Rejected for the
+  reason Phase 1 rejected it, and because what it adds is one translator,
+  about sixty lines over `smysl-query`'s own prompt
+  (`smysl:src/lib.rs:348-409`), which U14 asks SMYSL to move.
+- **A provider written in Bund.** A Bund lambda answering prompts would
+  let programs test themselves. Rejected: SMYSL's `Provider` is
+  `Send + Sync` (`smysl-provider/src/lib.rs:451`), and a Bund value is
+  not, so the lambda would have to run on the VM's thread behind a
+  channel while the VM waits on the model call. R38 B is the cheaper form.
+- **Refusing a retracted ground at commit** (R44 A). `smysl.commit`
+  would compute effective status under the locks and refuse a unit
+  grounded on a retracted or superseded unit. Rejected: no Phase 1 writer
+  and no SMYSL command checks it, so model commits alone would be held to
+  it; if wanted, it belongs to every writer, as a ruling of its own.
+- **Attesting answers at `Computed`** (R45 B), whose ceiling admits
+  `derived`. Rejected: it records a model as a deterministic tool.
+- **Judging only diagnostics about the batch's own uids** (R47 B).
+  Cheaper than a second check, but it misses an error the batch causes
+  on a unit the library already holds. **Keeping the whole-library check**
+  (R47 C) would end model commits for good on a library with one
+  dangling ground.
+- **Comparing by code and subject alone** (R48 C), as R47 was first
+  worded, or **as multisets without the reference check** (R48 B).
+  Rejected: `SMY-E060` is reported once per missing uid, so neither sees
+  a reference the batch adds to a uid the library already lacks, and a
+  set misses a second error on a unit that already has one.
+- **Async model words.** A word that returns before the model answers.
+  Rejected: SMYSL's trait is synchronous by design (§P1), and Bund2's VM
+  has no way to resume a word.
 
 ---
 
@@ -2640,6 +3670,213 @@ No deviation from the reference is proposed.
       a relation with a non-empty `extra` with `opaque = true`, through
       the mapping function, since no Phase 1 word reads a relation back.
 
+### Phase 2 (revision 27, Accepted 2026-11-09)
+
+Criteria 19–29 are Phase 2's. None calls a model: each runs against the
+test-only provider `bund2-script` (§P8), configured in a file beside the
+test's library, whose answers the test sets. Criterion 30 is the one that
+calls a model, and it is run by hand.
+
+19. **Phase 1's builds are untouched.**
+   - `cargo tree -p bund2-cli --features smysl` still names none of
+     `tokio`, `ureq`, `smysl-ingest` and `smysl-provider` (criterion 2).
+   - The `smysl` build's `bund2 words` lists none of §P4's four words; a
+     `smysl-model` build lists all four.
+   - `conform` and its CEILING, `COVERAGE` and `IMPLEMENTED` are unchanged
+     from the parent commit.
+20. **The model build is licensed.** With R43's entry in `deny.toml`,
+   `cargo deny check` with every mapper passes, and the `deny` job runs
+   it (§P2). The run also checks advisories and bans: an advisory against
+   `ring`, `rustls` or `ureq` fails it, and goes to the owner as M1's did.
+21. **No C compiler for the local build** [R36]. `cargo build -p bund2-cli
+   --features smysl-ollama` succeeds with `CC` and `CXX` set to `false`,
+   and CI runs it.
+22. **Configuration is found, and read, as SMYSL reads it.** A test:
+   - with `.smysl/config.hjson` beside a library routing `content-ingest`
+     to a `bund2-script` provider, `smysl.ingest` reaches that provider;
+   - with `opts.config` naming another file, that file's provider is
+     reached instead; a named file that is absent is SM13, and a relative
+     `opts.config` is SM03;
+   - with no file, the registry is `Config::local_default()`'s, which the
+     test reads through the function the words use, without a call;
+   - a configuration with a provider field named `api_key` is SM13 with
+     SMYSL's text, and one naming a kind this build lacks is a `Warning`
+     naming it, with the other providers still used;
+   - with `ingest.temperature` and `ingest.path` in the file and none in
+     `opts`, the staged `recipe` equals the recipe of the same run given
+     both in `opts`;
+   - with `ingest.prompt` set to `prompts/p.hjson`, the script receives
+     the system text the override at `<project>/prompts/p.hjson` sets
+     under the sidecar, and the one at `<dir>/prompts/p.hjson` sets under
+     an `opts.config` in `<dir>`; an
+     override whose `system_file` names an absent file is SM13, and so is
+     an absent override;
+   - `opts` refusals: an unknown key, a value of the wrong type, a
+     `temperature` of 2.5, a `level` `Level::new` refuses, and any
+     `temperature` given to `smysl.ingest.text`, any `granularity` given
+     to `smysl.answer`, and `path` `auto`, are
+     SM03; a `granularity`
+     SMYSL refuses, and a text target the library does not hold, are
+     SM13.
+23. **Offline refuses before egress.** With `opts.offline` true and
+   `content-ingest` routed to a `bund2-script` provider whose endpoint is
+   `http://192.0.2.1` (a documentation address), each of `smysl.ingest`,
+   `smysl.answer` and `smysl.ingest.text` is SM13 naming `SMY-E301`, and
+   the script counts no call and no probe, since `for_task` refuses
+   before the probe (§P6). The same provider at
+   `http://127.0.0.1` succeeds.
+24. **Ingest stages, and commit writes.** The configuration sets
+   `ingest.path` to `surface`, and the script answers SMYSL surface
+   records. Then:
+   - `smysl.ingest` answers a staged value whose `units` have the uids
+     SMYSL's parser gives those records, whose `clean` is true, whose
+     `counts.failed` is 0, and whose `recipe` and `usage` are set;
+   - every shard log's length and the marker are unchanged by it;
+   - `smysl.commit` answers the uids of those units, and `smysl.get` reads
+     each back;
+   - each is attested once, by the handle's agent, `Imported`, at rung
+     `Document`, with the staged recipe, and the clocks of the agent's
+     attestations in the library never go back (§P7);
+   - a second `smysl.commit` of the same value answers an empty LIST, and
+     writes no attestation;
+   - a staged value saved with `save.model`, loaded, and committed, writes
+     the same records.
+25. **Commit trusts nothing it is given** [R40]. Each of these is refused
+   and writes nothing, leaving no lock:
+   - SM03 for: a staged value of another root; `clean` false; a `records`
+     BIN that does not decode, or decodes short of its length; a record of
+     a kind the step does not make (§P4); a `retracts` relation; a unit
+     at `measured`;
+   - SM03 `exceeds the model ceiling` for an answer whose `records` were
+     edited to put a unit at `derived` (R45);
+   - SM03 naming the record for an answer's `Thread` or `View` edited to
+     name a uid neither the batch nor the library holds;
+   - SM05 for a relation of a kind `RelKind::parse` refuses;
+   - SM03 `staged batch no longer checks clean` for a staged value with
+     `clean` set true by hand over a batch with errors;
+   - SM03 naming the `View` for an answer whose `View`'s `granularity`
+     was edited;
+   - over the library holding the dangling ground `D` below, SM03
+     `staged batch no longer checks clean` for a batch with a unit
+     grounded on another uid the library does not hold (R47), and SM03
+     naming `D` for a batch with a unit grounded on `D` itself (R48);
+   - over a library unit whose body names, by `b3:` prefix, a library
+     unit it does not declare, and so already has one `SMY-E020`, SM03
+     `staged batch no longer checks clean` for a staged unit whose uid a
+     second prefix in that body matches (R48).
+   An attestation by another agent placed in `records` by hand is not
+   written: §P7's are. And three cases that commit:
+   - a staged label the library already binds to another unit: the units
+     are written, the label is not, and a `Warning` names it and both
+     uids (R46);
+   - a value staged before a unit it grounds on is retracted with
+     `smysl.retract` commits as staged, as SMYSL's `merge --staged`
+     would (R44 B);
+   - into a library holding a dangling ground `D`, written by
+     `smysl.unit` naming a uid the library does not hold, `smysl.ingest`
+     stages `clean` true and `smysl.commit` writes, with one `Warning`
+     counting the library's own errors (R47).
+
+   And three cases of order and provenance:
+   - the library holds `U`, labelled `c/x`, grounded on `G`, which it
+     does not hold; the unit `G`, whose status is below `U`'s, is then
+     appended; a staged
+     value holding `U` again with `c/x` commits `U` lowered to `U'`, and
+     the label is dropped with a `Warning`, so `c/x` still binds one unit;
+   - a staged edge `U → V` with no weight, where the library holds
+     `U' → V` with one, is SM03 once step 6 has moved `U` to `U'`;
+   - over a library that declares `x.query/v1`, an answer's staged
+     value with `step` edited to `"ingest"` is SM03 at step 4, naming its
+     `Thread`.
+26. **An answer is grounded on its dossier, capped, and written with
+   it.** Over a library that checks clean, and a fixture that
+   `smysl.dossier` answers with at least two slots, one of them holding a
+   `speculative` unit:
+   - the script's answer holds an `inferred` unit grounded on the `cited`
+     question unit, one grounded outside the dossier, and one `inferred`
+     over the `speculative` member;
+   - the staged value's `counts` say 3 proposed, 1 dropped, 1 lowered and
+     0 capped, and its `diagnostics` hold `SMY-W478` and the first
+     staging's `SMY-W036`;
+   - a script answer at `status: derived`, grounded on the question unit,
+     is staged at `inferred`, with `SMY-E033` among the diagnostics,
+     `counts.capped` 1 and `clean` true (R45);
+   - after `smysl.commit`, every ground of every answer unit is a unit
+     the library holds; the answer's attestations are `Imported` at rung
+     `Model`, and the dossier's `Authored`;
+   - when the library already declares `x.query/v1`, the staged records
+     do not declare it again;
+   - a question longer than the library's profile's `l0_max` stages
+     `clean` false, with `SMY-E022` on the question unit, and
+     `smysl.commit` refuses it, as SMYSL refuses the same answer;
+   - a script answer that does not parse gives a staged value with empty
+     `records` and `clean` false, which `smysl.commit` refuses, and the
+     library gains no dossier;
+   - after an answer is committed, a second `smysl.ingest` and
+     `smysl.commit` on the same library succeed, and `smysl.check`
+     reports no `SMY-E033` (R45).
+27. **Text ingest resumes, holds the library, and reports failures.**
+   Over a Markdown text that windows into three:
+   - `smysl.ingest.text` answers a report whose `windows` is 3 and
+     `skipped` 0, the journal holds 3 entries, and the units are in the
+     library;
+   - run again, it answers `skipped` 3 and the script counts one probe
+     and no completion (§P6); with `reextract`, it extracts the three
+     again;
+   - its default level is the one `leaf_level` gives for the text's first
+     part, for a `txt/1` and an `md/1` fixture (§P4);
+   - while a run is paused inside a call (the script's pause), `smysl.unit`
+     on the same library from another thread is SM07 naming
+     `bund2 smysl.ingest.text` [R42 A], and from another process is SM07;
+   - under `smysl-panic-probe`, with an earlier write paused by Phase 1's
+     `pause` while it holds the root, a `smysl.unit` from another thread
+     that began waiting before the run marked the root is SM07 once the
+     mark is set, and does not wait for the run; the run itself, which
+     waited behind the same write, proceeds; a second text ingest on the
+     same root is SM07 (§P6);
+   - under `smysl-panic-probe`, after Phase 1's `panic` probe unwinds a
+     write, a `smysl.unit` from another thread answers SM07 with the
+     lock's text and does not wait (§P6);
+   - over a fixture whose second window's batch writes a shard log the
+     first window's did not, with the script making that log unwritable
+     on its third call, the second window's first (each window makes two
+     first calls, `smysl-ingest/src/consensus.rs:44-51`), the word is SM02
+     with the "left locked" suffix, and the library refuses the next write
+     with SM07 (§P6, R25);
+   - with the script answering one window with no units, the word does
+     not leave the library locked (§P6);
+   - with the script returning `Unreachable` for every call of the second
+     window, the report's `failed` is the number of those calls, a
+     `Warning` gives it and names `reextract`, and a rerun with
+     `reextract` extracts all three windows again.
+28. **The model's refusals.**
+   - A probe that fails, or answers `reachable` false, makes each word
+     SM13, with nothing staged or written, and the script counts no
+     completion (R41). So does a probe whose `models` does not offer the
+     model asked for, and one whose `models` is empty, judged by
+     `ollama`'s rule (§P8).
+   - `smysl.answer`: the script returning each of `Unreachable`,
+     `Unauthorized`, `Truncated` and `Config` is SM13 with the error's
+     `Display`, its code where it has one.
+   - `smysl.ingest`: the same errors give a staged value with `clean`
+     false, `counts.failed` set, and SMYSL's `SMY-W304` among its
+     diagnostics; `smysl.commit` refuses it.
+   - A script that panics makes the word `Error::internal`; `smysl.ingest`
+     and `smysl.answer` leave no lock, since they hold none (§P6).
+     `smysl.ingest.text` keeps SMYSL's locks (R20) and clears R42's mark:
+     another thread's `smysl.unit` is then SM07 with the lock's text,
+     which names the holder running `bund2 smysl.ingest.text` with its
+     pid, and not with the mark's text, "is writing it in this process".
+29. **The audits and `--noio` see the words.** The four words are in
+   `FEATURE_GATED` and `ACTS_ON_HOST`, which the registry audit checks
+   (Phase 1's criterion 16), and under `--noio` each is SM06.
+30. **A model answers, by hand.** A test marked `#[ignore]`, run against a
+   local Ollama, ingests a short document, commits it, answers a
+   question over it and commits the answer, then ingests and commits a
+   second document; it asserts only that each step returns without a
+   refusal. The implementation record names the Ollama model and the date
+   it last passed.
+
 ---
 
 ## Open questions
@@ -2780,6 +4017,20 @@ Each is in `docs/registers/open-questions.md`.
     through `with_labels`. That would be an amendment to R19.
   - Bund2's own writes put no label in a body, so §S7's exports are not
     affected.
+- **Q59. Answered by revision 23, from the source.** A model step stages
+  `SchemaDecl`, `Unit`, `LabelBinding`, `Relation` and `Attestation`; a
+  dossier adds its question unit, its saved queries' units and edges, a
+  `Thread` and a `View`, and `ask` the `x.query/v1` declaration (§P4, "The
+  kinds a step makes"). M11's spike confirms it against fixtures.
+- **Q60. Open.** Does a hosted provider's model list show every model it
+  accepts? §P6's probe refuses a model the `openai`, `gemini` or
+  `deepseek` list does not hold, as each mapper's probe judges it
+  (`smysl-provider/src/map/openai.rs:234-248`;
+  `smysl-provider/src/map/gemini.rs:469-481`;
+  `smysl-provider/src/map/deepseek.rs:232-242`), and each `parse_models`
+  reads one response. Pagination and aliases are the provider's API's,
+  `[UNGROUNDED]`. M15's run against a hosted provider answers it; if a
+  list is partial, the check narrows to `ollama`.
 
 ---
 
@@ -2812,6 +4063,38 @@ Each is in `docs/registers/open-questions.md`.
 | R23 | `retracts` outside `smysl.retract` | *Raised by revision 8 (D245).* **A** `smysl.rel` and `smysl.append` refuse a `retracts` relation with SM03, naming `smysl.retract`. **B** accept it, and state beside R21 that it bypasses the plan and authority | **A** — **ruled A** 2026-11-02 |
 | R24 | Extension relation kinds | *Raised by revision 8 (D245).* **A** `smysl.rel` and `smysl.append` accept any kind `RelKind::parse` accepts, `x.<domain>/<kind>` included, and read them back as text. **B** read them back, and refuse them on write with SM05 | **A** — **ruled A** 2026-11-02 |
 | R25 | R20's test for a failed write | *Raised by revision 8 (D245).* R20 A is ruled; this restates when it applies. **A** the locks are kept when the library's stamp grew during the failed call, and dropped when it did not, for `append_records` and `Library::add` alike. **B** revision 6's test: `check_loggable` first, then every later error from `append_records` keeps the locks. Under B, an `add` that SMYSL refuses before writing anything still needs a rule, since its manifest is built inside the call. *Amended 2026-11-03 (revision 9), on the owner's word:* A's test is not the stamp, which misses a short write and a failed sync, but each shard log's length on disk: the locks are kept when any log's length changed during the failed call, or when a log held a torn tail before it (an append cuts one first, so length cannot see what replaced it), and dropped otherwise. The intent is unchanged. *Amended again 2026-11-03 (revision 10), on the owner's "A":* the torn-tail clause compared totals, so a refusal that wrote nothing kept the locks over any torn library. Each torn log's tail is now snapshotted and compared byte for byte, the marker is compared too, the snapshot is taken once per acquisition, and a snapshot that cannot be taken keeps the locks. The locks are kept exactly when a log or the marker changed | **A** — **ruled A** 2026-11-02, test amended twice 2026-11-03 |
+
+---
+
+## Rulings asked for (D248)
+
+*Raised by revision 22, the Phase 2 amendment, R39–R43 by revision 23,
+R44–R46 by revision 24, R47 by revision 25, and R48 by revision 26.
+R30–R43 ruled A by the owner on 2026-11-06 ("all A"), R44–R46 on
+2026-11-09 ("all as recommended"), and R47 and R48 the same day ("R47
+A", "R48 A"), as recommended.*
+
+| | Point | Options | Recommended |
+|---|---|---|---|
+| R30 | Which model steps | **A** document ingest, dossier answer and text ingest (§P1). **B** A without text ingest, so every Phase 2 word stages and none writes as it goes. **C** A with `q --from-question`, re-implementing `ProviderTranslator` (§P1) | **A** — **ruled A** 2026-11-06 |
+| R31 | Where the configuration comes from | **A** SMYSL's file, as SMYSL finds it beside the library, or `opts.config`; SMYSL's local default when absent (§P3). **B** a Bund MAP given in `opts`. **C** both | **A** — **ruled A** 2026-11-06 |
+| R32 | Keys | **A** as SMYSL resolves them, `api_key_env` or `api_key_cmd`, with nothing added. **B** `api_key_env` only; a configuration with `api_key_cmd` is SM13 | **A** — **ruled A** 2026-11-06 |
+| R33 | `--noio` and offline | **A** `--noio` stubs all four words; `opts.offline` is SMYSL's `--offline`; no CLI flag. **B** A, and a `bund2 --offline` flag that sets it for every model word | **A** — **ruled A** 2026-11-06 |
+| R34 | SMYSL's rule S | **A** `smysl.ingest` and `smysl.answer` answer a staged value and write nothing; `smysl.commit` writes one; `smysl.ingest.text` writes as it goes. **B** every word writes when called | **A** — **ruled A** 2026-11-06 |
+| R35 | The agent model output is attested as | **A** the handle's agent (R15). **B** SMYSL's agents, `tool:smysl-ingest` and `tool:smysl-ask`. *Revision 23:* the rung, operation and clock are R39's | **A** — **ruled A** 2026-11-06 |
+| R36 | Features, and a C compiler | **A** `smysl-model` and one feature per mapper; `smysl-model` and `smysl-ollama` build without a C compiler, the hosted mappers may compile C until U11, as `grok` does (D10, D40). **B** the hosted mappers wait for U11. **C** one `smysl-model` feature with every mapper | **A** — **ruled A** 2026-11-06 |
+| R37 | The dossier an answer grounds on | **A** `smysl.answer` stages the dossier's records with the answer, and `smysl.commit` writes both as one batch; R17 is amended for this word. **B** `smysl.answer` refuses unless the dossier was saved, which needs a word to save one | **A** — **ruled A** 2026-11-06 |
+| R38 | Testing without a model | **A** a test-only `smysl-model-probe` feature with a scripted provider, `bund2-script`, in no shipped build; a live Ollama test, `#[ignore]`d. **B** `bund2-script` shipped, for users' tests | **A** — **ruled A** 2026-11-06 |
+| R39 | Attestation of model output, against R15 | *Raised by revision 23 (review B1).* **A** `smysl.commit` drops the staged attestations and writes R15's through Phase 1's batch (once per uid, clocks advancing under the locks), except that a model's units and relations are `Imported`, at SMYSL's rung for the step, with the run's recipe; the dossier's are `Authored`; `smysl.ingest.text`'s are SMYSL's own, one clock for the run, which Bund2 starts at §S4's clock. **B** keep SMYSL's staged attestations as they are, amending R15 in four ways for model output | **A** — **ruled A** 2026-11-06 |
+| R40 | What `smysl.commit` trusts | *Raised by revision 23 (review B2, S5).* **A** nothing: under the locks it re-applies Phase 1's write checks (SM03, SM05, SM08, R23, D247) and re-runs rule M and SMYSL's checks through `prepare_under` against the library as it is, refusing a batch that no longer checks clean. **B** a digest of `records` keyed by a per-process secret, so only an unmodified value from this process commits, and a value saved and loaded elsewhere does not. **C** a raw writer, with what it bypasses named in §Preservation | **A** — **ruled A** 2026-11-06 |
+| R41 | SMYSL's rule I: a provider that fails | *Raised by revision 23 (review B3).* **A** each word probes the routed provider first (SM13 if it fails); Bund2's adaptor counts failed calls; a failed call makes `smysl.ingest`'s staged value unclean, `smysl.answer` SM13, and `smysl.ingest.text` report the degraded windows SMYSL has journalled, with a `Warning` naming `reextract`; U16 asked of SMYSL. **B** pass rule I through: the counts and SMYSL's `SMY-W304`s only | **A** — **ruled A** 2026-11-06 |
+| R42 | Another thread writing while a text ingest runs | *Raised by revision 23 (review B4).* **A** the text ingest marks its root in the mutex table, and a writer in this process that finds the mark is SM07 naming it, instead of waiting; R13 is amended for that case only. **B** R13 unchanged: the writer waits for the whole run | **A** — **ruled A** 2026-11-06 |
+| R43 | A licence for the hosted mappers | *Raised by revision 23 (review B5).* **A** `CDLA-Permissive-2.0` is added to `deny.toml`'s allow list, for `webpki-roots`, with a comment naming D248 and the hosted mappers. **B** the hosted mappers wait until a ruling of their own | **A** — **ruled A** 2026-11-06 |
+| R44 | A ground retracted or superseded before commit | *Raised by revision 24 (second review B1).* **A** `smysl.commit` computes effective status under the locks and refuses with SM03, naming the ground, a unit grounded on a retracted or superseded unit. **B** neither staging nor commit sees it, as in SMYSL's `merge --staged` and Phase 1's writers; the claim leaves step 6 and criterion 25, with a Preservation row. **C** A, lowering the unit instead of refusing | **B** — **ruled B** 2026-11-09 |
+| R45 | An answer above the `Model` rung's ceiling | *Raised by revision 24 (second review B2).* **A** `smysl.answer` caps each answer unit with SMYSL's `ceiling::apply` and `monotone::resettle`, as `ingest` does, and stages again; `smysl.commit` refuses a unit above its rung's ceiling; U17. **B** attest answers at `Computed`. **C** commit judges only the batch's own diagnostics. **D** wait for U17 | **A** — **ruled A** 2026-11-09 |
+| R47 | An error the library already holds | *Raised by revision 25 (third review B1).* **A** under the locks, Bund2 checks the library alone and with the batch, and refuses only for an error the batch adds, compared by code and subject; staging's `clean` the same; the library's own errors counted in one `Warning`. *R48 amends the comparison.* **B** judge only diagnostics whose subject is a record of the batch. **C** keep the whole-library check, and state that one unmendable error ends model commits on that library | **A** — **ruled A** 2026-11-09 |
+| R48 | How the two reports are compared | *Raised by revision 26 (fourth review S1).* `SMY-E060` names the missing uid once, however many units refer to it, and a set of codes and subjects misses a second error on a unit that has one. **A** compare multisets of code, subject and message, and refuse by name every reference of the batch to a unit neither the batch nor the library holds. **B** multisets only, stating that a reference to a uid the library already lacks is not refused. **C** R47 as worded, stating both gaps | **A** — **ruled A** 2026-11-09 |
+| R46 | A model's label the library binds to another unit | *Raised by revision 24 (second review B3).* **A** `smysl.commit` drops the binding with a `Warning`, writing the unit unlabelled, as `ingest` does with `SMY-W054`; SM08 stays for a program's labels; the text ingest's bindings get a Preservation row and U18. **B** keep SM08 for the whole batch, with a word to drop bindings from a staged value. **C** refuse at staging | **A** — **ruled A** 2026-11-09 |
 
 ---
 
@@ -3258,3 +4541,148 @@ is unchanged by the building; what it raised is below.
 
 **What stays open:** Q51, Q54 and Q57, with the routes this RFC names;
 U1–U10 with SMYSL; Phase 2, as a later amendment (R1 A).
+
+---
+
+## Revision 23: the Phase 2 review answered
+
+The first review of Phase 2 (`docs/rfc/reviews/RFC-0014-review-2026-11-06.md`)
+found five blocking, nine should-fix and fourteen notes. Each citation it
+relied on was re-read at 4f5ecb9 before it was used here.
+
+| Finding | Answer |
+|---|---|
+| B1 attestation and R15 | §P7 rewritten. `smysl.commit` drops the staged attestations and writes R15's through Phase 1's batch, with `Imported`, SMYSL's rung and the recipe for model output; the dossier's are `Authored`; the text ingest's are SMYSL's, started at §S4's clock. Raised as **R39**; R35 now covers the agent only. Preservation row "R15, attestation"; criteria 24 and 26 |
+| B2 commit writes any records | §P4: nothing in a staged value is trusted; `smysl.commit` re-applies Phase 1's write checks under the locks. Raised as **R40**. Preservation row "What `smysl.commit` writes"; criterion 25 |
+| B3 rule I | §P1 states rule I; §P6 "When the model fails": a probe before anything is sent, Bund2's adaptor counting failed calls, and what each word does. Raised as **R41**; U16. Criteria 27 and 28 rewritten per word |
+| B4 threads wait under R13 | §P6 "Who waits" corrected; a mark in the mutex table makes another thread SM07 during a text ingest. Raised as **R42**. Criterion 27 and the Preservation row corrected |
+| B5 `webpki-roots`'s licence | §P2 names `CDLA-Permissive-2.0`. Raised as **R43**, after D152 and D216. Preservation row "`deny.toml`"; criterion 20 |
+| S1 the text report | §P6 gives the report MAP's keys |
+| S2 the configuration's other keys | §P3's table: honoured per step as SMYSL's commands honour them; `ask.log` not read. Criterion 22 adds the recipe and prompt cases; Preservation row "Files read" |
+| S3 `bund2-script` | §P3 and §P8: built by Bund2 before `build_provider`, configured in the file, `offline` from its endpoint. Criteria 22 and 23 |
+| S4 an answer with nothing to keep | §P4: an empty staged value with `clean` false. Criterion 26 |
+| S5 a late commit | §P4 step 6 re-runs rule M and SMYSL's checks under the locks (R40 A). The wrong precedent is removed: SMYSL's later commit is `merge --staged` (`smysl:src/main.rs:4187-4200`) |
+| S6 `SMY-E001` | §P6 matches SMYSL's two messages, citing the model's own `SMY-E001`. Criterion 27 adds the empty-answer case |
+| S7 the options | §P4: an absent key is not passed; `granularity` is named only when given; `source` is `FillMissing`; an invalid `level` is SM03; `path` added |
+| S8 one thread, unbounded waits | §P1 and the Preservation rows "Process-wide state" and "How long a word blocks"; U15 |
+| S9 host effects | Preservation rows "Proxies", "Files read", "Keys and the environment", "Running a program" (once per call), "`deny.toml`", and one for `PROMOTABLE.txt`, the syntax file, bundles and the audits; §P1 says no `.smysl/staged.smy` is written |
+| N1 `for_task` | §P3: all three |
+| N2 key order | §P3 corrected |
+| N3 `ring` and `cc` | §P2 cites SMYSL's lock |
+| N4 whose lock | §P2: Bund2 resolves its own |
+| N5 a truncated BIN | §P4 step 3 compares the offset with the length |
+| N6 CI and `features_built_in` | §P2: the `deny` job; `features_built_in` cited in `bund2-cli` |
+| N7 Q59 | Answered in §P4 and the Open questions |
+| N8 `opts.config` | Absolute, or SM03 |
+| N9 a text with no reader | §P4: SM02 with SMYSL's error |
+| N10 `leaf_level` | §P4 and criterion 27 use it |
+| N11 where the script panics | §P8: on the calling thread, so it tests D49 and not U12 |
+| N12 an action between windows | §P8: the script acts on its n-th call; criterion 27 says so |
+| N13 the store copy | §P6, bearing on Q54 |
+| N14 `https://` Ollama | §P2 and M15's README |
+
+---
+
+## Revision 24: the second Phase 2 review answered
+
+The second review of Phase 2
+(`docs/rfc/reviews/RFC-0014-review-2026-11-06-r23.md`) found three
+blocking, seven should-fix and twelve notes. Its blocking findings were
+put to the owner as D248's R44–R46, and ruled as recommended. Each SMYSL
+line cited here was re-read at 4f5ecb9.
+
+| Finding | Answer |
+|---|---|
+| B1 a retraction is not seen at commit | **R44 B.** §P4 step 6 says what the re-check sees and what it does not; criterion 25's retraction case now commits; Preservation row "A ground retracted or superseded before commit"; R44 A in §Alternatives. Revision 23's answer to the first review's S5 is corrected by this |
+| B2 an answer above the `Model` ceiling | **R45 A.** §P4 "An answer is capped at its rung", with SMYSL's `ceiling::apply` and `resettle`; step 5's rule T; §P7; `counts.capped`; U17. Criterion 26's derived-answer and second-commit cases; criterion 30 commits after an answer; M11's spike checks it |
+| B3 SM08 over a model's label | **R46 A.** §P4 step 5 drops a staged binding the library holds elsewhere, with a `Warning`; Preservation rows for it and for the text ingest's labels; U18. Criterion 25's commit case |
+| S1 what commit trusts | §P4 "What a commit takes as given": `step`, `recipe`, `family` and `clean`; step 5 checks `Thread` and `View`, step 6 refuses a dossier whose uids moved, step 8 writes them. Preservation rows; criterion 25 |
+| S2 granularity at commit | The staged value records `granularity`, and step 6 checks under it |
+| S3 `clean` and a failed call | §P4 and §P6: advice a program can override, as `--yes`; the Preservation rows say so |
+| S4 the probe | §P6: `for_task` then `probe`; the probe's `models` must offer the model asked for; its request, key resolution and rerun cost stated. Preservation rows "Running a program" and "The probe"; criteria 23, 27 and 28 |
+| S5 the prompt override's base and files | §P3: the project for the sidecar, the file's directory for `opts.config`; the override's `*_file` reads in §P3, §P5 and the "Files read" row. Criterion 22 rewritten |
+| S6 R42's mark | §P6: set and tested under the table's lock, writers wait on a condition variable and re-test, a guard clears the mark on every exit. M14; criteria 27 and 28 |
+| S7 naming a failed window | §P6: the report counts failed calls, and the `Warning` gives the count; `reextract` re-extracts the whole text. Criterion 27 rewritten |
+| N1 two citations | §P3: `map::build`, with the facade's alias cited; `Secret` in `map/auth.rs` |
+| N2 temperature on a text ingest | §P4: not taken, SM03; Preservation row |
+| N3 the temperature range | §P4: Bund2's own SM03, as SMYSL's CLI checks it |
+| N4 target before default level | §P4: SM13 either way |
+| N5 blocking per word | The "How long a word blocks" row counts the calls |
+| N6 `cargo deny` | Criterion 20 says it checks advisories and bans too |
+| N7 SMYSL's defaults | No change: nothing widened |
+| N8 `Capabilities` | §P8: built from `Default` and its public fields |
+| N9 the library-wide check | §P4 step 6 and the Preservation row "The check at commit" |
+| N10 a later window cuts a torn tail | §P6, one sentence |
+| N11 untested refusals | Criteria 22 and 28 |
+| N12 D248's heading | Its note of 2026-11-09 says it now runs to R46 |
+
+---
+
+## Revision 25: the third Phase 2 review answered
+
+The third review of Phase 2
+(`docs/rfc/reviews/RFC-0014-review-2026-11-09-r24.md`) found one
+blocking, six should-fix and twelve notes. Its blocking finding was put
+to the owner as D248's R47 and ruled A. Each SMYSL line cited here was
+re-read at 4f5ecb9.
+
+| Finding | Answer |
+|---|---|
+| B1 one library error ends every commit | **R47 A.** §P4 step 6 checks the library alone and with the batch and refuses only for an error the batch adds; the staged `clean` judges the same. Preservation row "The check at commit"; criterion 25's dangling-ground cases; R47 B and C in §Alternatives |
+| S1 `monotone::resettle` is private | §P4 names `smysl_graph::relink::resettle` |
+| S2 re-staging an answer | §P4: the second `prepare_under` runs against the in-memory store with the dossier; `diagnostics` keeps the first staging's report; `lowered` is `AnswerReport`'s; the order, rule M then the cap, and what it does to the counts. Criterion 26 names its grounds; Preservation row "An answer's status" |
+| S3 step 5 before the remap | §P4: the uid-dependent checks, labels, re-written edges and `Thread`/`View`, are step 7, after step 6. Criterion 25's worked case and edge case |
+| S4 the probe's model rule | §P6: each mapper's own rule, none for `anthropic`, an empty Ollama list is "not installed"; pagination and aliases marked `[UNGROUNDED]`, Q60. Preservation row "The probe"; criterion 28; §P8 |
+| S5 R42's wait | §P6: `held` flags and owned marks under the table's lock with one condition variable, release notifying under the lock; a second text ingest is SM07; CI and the milestones build `smysl-panic-probe`. Preservation row "The mutex table and R13's wait"; criterion 27 |
+| S6 criterion 28's panic case | Reworded: the lock's text names the holder; the mark's text is given in §P6 |
+| N1 "dossier changed" | §P4 step 7: the remap by position; unreachable for a value a word staged, said so |
+| N2 `Thread` and `View` fields | §P4 "What a commit takes as given" and its Preservation row |
+| N3 a hand-added label | The same, and the label row |
+| N4 `E033` as a `Warning` | §P4: its severity, and why `clean` stays true; the rebuild failure that cannot happen |
+| N5 M11's spike | Two libraries, the first written through SMYSL's `append_records` |
+| N6 where the probe falls | §P6 item 1 |
+| N7 criterion 27's "second call" | The third call, the second window's first, over a fixture that names its shards |
+| N8 criterion 26's fixture | Grounds named |
+| N9 `path` `auto` | §P4's table: SM03; criterion 22 |
+| N10 criterion 22's prompt | "the system text the override sets" |
+| N11 a `step` case | Criterion 25 |
+| N12 a short path | `smysl-core/src/cbor/envelope.rs:634` |
+| Citations | `repair.rs:358-359` for `W304`; `relink.rs:74-78` for `resettle` |
+
+## Revision 26: the fourth Phase 2 review answered
+
+The fourth review of Phase 2
+(`docs/rfc/reviews/RFC-0014-review-2026-11-09-r25.md`) found nothing
+blocking, three should-fix and seven notes. Its first should-fix finding
+went beyond R47's wording, so it was put to the owner as D248's R48 and
+ruled A. Each SMYSL line cited here was re-read at 4f5ecb9.
+
+| Finding | Answer |
+|---|---|
+| S1 code and subject miss errors | **R48 A.** §P4 step 6 compares multisets keyed by code, subject and message, and says why each message is a function of what it reports; step 7 refuses a reference of the batch to a unit neither holds. Preservation row "The check at commit"; criterion 25's two R48 cases; R48 B and C in §Alternatives |
+| S2 staging and commit judge differently | The staged `clean` is step 6's comparison and step 7's references, with the library as the baseline and the staged records, less the `Thread` and `View`, as the batch; §P6's copy leaves both out, so every check runs under the library's profile. Criterion 26's long question; Preservation row "A dossier's `View`" |
+| S3 `held` on unwinding | §P6: a guard releases `held` on every exit, unwinding included. Criterion 27's `panic` case; the mutex row |
+| N1 labels at step 6 | §P4: step 5 drops colliding labels first and both checks share one `CheckOptions`; the residue is stated |
+| N2 a mark wakes no one | §P6: setting a mark notifies |
+| N3 `Thread` and `View` fields | §P4 names them; step 7 holds the `View`'s `granularity` and `requires` to a dossier's; criterion 25 |
+| N4 criterion 25's wording | The `step` case names a library that declares `x.query/v1`; the worked case appends "the unit `G`, whose status is below `U`'s" |
+| N5 Q60 in the RFC | Added to the Open questions |
+| N6 the R47 row | Aligned with the register, with R48's amendment noted; staging's count `Warning` stated in the `clean` row |
+| N7 `path` `auto` | `smysl:src/main.rs:11252-11259` cited; Preservation row "`opts.path` `auto`" |
+
+## Revision 27: the fifth Phase 2 review answered
+
+The fifth review of Phase 2
+(`docs/rfc/reviews/RFC-0014-review-2026-11-09-r26.md`) found nothing
+blocking, one should-fix and five notes, and judged R48 A implemented as
+ruled. No ruling changes. Each SMYSL line cited here was re-read at
+4f5ecb9.
+
+| Finding | Answer |
+|---|---|
+| S1 two label maps | §P4 step 6: the map is step 5's survivors as `prepare_under` moves them before it checks (`stage.rs:206-211,226`), `Staged::labels`; staging the same |
+| N1 `E030` re-worded | §P4 step 6: a re-worded library error is an added one, `E030` the case, and SMYSL refuses the same batch |
+| N2 an answer's `granularity` | §P4: `opts.granularity` is SM03 for `smysl.answer`, and its staged `granularity` is always NODATA; criterion 22 |
+| N3 §P6's closing sentence | "each release and each mark" |
+| N4 criterion 25's headings | The R47 and R48 refusals moved to the refused list; "three cases that commit" |
+| N5 the first label pass | §P4 step 5 states both directions of its residue |

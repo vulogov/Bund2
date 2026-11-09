@@ -16871,3 +16871,110 @@ implement it". Both points are settled from the source.
 
 RFC-0014 is amended in §S4 ("The `x.text` schema"), §Preservation and
 criterion 18. The rule is built in `smysl/form.rs`'s `Batch::finish`.
+
+## D248 — RFC-0014 Phase 2: SMYSL's model steps from Bund, R30–R38
+
+**Raised 2026-11-06** by RFC-0014 revision 22, the Phase 2 amendment, on
+the owner's "Phase 2" and "go ahead". D244 R1 A ruled that Phase 2, the
+steps of SMYSL that call a model, comes as a later amendment with its own
+criteria. The owner held 0.54.0 for it and chose Ollama and the hosted
+providers (anthropic, openai, gemini, deepseek) as its scope.
+
+- **What SMYSL offers** (commit 4f5ecb9, as Phase 1):
+  - a synchronous `Provider` trait, behind which one current-thread tokio
+    runtime runs on its own OS thread, so no async reaches a caller
+    (`smysl-provider/src/lib.rs:12-18`; `smysl-provider/src/runtime.rs:1-14,54-63`);
+  - three model steps: `Ingestor::ingest` and `Ingestor::answer`, which
+    stage a batch for the caller to write, and `Ingestor::ingest_text`,
+    which writes one batch per window itself, without locks, and journals
+    each (`smysl-ingest/src/lib.rs:718-728`;
+    `smysl-ingest/src/answer.rs:183-292`;
+    `smysl-ingest/src/text/run.rs:544-586`);
+  - a configuration file beside the library that names keys by
+    environment variable or command, never by value, and an all-local
+    default (`smysl-provider/src/config.rs:6-9,310-339`;
+    `smysl-provider/src/map/auth.rs:48-106`);
+  - hosted mappers that link `ring` through `ureq`'s `tls`, with a
+    `tls-pure` feature that is declared and empty
+    (`smysl-provider/Cargo.toml:26,30-35`).
+- **What Bund2 has:** no TLS (D54), no async runtime, and a rule that
+  `smysl` builds without a C compiler (D244 R18), under D10's allowance
+  for a feature off by default to need one (D40).
+
+The design is RFC-0014 "Design — Phase 2" (§P1–§P10), criteria 19–30 and
+milestones M11–M15. It assumes each recommendation below.
+
+- Blocks: RFC-0014 Phase 2 (M11–M15), and the 0.54.0 release cut, which
+  the owner holds for Phase 2
+- Depends on: D244 (R1, R15, R17, R18, R22, R23), D245 (R25), D10, D40,
+  D49, D54
+- Status: **RESOLVED 2026-11-06.** The owner ruled R30–R43 A ("all A"),
+  as recommended, including R39–R43 raised by revision 23's note below.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **R30** | Which model steps | **A** document ingest (`smysl.ingest`), dossier answer (`smysl.answer`) and text ingest (`smysl.ingest.text`), with `smysl.commit`. **B** A without text ingest, so no Phase 2 word writes as it goes. **C** A with `q --from-question`, re-implementing `ProviderTranslator` from SMYSL's facade | **A** |
+| **R31** | Where the configuration comes from | **A** SMYSL's `.smysl/config.hjson`, found beside the library as SMYSL's CLI finds it, or the file `opts.config` names; SMYSL's local default when absent. **B** a Bund MAP in `opts`. **C** both | **A** |
+| **R32** | Keys | **A** as SMYSL resolves them, `api_key_env` or `api_key_cmd`, nothing added. **B** `api_key_env` only; a configuration with `api_key_cmd` is SM13 | **A** |
+| **R33** | `--noio` and offline | **A** `--noio` stubs all four words; `opts.offline` is SMYSL's `--offline`; no CLI flag. **B** A, and `bund2 --offline` for every model word of a run | **A** |
+| **R34** | SMYSL's rule S, model output staged then confirmed | **A** `smysl.ingest` and `smysl.answer` answer a staged value and write nothing; `smysl.commit` writes one; `smysl.ingest.text` writes as it goes, as SMYSL's `ingest --text --yes` must. **B** every word writes when called | **A** |
+| **R35** | Attestation of model output | **A** the handle's agent (R15), SMYSL's rung for the step (`Document` for both ingests, `Model` for an answer), §S4's clock, hop 0, the run's recipe. **B** SMYSL's agents, `tool:smysl-ingest` and `tool:smysl-ask` | **A** |
+| **R36** | Features, and a C compiler | **A** `smysl-model` plus one feature per mapper; `smysl-model` and `smysl-ollama` build without a C compiler; the hosted mappers may compile C until SMYSL's `tls-pure` works (U11), as `grok` does. **B** the hosted mappers wait for U11. **C** one `smysl-model` feature with every mapper | **A** |
+| **R37** | The dossier an answer grounds on | **A** `smysl.answer` stages the dossier's records with the answer and `smysl.commit` writes both as one batch, amending R17 for this word only. **B** `smysl.answer` refuses unless the dossier was saved, which needs a word to save one | **A** |
+| **R38** | Testing without a model | **A** a test-only `smysl-model-probe` feature with a scripted provider, `bund2-script`, in no shipped build; a live Ollama test `#[ignore]`d. **B** `bund2-script` shipped, for users' tests | **A** |
+
+*Note 2026-11-06, revision 23,* on the owner's "go ahead with revision
+23", after the first review of Phase 2
+(`docs/rfc/reviews/RFC-0014-review-2026-11-06.md`). Its five blocking
+findings each needed a ruling the points above did not offer, so five
+points are added, all OPEN, and R35 is narrowed to the agent: the rung,
+operation and clock are R39's.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **R39** | Attestation of model output, against R15 | **A** `smysl.commit` drops the staged attestations and writes R15's through Phase 1's batch (once per uid, clocks advancing under the locks), except that a model's units and relations are `Imported` (SMYSL's reason: "ingest transcribes a document", `smysl-ingest/src/stage.rs:341-343`; `Imported` lifts a ceiling only at the `Computed` rung, `smysl-core/src/types/provenance.rs:309-331`), at SMYSL's rung for the step, with the run's recipe; the dossier's are `Authored`; `smysl.ingest.text`'s are SMYSL's own, one clock for the run, started at §S4's. **B** keep SMYSL's staged attestations as they are: `Imported`, one clock per batch, every unit, the dossier unattested | **A** |
+| **R40** | What `smysl.commit` trusts | **A** nothing: under the locks it re-applies Phase 1's write checks (SM03, SM05, SM08, R23, D247) and re-runs rule M and SMYSL's checks through `stage::prepare_under` against the library as it is, refusing a batch that no longer checks clean. **B** a digest of `records` keyed by a per-process secret, so that only an unmodified value from this process commits. **C** a raw writer, with what it bypasses named | **A** |
+| **R41** | SMYSL's rule I, under which a failed provider call degrades a chunk or window to prose rather than failing (`smysl-ingest/src/lib.rs:985-1022`) | **A** each word probes the routed provider first (SM13 if it fails); Bund2's adaptor counts failed calls; a failed call makes `smysl.ingest`'s staged value unclean, `smysl.answer` SM13, and `smysl.ingest.text` report the windows SMYSL has already journalled, naming `reextract`; SMYSL asked not to journal them (U16). **B** pass rule I through, with counts only | **A** |
+| **R42** | Another thread writing while a text ingest runs, which R13 makes wait for the whole run | **A** the text ingest marks its root in the mutex table, and a writer in this process that finds the mark is SM07 naming it; R13 amended for that case only. **B** R13 unchanged | **A** |
+| **R43** | `webpki-roots`, linked by every hosted mapper, is `CDLA-Permissive-2.0` (`smysl:Cargo.lock:2784-2800`), which `deny.toml` does not allow | **A** add it to the allow list, with a comment naming D248 and the hosted mappers, as D152 and D216 added theirs. **B** the hosted mappers wait for a ruling of their own | **A** |
+
+*Note 2026-11-09, revision 24,* after the second review of Phase 2
+(`docs/rfc/reviews/RFC-0014-review-2026-11-06-r23.md`). Its three
+blocking findings each needed a ruling, so three points are added, and
+the owner ruled them as recommended ("all as recommended"). The entry's
+heading still reads R30–R38; it now runs to R46. Each SMYSL line below
+was re-read at 4f5ecb9.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **R44** | A ground retracted or superseded between staging and commit. R40 A's re-check cannot see it: rule M reads a ground's declared status (`smysl-ingest/src/monotone.rs:61-74`; `smysl-check/src/passes/epistemics.rs:63-70`), and only `effective_status` honours a `retracts` edge (`smysl-graph/src/merge/retraction.rs:70-73`) | **A** `smysl.commit` computes effective status under the locks and refuses (SM03) a unit grounded on a retracted or superseded unit. **B** neither staging nor commit sees it, as SMYSL's `merge --staged` and Phase 1's writers do not; the claim leaves the RFC, with a Preservation row. **C** A, lowering instead of refusing | **B** — **ruled B** 2026-11-09 |
+| **R45** | An answer above its rung's ceiling. SMYSL's answer template asks for `status: derived` (`smysl-ingest/src/prompt.rs:685-689`); R39 attests answers at `Model`, whose ceiling is `inferred` (`smysl-core/src/types/provenance.rs:218-224`); `answer` caps nothing (`smysl-ingest/src/answer.rs:247-284`), so a committed answer is `SMY-E033` in every later check of the library, and every later staging and commit is refused | **A** `smysl.answer` caps each answer unit with `ceiling::apply` and `monotone::resettle`, as `ingest` does (`smysl-ingest/src/repair.rs:165-183`), and stages again; `smysl.commit` refuses a unit above its rung's ceiling; U17 asks SMYSL to cap in `answer`. **B** attest answers at `Computed`. **C** commit judges only the batch's own diagnostics. **D** wait for U17 | **A** — **ruled A** 2026-11-09 |
+| **R46** | A model's label the library binds to another unit. Phase 1's SM08 would refuse the whole commit, while SMYSL's `ingest` stages such a unit "without a name" with `SMY-W054` (`smysl-ingest/src/lib.rs:847-864`), and the text ingest binds labels with no check (`smysl-ingest/src/text/run.rs:439-441,519-529`) | **A** `smysl.commit` drops the binding with a `Warning` and writes the unit unlabelled; SM08 stays for a program's labels; a Preservation row for the text ingest's bindings, and U18. **B** keep SM08 for the whole batch, with a word to drop bindings from a staged value. **C** refuse at staging | **A** — **ruled A** 2026-11-09 |
+
+*Note 2026-11-09, revision 25,* after the third review of Phase 2
+(`docs/rfc/reviews/RFC-0014-review-2026-11-09-r24.md`). Its one blocking
+finding needed a ruling, so one point is added, and the owner ruled it
+("R47 A"). The entry now runs to R47. Each SMYSL line below was re-read
+at 4f5ecb9.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **R47** | An error the library already holds. `prepare_under` checks the store and the batch together (`smysl-ingest/src/stage.rs:224-230`), the integrity pass always runs (`smysl-check/src/lib.rs:307-310`), and a reference to a unit the store does not hold is `SMY-E060`, an error (`smysl-graph/src/store/mod.rs:1019-1030`; `smysl-core/src/diag.rs:198`), which no append can mend. Phase 1's `smysl.unit` and SMYSL's text ingest can both leave one, and under R40 A every later staging would be unclean and every later `smysl.commit` refused | **A** under the locks, Bund2 checks the library alone and with the batch, and refuses only for an error the batch adds, compared by code and subject; staging's `clean` the same; the library's own errors counted in one `Warning`. **B** judge only diagnostics whose subject is a record of the batch. **C** keep the whole-library check, and state that one unmendable error ends model commits on that library | **A** — **ruled A** 2026-11-09 |
+
+*Note 2026-11-09, revision 26,* after the fourth review of Phase 2
+(`docs/rfc/reviews/RFC-0014-review-2026-11-09-r25.md`). It found nothing
+blocking, but its first should-fix finding showed that R47's comparison,
+"by code and subject", misses errors a batch adds, and fixing it goes
+beyond R47's wording. So one point is added, and the owner ruled it
+("R48 A"). The entry now runs to R48. Each SMYSL line below was re-read
+at 4f5ecb9.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **R48** | How R47's two reports are compared. `SMY-E060` names the missing uid, once however many units refer to it (`smysl-graph/src/adjacency.rs:393-395`; `smysl-graph/src/store/read.rs:368-379`), so a batch that refers to a uid the library already lacks leaves both reports the same. And a set of codes and subjects misses a second `SMY-E020` on a unit that already has one, each naming its offender in its message (`smysl-check/src/passes/closure.rs:99-106`) | **A** compare the error-severity diagnostics as multisets keyed by code, subject and message, and refuse by name, SM03, every ground, dep, or relation end or note of the batch that names a unit neither the batch nor the library holds. **B** multisets only, stating that a reference to a uid the library already lacks is not refused. **C** R47 as worded, stating both gaps | **A** — **ruled A** 2026-11-09 |
+
+*Note 2026-11-09, Phase 2 accepted.* The owner accepted RFC-0014's Phase 2
+at revision 27 ("accept Phase 2"), after the fifth review
+(`docs/rfc/reviews/RFC-0014-review-2026-11-09-r26.md`) found nothing
+blocking and revision 27 answered its findings with no ruling changed.
+R30–R48 stand as ruled; Phase 2 is built as M11–M15.
