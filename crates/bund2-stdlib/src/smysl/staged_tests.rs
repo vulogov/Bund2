@@ -25,13 +25,13 @@ use super::script::{self, Answer, Probing};
 
 /// A project holding a library at `lib`, its root canonical, with its own
 /// sidecar.
-struct Project {
-    dir: Dir,
-    root: PathBuf,
+pub(super) struct Project {
+    pub(super) dir: Dir,
+    pub(super) root: PathBuf,
 }
 
 impl Project {
-    fn new(tag: &str) -> Project {
+    pub(super) fn new(tag: &str) -> Project {
         let dir = Dir::fresh(tag);
         std::fs::create_dir_all(&dir.0).unwrap();
         let root = dir.0.join("lib");
@@ -40,17 +40,17 @@ impl Project {
         Project { dir, root }
     }
 
-    fn sidecar(&self, src: &str) {
+    pub(super) fn sidecar(&self, src: &str) {
         let p = self.dir.0.join(".smysl");
         std::fs::create_dir_all(&p).unwrap();
         std::fs::write(p.join("config.hjson"), src).unwrap();
     }
 
-    fn root(&self) -> String {
+    pub(super) fn root(&self) -> String {
         self.root.to_string_lossy().into_owned()
     }
 
-    fn handle(&self) -> BundValue {
+    pub(super) fn handle(&self) -> BundValue {
         m(&[
             ("type", s("smysl")),
             ("root", s(&self.root())),
@@ -58,12 +58,12 @@ impl Project {
         ])
     }
 
-    fn open(&self) -> Library {
+    pub(super) fn open(&self) -> Library {
         Library::open(&self.root).unwrap()
     }
 
     /// Every log's length and the marker's contents.
-    fn logs(&self) -> Vec<(PathBuf, u64)> {
+    pub(super) fn logs(&self) -> Vec<(PathBuf, u64)> {
         let mut out: Vec<(PathBuf, u64)> = smysl_text::shards::list(&self.root)
             .unwrap()
             .into_iter()
@@ -78,13 +78,13 @@ impl Project {
     }
 }
 
-fn endpoint(host: &str, tag: &str) -> String {
+pub(super) fn endpoint(host: &str, tag: &str) -> String {
     format!("http://{host}/{tag}-{}", std::process::id())
 }
 
 /// One `bund2-script` provider `s` at `endpoint`, `content-ingest` routed to
 /// it, and `extra` at the top level.
-fn config(endpoint: &str, extra: &str) -> String {
+pub(super) fn config(endpoint: &str, extra: &str) -> String {
     format!(
         r#"{{
   providers: {{
@@ -103,21 +103,21 @@ fn config(endpoint: &str, extra: &str) -> String {
     )
 }
 
-const SURFACE: &str = "ingest: { path: surface }";
+pub(super) const SURFACE: &str = "ingest: { path: surface }";
 
 /// Two surface records, as a model on the surface path answers.
-const ANSWER: &str = "@claim c/pool { status: speculative }\n~ The pool wait rose.\n\n\
+pub(super) const ANSWER: &str = "@claim c/pool { status: speculative }\n~ The pool wait rose.\n\n\
                       @claim c/queue { status: speculative }\n~ The queue grew.\n";
 
-fn opts(entries: &[(&str, BundValue)]) -> BundValue {
+pub(super) fn opts(entries: &[(&str, BundValue)]) -> BundValue {
     m(entries)
 }
 
-fn ingest(r: &mut Run, p: &Project, input: &str, o: BundValue) -> Result<BundValue, String> {
+pub(super) fn ingest(r: &mut Run, p: &Project, input: &str, o: BundValue) -> Result<BundValue, String> {
     r.call(vec![p.handle(), s(input), o], "smysl.ingest")
 }
 
-fn commit(r: &mut Run, p: &Project, staged: BundValue) -> Result<BundValue, String> {
+pub(super) fn commit(r: &mut Run, p: &Project, staged: BundValue) -> Result<BundValue, String> {
     r.call(vec![p.handle(), staged], "smysl.commit")
 }
 
@@ -133,7 +133,7 @@ fn staged(p: &Project, step: &str, records: &[Record], clean: bool) -> BundValue
     ])
 }
 
-fn with(v: &BundValue, key: &str, to: BundValue) -> BundValue {
+pub(super) fn with(v: &BundValue, key: &str, to: BundValue) -> BundValue {
     let mut map = v.as_map().unwrap().clone();
     map.insert(key.to_string(), to);
     BundValue::map(map)
@@ -163,7 +163,7 @@ fn seed(p: &Project, records: &[Record]) {
     lib.append_records(records).unwrap();
 }
 
-fn uids(v: &BundValue) -> Vec<Uid> {
+pub(super) fn uids(v: &BundValue) -> Vec<Uid> {
     items(v).iter().map(|u| uid(&text(u))).collect()
 }
 
@@ -731,7 +731,7 @@ fn the_prompt_override_reaches_the_model() {
     script::disarm(&ep);
 }
 
-/// Under `--noio`, both words are SM06.
+/// Under `--noio`, the model words are SM06.
 #[test]
 fn noio_stubs_the_model_words() {
     let p = Project::new("m12-noio");
@@ -739,6 +739,7 @@ fn noio_stubs_the_model_words() {
     for (word, operands) in [
         ("smysl.ingest", vec![p.handle(), s("text"), opts(&[])]),
         ("smysl.commit", vec![p.handle(), opts(&[])]),
+        ("smysl.answer", vec![p.handle(), s("why?"), opts(&[])]),
     ] {
         let e = r.call(operands, word).unwrap_err();
         assert!(e.contains(super::words::NOIO), "{word}: {e}");

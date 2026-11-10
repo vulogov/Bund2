@@ -665,6 +665,28 @@ fn smysl_ingest(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `handle question opts smysl.answer` — assemble the dossier for
+/// `question`, ask the model to answer it with SMYSL's `Ingestor::answer`,
+/// and answer the dossier and the answer staged together; writes nothing
+/// (RFC-0014 §P4, R37, R45, M13). The step's warnings are reported.
+#[cfg(feature = "smysl-model")]
+fn smysl_answer(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.answer";
+    let [opts, question, h] = <[BundValue; 3]>::try_from(operands(vm, W, 3)?)
+        .map_err(|_| Error::internal(format!("{W}: three operands were guarded and not pulled")))?;
+    let answered = handle_at(&h, 3).and_then(|h| {
+        let question = string(&question, 2)?;
+        let o = super::staged::opts(&opts, 1, super::staged::Step::Answer)?;
+        super::staged::answer(&h, &question, &o)
+    });
+    let answered = answered.map_err(|r| r.for_word(W))?;
+    for text in &answered.warnings {
+        warn(vm, W, text);
+    }
+    vm.push(answered.value);
+    Ok(())
+}
+
 /// `handle staged smysl.commit` — check a staged value against the library
 /// under the locks and write it, answering the uids of the units written
 /// that the library did not hold (RFC-0014 §P4, R40, M12).
@@ -685,7 +707,7 @@ fn smysl_commit(vm: &mut dyn Vm) -> Result<(), Error> {
 /// RFC-0014 Phase 2's words, under `smysl-model`, stubbed under `--noio` as
 /// the rest are (§P5, R33).
 #[cfg(feature = "smysl-model")]
-pub const MODEL_WORDS: [&str; 2] = ["smysl.commit", "smysl.ingest"];
+pub const MODEL_WORDS: [&str; 3] = ["smysl.answer", "smysl.commit", "smysl.ingest"];
 
 /// The words that touch disk, stubbed under `--noio` (R11).
 const ON_DISK: [&str; 21] = [
@@ -810,6 +832,7 @@ pub fn register(r: &mut Registry, opts: &crate::host::HostOptions) {
         #[cfg(feature = "smysl-model")]
         {
             r.register_native("smysl.ingest", smysl_ingest, handle(3), WordKind::Sync);
+            r.register_native("smysl.answer", smysl_answer, handle(3), WordKind::Sync);
             r.register_native(
                 "smysl.commit",
                 smysl_commit,
@@ -1392,7 +1415,7 @@ mod tests {
         let full = family(&interp(false));
         assert_eq!(full, family(&interp(true)));
         // RFC-0014 Phase 2's words, under `smysl-model`, are stubbed too.
-        let model = if cfg!(feature = "smysl-model") { 2 } else { 0 };
+        let model = if cfg!(feature = "smysl-model") { 3 } else { 0 };
         assert_eq!(full.len(), ON_DISK.len() + 3 + model, "{full:?}");
         for name in &full {
             let got = run_in(&mut interp(true), name);

@@ -38,6 +38,14 @@
   it, by an amendment of RFC-0001, before M12, and `records` stays a BIN.
   D248's R49.
 
+  **Amended 2026-11-10**, while building M13 [R50 A]. §P7 attests an
+  answer's dossier and the model's units differently, and step 5 holds
+  each to its rung's ceiling, but nothing said how a commit tells them
+  apart; every dossier unit is `cited`
+  (`smysl-query/src/dossier/mod.rs:978`; `smysl-query/src/saved.rs:411`),
+  above `Model`'s ceiling. The owner ruled R50 A: by the staged `View`'s
+  roots, as §P7 now states. D248's R50.
+
   The draft was written on the owner's
   request: "Create RFC for SMYSL project that will make it integrateable
   into Bund. The idea: use SMYSL ability to form, research and query SMYSL
@@ -2577,7 +2585,8 @@ Then, under the mutex, the locks and the re-open of §S9:
    (§S2, §S4): a status Bund2 cannot author (SM03, `measured` among
    them); a relation kind `RelKind::parse` refuses (SM05); `retracts`
    (SM03, R23). And **rule T**: a unit above the ceiling of the rung §P7
-   attests it at is SM03 `<uid> exceeds the <rung> ceiling`, as
+   attests it at (§P7; for an answer's dossier, R15's rung, R50) is SM03
+   `<uid> exceeds the <rung> ceiling`, as
    `check_local` judges it (`smysl-ingest/src/repair.rs:566-580`), so no
    commit leaves a `SMY-E033` behind (R45). Rule M only lowers, so step 6
    cannot undo this. Staged `Attestation` records are dropped: §P7
@@ -2953,7 +2962,14 @@ Recommended (R39 A), for `smysl.ingest` and `smysl.answer`, whose records
   answer is capped at `Model`'s ceiling before it is staged, and step 5
   refuses a unit above its rung's ceiling (§P4, R45);
 - the dossier's units and relations are attested as R15 attests Bund2's
-  own, `Authored`, where SMYSL's `ask --save` leaves them unattested;
+  own, `Authored`, where SMYSL's `ask --save` leaves them unattested.
+  Which they are is read from the staged `View` [R50 A]: a unit is the
+  dossier's when the `View` names it as a root, which a dossier's `View`
+  does for the question and each saved query and nothing else
+  (`smysl-query/src/dossier/mod.rs:1129-1132`), and a relation is the
+  dossier's when its `from` is one, as a saved query's result edges are
+  (`smysl-query/src/saved.rs:421-426`). Every other unit and relation of an
+  answer is the model's;
 - the agent is the handle's `agent` (R15) [R35 A]. SMYSL names it
   `tool:smysl-ingest` for an ingest (`smysl-ingest/src/lib.rs:631`) and
   `tool:smysl-<pass>` for an answer (`smysl:src/main.rs:14201`); R35 B
@@ -4107,6 +4123,7 @@ A", "R48 A"), as recommended.*
 | R45 | An answer above the `Model` rung's ceiling | *Raised by revision 24 (second review B2).* **A** `smysl.answer` caps each answer unit with SMYSL's `ceiling::apply` and `monotone::resettle`, as `ingest` does, and stages again; `smysl.commit` refuses a unit above its rung's ceiling; U17. **B** attest answers at `Computed`. **C** commit judges only the batch's own diagnostics. **D** wait for U17 | **A** — **ruled A** 2026-11-09 |
 | R47 | An error the library already holds | *Raised by revision 25 (third review B1).* **A** under the locks, Bund2 checks the library alone and with the batch, and refuses only for an error the batch adds, compared by code and subject; staging's `clean` the same; the library's own errors counted in one `Warning`. *R48 amends the comparison.* **B** judge only diagnostics whose subject is a record of the batch. **C** keep the whole-library check, and state that one unmendable error ends model commits on that library | **A** — **ruled A** 2026-11-09 |
 | R48 | How the two reports are compared | *Raised by revision 26 (fourth review S1).* `SMY-E060` names the missing uid once, however many units refer to it, and a set of codes and subjects misses a second error on a unit that has one. **A** compare multisets of code, subject and message, and refuse by name every reference of the batch to a unit neither the batch nor the library holds. **B** multisets only, stating that a reference to a uid the library already lacks is not refused. **C** R47 as worded, stating both gaps | **A** — **ruled A** 2026-11-09 |
+| R50 | How a commit tells an answer's dossier from the model's units | *Raised 2026-11-10 while building M13.* **A** by the staged `View`: its roots are the dossier's units, and relations from them its relations, attested `Authored` at R15's rung; the rest `Imported` at `Model` (§P7). **B** by position, up to the `View`. **C** every unit at `Model`, amending §P7 | **A** — **ruled A** 2026-11-10 |
 | R49 | How a staged value carries its records | *Raised 2026-11-09 while building M12:* Bund2 has no BIN type, which §P4's `records` was. **A** a STRING of the CBOR in lowercase hex. **B** a STRING in base64. **C** a LIST of INTs, one per byte. **D** BIN added to Bund2 as the reference defines it (`reference/rust_dynamic/src/types.rs:23,81`), by an amendment of RFC-0001 | **A** — ruled A, then **re-ruled D** 2026-11-09 |
 | R46 | A model's label the library binds to another unit | *Raised by revision 24 (second review B3).* **A** `smysl.commit` drops the binding with a `Warning`, writing the unit unlabelled, as `ingest` does with `SMY-W054`; SM08 stays for a program's labels; the text ingest's bindings get a Preservation row and U18. **B** keep SM08 for the whole batch, with a word to drop bindings from a staged value. **C** refuse at staging | **A** — **ruled A** 2026-11-09 |
 
@@ -4778,3 +4795,38 @@ rung with the run's recipe (`crates/bund2-stdlib/src/smysl/form.rs`,
   149 (`smysl`), 145 (default); clippy clean in five configurations;
   `conform` 143/159, CEILING 143/159, IMPLEMENTED 597/602, COVERAGE
   577/602, unchanged.
+
+**M13 (2026-11-10).** `smysl.answer` (`crates/bund2-stdlib/src/smysl/staged.rs`,
+`answer`), registered under `smysl-model` and stubbed under `--noio`, in
+`FEATURE_GATED` and `ACTS_ON_HOST`; `smysl.commit` takes a staged answer.
+The dossier is assembled by the function `smysl.dossier` uses
+(`crates/bund2-stdlib/src/smysl/research.rs`, `assemble`). Phase 1's batch
+gains the dossier's writes (`crates/bund2-stdlib/src/smysl/form.rs`,
+`authored_unit`, `authored_relation`, `unattested`). Tests in
+`crates/bund2-stdlib/src/smysl/answer_tests.rs`.
+- **R50 A** (raised while building, ruled 2026-11-10): the staged `View`'s
+  roots are the dossier's units, and relations from them its relations.
+  So a `View`'s roots, like `step`, are the program's statement of
+  provenance: a unit a program adds to them is attested `Authored` at
+  R15's rung, which `smysl.unit` would also let it write.
+- **The write's order**: the `x.query/v1` declaration when the library
+  lacks it, the dossier's units and relations, its `Thread` and `View`
+  unless the library holds the same record, then the answer's units,
+  labels and relations.
+- **Criteria.** 19's `bund2 words` case for `smysl.answer`. 22's
+  `granularity` refusal for `smysl.answer`. 23's and 28's `smysl.answer`
+  cases. 25's answer cases, with step 7's moved-uid refusal reached by a
+  question unit grounded by hand on the `speculative` member. 26 whole,
+  over a library holding Naomi, whose dossier for "What is Naomi?" has
+  five slots, `characteristic` holding an `inferred` and a `speculative`
+  unit.
+- **The re-entry scan** (`crates/bund2-stdlib/src/lib.rs`,
+  `every_reentering_function_is_named`) matches `::apply(` by its text;
+  SMYSL's `ceiling::apply`, which caps a status and evaluates nothing, is
+  imported as `cap_at` so `answer` is not listed among the functions that
+  re-enter evaluation.
+- **Counts.** Library tests 756 (smysl-model, smysl-model-probe,
+  smysl-panic-probe), 719 (smysl), 602 (default); CLI 149 (smysl-model),
+  149 (smysl), 145 (default); clippy clean in five configurations; conform
+  143/159, CEILING 143/159, IMPLEMENTED 597/602, COVERAGE 577/602,
+  unchanged; cite and lint clean.

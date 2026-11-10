@@ -14,7 +14,7 @@ use smysl_graph::{
 use smysl_measure::text::{Corpus, TextError, texts};
 use smysl_measure::{self as ms, MeasureResult, NotPersisted, Outcome, Recipe};
 use smysl_pack::{PackRequest, pack};
-use smysl_query::{AskOptions, Env, PlanOptions, ask};
+use smysl_query::{AskOptions, Dossier, Env, PlanOptions, ask};
 use smysl_text::{Library, LibraryScope};
 
 use super::{Refusal, lib, map, sm02, sm03, sm04, sm05};
@@ -244,10 +244,7 @@ pub fn dossier(
     agent: &AgentId,
     question: &str,
 ) -> Result<Reported, Refusal> {
-    let scope = LibraryScope::new(scope_name(root), library);
-    let env = environment(library, &scope);
-    let opts = AskOptions::new(agent.clone()).with_ts(Hlc::now(&Hlc::zero(agent.clone()), agent));
-    let d = ask(question, &env, &opts).map_err(sm02)?;
+    let d = assemble(library, root, agent, question)?;
     let uids = |us: &[Uid]| BundValue::list(us.iter().map(map::uid).collect());
     let slots = d
         .slots
@@ -267,6 +264,20 @@ pub fn dossier(
         answer: BundValue::map(m),
         warnings: d.warnings,
     })
+}
+
+/// The dossier `ask` assembles for `question`, as `smysl.dossier` answers
+/// it and `smysl.answer` stages it (§S5, §P4).
+pub(crate) fn assemble(
+    library: &Library,
+    root: &Path,
+    agent: &AgentId,
+    question: &str,
+) -> Result<Dossier, Refusal> {
+    let scope = LibraryScope::new(scope_name(root), library);
+    let env = environment(library, &scope);
+    let opts = AskOptions::new(agent.clone()).with_ts(Hlc::now(&Hlc::zero(agent.clone()), agent));
+    ask(question, &env, &opts).map_err(sm02)
 }
 
 /// A measure's ids: a LIST of STRINGs.

@@ -435,13 +435,13 @@ fn the_version_names_smysl_exactly_when_built_with_it() {
 }
 
 /// RFC-0014 criterion 19: `bund2 words` lists the model words exactly in a
-/// `smysl-model` build. M12 adds `smysl.ingest` and `smysl.commit`; M13 and
-/// M14 add the other two to this list.
+/// `smysl-model` build. M12 adds `smysl.ingest` and `smysl.commit`, M13
+/// `smysl.answer`; M14 adds the fourth to this list.
 #[test]
 fn the_model_words_are_listed_exactly_when_built_with_them() {
     let r = bund2(&["words"], &[]);
     assert_eq!(r.code, Some(0), "{}", r.err);
-    for word in ["smysl.ingest", "smysl.commit"] {
+    for word in ["smysl.ingest", "smysl.commit", "smysl.answer"] {
         let listed = r.out.split_whitespace().any(|w| w == word);
         assert_eq!(listed, cfg!(feature = "smysl-model"), "{word}");
     }

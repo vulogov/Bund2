@@ -177,6 +177,8 @@ mod model_tests;
 #[cfg(test)]
 mod staged_tests;
 #[cfg(test)]
+mod answer_tests;
+#[cfg(test)]
 mod proving_tests;
 #[cfg(test)]
 mod querying_tests;

@@ -17000,3 +17000,17 @@ which is why Bund2 left it out. Told so, the owner re-ruled R49 D ("Re-rule
 R49 as D"): BIN is added to Bund2 as the reference defines it, by an
 amendment of RFC-0001, before RFC-0014 M12, and a staged value's `records`
 stays a BIN. R49 A's hex STRING is withdrawn.
+
+*Note 2026-11-10, R50,* raised while building RFC-0014 M13. §P7 attests an
+answer's dossier `Authored` at R15's rung and the model's units `Imported`
+at `Model`, and step 5 holds each unit to its rung's ceiling, but the RFC
+does not say how `smysl.commit`, which trusts nothing it is given [R40],
+tells the two apart. Every dossier unit is `cited`: the question
+(`smysl-query/src/dossier/mod.rs:978`) and each saved query
+(`smysl-query/src/saved.rs:411`), above `Model`'s ceiling, so without a
+rule step 5 refuses every answer. The owner ruled R50 A. The entry now runs
+to R50.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **R50** | How a commit tells an answer's dossier records from the model's | **A** by the staged `View`: a unit is the dossier's when the `View` names it as a root, which a dossier's `View` does for the question and each saved query and nothing else (`smysl-query/src/dossier/mod.rs:1129-1132`), and a relation is the dossier's when its `from` is one, as a saved query's result edges are (`smysl-query/src/saved.rs:421-426`); the dossier's are attested `Authored` at R15's rung and held to its ceiling, every other unit and relation `Imported` at `Model`. **B** by position: records up to the `View` are the dossier's. **C** every unit at `Model`, amending §P7 | **A** — **ruled A** 2026-11-10 |

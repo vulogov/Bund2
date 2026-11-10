@@ -59,7 +59,7 @@ pub(crate) fn attestation(uid: Uid, rung: Rung, agent: &AgentId, ts: Hlc) -> Att
     Attestation::new(uid, agent.clone(), Op::Authored, rung, ts)
 }
 
-fn rung(status: Status) -> Rung {
+pub(crate) fn rung(status: Status) -> Rung {
     if status == Status::Cited {
         Rung::Document
     } else {
@@ -342,6 +342,45 @@ impl Batch<'_> {
             self.records
                 .push(Record::LabelBinding(LabelBinding::new(label, uid)));
         }
+    }
+
+    /// A dossier's unit, already checked (§P4): written unless the library
+    /// or this batch holds it, and attested as R15 attests Bund2's own
+    /// (§P7, R50). Answers its uid.
+    pub(crate) fn authored_unit(&mut self, core: smysl_core::UnitCore) -> Uid {
+        let uid = canonical_uid(&core);
+        let status = core.status;
+        self.text_schema |= is_text(core.schema.as_str());
+        if !self.holds_unit(&uid) {
+            self.units.insert(uid);
+            self.records.push(Record::Unit(core));
+        }
+        self.attest(uid, rung(status), BTreeSet::new());
+        uid
+    }
+
+    /// A dossier's relation, already checked (§P4), attested as R15 attests
+    /// Bund2's own (§P7, R50).
+    pub(crate) fn authored_relation(&mut self, rel: Relation) -> Uid {
+        let rid = rel.uid();
+        self.text_schema |= is_text(rel.kind.as_str());
+        let held = self.relations.contains_key(&rid) || self.store.relation_by_id(&rid).is_some();
+        if !held {
+            self.relations.insert(rid, rel.clone());
+            self.records.push(Record::Relation(rel.clone()));
+        }
+        self.attest(rid, Rung::Computed, BTreeSet::new());
+        if self.store.is_withdrawn(&rel) {
+            self.withdrawn.push(rid);
+        }
+        rid
+    }
+
+    /// A record written as it is, unattested: an answer's `x.query/v1`
+    /// declaration, `Thread` and `View`, as SMYSL's `ask --save` appends
+    /// them (§P4, R37).
+    pub(crate) fn unattested(&mut self, record: Record) {
+        self.records.push(record);
     }
 
     /// Whether this batch writes `uid` as a new unit.

@@ -1,8 +1,10 @@
 //! RFC-0014 Phase 2's staging and commit (§P4, §P6, §P7): what
-//! `smysl.ingest` answers, and what `smysl.commit` checks and writes. M12.
+//! `smysl.ingest` and `smysl.answer` answer, and what `smysl.commit` checks
+//! and writes. M12 and M13.
 //!
 //! - **Staging writes nothing** and holds no lock: the model is called with
-//!   the library open only to read it (§P6).
+//!   the library open only to read it (§P6). An answer's dossier is
+//!   appended to a copy of the store, and staged with the answer [R37].
 //! - **Commit trusts nothing it is given** [R40]: it decodes `records`,
 //!   re-applies Phase 1's write checks and rule T, runs rule M and SMYSL's
 //!   check again under the locks, and refuses only the errors the batch adds
@@ -17,12 +19,16 @@ use bund2_api::Error;
 use bund2_value::{BIN, BOOL, BundValue, FLOAT, INTEGER, MAP, NODATA, STRING};
 use smysl_check::{CheckOptions, check};
 use smysl_core::{
-    Diagnostic, GranularityProfile, Hlc, Label, Record, RelKind, Relation, Report, Rung,
+    Diagnostic, GranularityProfile, Hlc, Label, Record, RelKind, Relation, Report, Role, Rung,
     SourcePolicy, SourceRef, Status, Uid, UnitCore, canonical_uid, from_cbor_seq,
     to_cbor_seq,
 };
 use smysl_graph::Store;
 use smysl_graph::labels::label_bindings;
+use smysl_ingest::answer::Member;
+// Named apart from `Vm::apply`, which the crate's re-entry scan matches by
+// its `::apply(` form; this one caps a unit's status and evaluates nothing.
+use smysl_ingest::ceiling::apply as cap_at;
 use smysl_ingest::stage::{Attest, prepare_under};
 use smysl_ingest::{IngestOptions, IngestPath, Ingestor};
 use smysl_provider::{Config, ProviderId, Task};
@@ -420,24 +426,76 @@ pub(crate) fn ingest(h: &Handle, input: &str, o: &Opts) -> Result<Answered, Refu
         warnings.push(d.to_string());
     }
 
+    let mut counts = BTreeMap::new();
+    counts.insert("chunks".to_string(), int(report.chunks));
+    counts.insert("calls".to_string(), int(report.calls));
+    counts.insert("degraded".to_string(), int(report.degraded));
+    counts.insert("repaired".to_string(), int(report.repaired));
+    counts.insert("failed".to_string(), int(failed));
+    let diagnostics: Vec<Diagnostic> = report
+        .diagnostics
+        .iter()
+        .chain(staged.report.diagnostics.iter())
+        .cloned()
+        .collect();
+    let value = value(Parts {
+        root: &root,
+        step: "ingest",
+        granularity: o.granularity.clone(),
+        records: staged.records(),
+        units: &staged.units,
+        relations: &staged.relations,
+        labels: &staged.labels,
+        clean,
+        diagnostics: &diagnostics,
+        provider: report.provider.map(|p| p.to_string()),
+        model: report.model.clone(),
+        recipe: report.recipe,
+        family: report.family,
+        usage: &report.usage,
+        counts,
+    })?;
+    Ok(Answered { value, warnings })
+}
+
+/// What a staged value is made of (§P4).
+struct Parts<'a> {
+    root: &'a std::path::Path,
+    step: &'static str,
+    granularity: Option<String>,
+    records: Vec<Record>,
+    units: &'a [UnitCore],
+    relations: &'a [Relation],
+    labels: &'a BTreeMap<Label, Uid>,
+    clean: bool,
+    diagnostics: &'a [Diagnostic],
+    provider: Option<String>,
+    model: Option<String>,
+    recipe: Option<[u8; 32]>,
+    family: Option<[u8; 32]>,
+    usage: &'a smysl_provider::Usage,
+    counts: BTreeMap<String, BundValue>,
+}
+
+/// The staged value's MAP (§P4).
+fn value(p: Parts<'_>) -> Result<BundValue, Refusal> {
     let mut m: BTreeMap<String, BundValue> = BTreeMap::new();
     let mut put = |k: &str, v: BundValue| {
         m.insert(k.to_string(), v);
     };
     put("type", BundValue::str("smysl.staged"));
-    put("root", BundValue::str(root.to_string_lossy().into_owned()));
-    put("step", BundValue::str("ingest"));
-    put("granularity", opt_str(o.granularity.clone()));
-    put("records", BundValue::bin(to_cbor_seq(&staged.records())));
+    put("root", BundValue::str(p.root.to_string_lossy().into_owned()));
+    put("step", BundValue::str(p.step));
+    put("granularity", opt_str(p.granularity));
+    put("records", BundValue::bin(to_cbor_seq(&p.records)));
     let mut labels_of: BTreeMap<Uid, Vec<Label>> = BTreeMap::new();
-    for (l, u) in &staged.labels {
+    for (l, u) in p.labels {
         labels_of.entry(*u).or_default().push(l.clone());
     }
     put(
         "units",
         BundValue::list(
-            staged
-                .units
+            p.units
                 .iter()
                 .map(|u| {
                     let ls = labels_of.get(&canonical_uid(u)).cloned().unwrap_or_default();
@@ -448,51 +506,228 @@ pub(crate) fn ingest(h: &Handle, input: &str, o: &Opts) -> Result<Answered, Refu
     );
     put(
         "relations",
-        BundValue::list(staged.relations.iter().map(map::relation).collect()),
+        BundValue::list(p.relations.iter().map(map::relation).collect()),
     );
     put(
         "labels",
         BundValue::list(
-            staged
-                .labels
+            p.labels
                 .iter()
                 .map(|(l, u)| map::label(&smysl_core::LabelBinding::new(l.clone(), *u)))
                 .collect(),
         ),
     );
-    put("clean", BundValue::boolean(clean));
-    let diagnostics = report
+    put("clean", BundValue::boolean(p.clean));
+    let diagnostics = p
         .diagnostics
         .iter()
-        .chain(staged.report.diagnostics.iter())
         .map(map::diagnostic)
         .collect::<Result<Vec<_>, Error>>()
         .map_err(|e| Refusal::new(Code::Sm02, e.0))?;
     put("diagnostics", BundValue::list(diagnostics));
-    put("provider", opt_str(report.provider.map(|p| p.to_string())));
-    put("model", opt_str(report.model.clone()));
-    put("recipe", report.recipe.as_ref().map_or_else(BundValue::nodata, hex));
-    put("family", report.family.as_ref().map_or_else(BundValue::nodata, hex));
+    put("provider", opt_str(p.provider));
+    put("model", opt_str(p.model));
+    put("recipe", p.recipe.as_ref().map_or_else(BundValue::nodata, hex));
+    put("family", p.family.as_ref().map_or_else(BundValue::nodata, hex));
     let mut usage = BTreeMap::new();
-    usage.insert("input".to_string(), int(report.usage.input_tokens));
-    usage.insert("output".to_string(), int(report.usage.output_tokens));
+    usage.insert("input".to_string(), int(p.usage.input_tokens));
+    usage.insert("output".to_string(), int(p.usage.output_tokens));
     usage.insert(
         "estimated".to_string(),
-        BundValue::boolean(report.usage.estimated),
+        BundValue::boolean(p.usage.estimated),
     );
-    usage.insert("retries".to_string(), int(report.usage.retries));
+    usage.insert("retries".to_string(), int(p.usage.retries));
     put("usage", BundValue::map(usage));
+    put("counts", BundValue::map(p.counts));
+    Ok(BundValue::map(m))
+}
+
+/// Whether a store declares `x.query/v1`, as SMYSL's `ask` asks before it
+/// adds the declaration (§P6, R37).
+fn declares_query(store: &Store) -> bool {
+    store.iter().any(
+        |r| matches!(r, Record::SchemaDecl(d) if d.id.as_str() == smysl_core::schemas::query::ID),
+    )
+}
+
+/// `smysl.answer` (§P4, §P6): assemble the dossier for `question` as
+/// `smysl.dossier` does, append it to a copy of the library's store, ask the
+/// model with `Ingestor::answer`, cap the answer at the `Model` rung's
+/// ceiling and stage it again (R45), and answer the dossier's records and
+/// the answer's staged together (R37). Writes nothing.
+pub(crate) fn answer(h: &Handle, question: &str, o: &Opts) -> Result<Answered, Refusal> {
+    let (root, library) = handle::open(&h.root)?;
+    let setup = model::configuration(&root, o.config.as_deref())?;
+    let built = model::registry(&setup.config, o.offline);
+    let mut warnings: Vec<String> = built.warnings.clone();
+    let store = library.store();
+    let d = super::research::assemble(&library, &root, &h.agent, question)?;
+    warnings.extend(d.warnings.iter().map(ToString::to_string));
+    probe(&built, &setup.config, o.model.as_deref())?;
+
+    // The dossier's records, the declaration first when the library lacks
+    // it; the copy holds them less the `Thread` and `View` (§P6).
+    let mut dossier: Vec<Record> = Vec::new();
+    if !declares_query(store) {
+        dossier.push(Record::SchemaDecl(smysl_core::schemas::query::decl()));
+    }
+    dossier.extend(d.records.iter().cloned());
+    let mut scratch = store.clone();
+    let copied: Vec<Record> = dossier
+        .iter()
+        .filter(|r| !matches!(r, Record::Thread(_) | Record::View(_)))
+        .cloned()
+        .collect();
+    scratch
+        .append(&copied)
+        .map_err(|e| super::sm02(format!("the dossier does not append: {e}")))?;
+    let members: Vec<Member> = d
+        .thread
+        .steps
+        .iter()
+        .filter(|s| s.role != Role::Gap)
+        .filter_map(|s| {
+            scratch.get(&s.unit).map(|u| Member {
+                role: s.role.to_string(),
+                uid: s.unit,
+                status: u.core.status,
+                gist: u.core.gist.clone(),
+            })
+        })
+        .collect();
+
+    let mut io = IngestOptions::at_rung(Rung::Model).with_agent(h.agent.clone());
+    if let Some(m) = &o.model {
+        io = io.with_model(m.clone());
+    }
+    if let Some(t) = o.temperature {
+        io = io.with_temperature(t);
+    }
+    if let Some(n) = o.max_output {
+        io = io.with_max_output(n);
+    }
+    let report = Ingestor::new(&built.registry, io)
+        .answer(&scratch, &members)
+        .map_err(|e| refused(&e))?;
+    let failed = built.failures.total();
     let mut counts = BTreeMap::new();
-    counts.insert("chunks".to_string(), int(report.chunks));
-    counts.insert("calls".to_string(), int(report.calls));
-    counts.insert("degraded".to_string(), int(report.degraded));
-    counts.insert("repaired".to_string(), int(report.repaired));
+    counts.insert("proposed".to_string(), int(report.proposed));
+    counts.insert("dropped".to_string(), int(report.dropped));
+    counts.insert("lowered".to_string(), int(report.lowered));
     counts.insert("failed".to_string(), int(failed));
-    put("counts", BundValue::map(counts));
-    Ok(Answered {
-        value: BundValue::map(m),
-        warnings,
-    })
+    for d in report.diagnostics.iter().filter(|d| !is_error(d)) {
+        warnings.push(d.to_string());
+    }
+
+    // An answer with nothing to keep stages nothing, and no dossier (§P4).
+    let Some(first) = report.staged else {
+        counts.insert("capped".to_string(), int(0));
+        warnings.push(
+            "the answer staged nothing, so the staged value is not clean".to_string(),
+        );
+        let value = value(Parts {
+            root: &root,
+            step: "answer",
+            granularity: None,
+            records: Vec::new(),
+            units: &[],
+            relations: &[],
+            labels: &BTreeMap::new(),
+            clean: false,
+            diagnostics: &report.diagnostics,
+            provider: report.provider.map(|p| p.to_string()),
+            model: report.model.clone(),
+            recipe: report.recipe,
+            family: report.family,
+            usage: &report.usage,
+            counts,
+        })?;
+        return Ok(Answered { value, warnings });
+    };
+
+    // R45: rule T at `Model`, the remap followed, and staged again against
+    // the same copy.
+    let before: Vec<Uid> = first.units.iter().map(canonical_uid).collect();
+    let mut caps: Vec<Diagnostic> = Vec::new();
+    let capped: Vec<UnitCore> = first
+        .units
+        .iter()
+        .map(|u| {
+            let applied = cap_at(u, Rung::Model, None);
+            caps.extend(applied.diagnostics);
+            applied.core
+        })
+        .collect();
+    let (units, relations, remap) =
+        smysl_graph::relink::resettle(&before, capped, first.relations.clone());
+    let labels: BTreeMap<Label, Uid> = first
+        .labels
+        .iter()
+        .map(|(l, u)| (l.clone(), remap.get(u).copied().unwrap_or(*u)))
+        .collect();
+    let mut attest = Attest::new(h.agent.clone(), Rung::Model, Hlc::zero(h.agent.clone()));
+    if let (Some(r), Some(f)) = (report.recipe, report.family) {
+        attest = attest.with_recipe(r, f);
+    }
+    let second = prepare_under(&scratch, units, relations, labels, Vec::new(), &attest, None);
+    counts.insert("capped".to_string(), int(caps.len()));
+    warnings.extend(caps.iter().map(ToString::to_string));
+
+    // `clean`, with the dossier's units and relations and the answer's as the
+    // batch, less the `Thread` and `View` (§P4, R47, R48).
+    let mut all_units: Vec<UnitCore> = Vec::new();
+    let mut all_relations: Vec<Relation> = Vec::new();
+    for r in &d.records {
+        match r {
+            Record::Unit(u) => all_units.push(u.clone()),
+            Record::Relation(rel) => all_relations.push(rel.clone()),
+            _ => {}
+        }
+    }
+    all_units.extend(second.units.iter().cloned());
+    all_relations.extend(second.relations.iter().cloned());
+    let library_report = check(store, options(&second.labels, None));
+    let added = added(&library_report, &second.report);
+    let dangles = dangling(store, &all_units, &all_relations);
+    let clean = added.is_empty() && dangles.is_none() && failed == 0;
+    warnings.extend(own_warning(own_errors(&library_report)));
+    if let Some((holder, r)) = &dangles {
+        warnings.push(refers(holder, r).text);
+    }
+    if failed > 0 {
+        warnings.push(format!(
+            "{failed} model call(s) failed, so the staged value is not clean; asking again may succeed"
+        ));
+    }
+
+    let mut records = dossier;
+    records.extend(second.records());
+    let diagnostics: Vec<Diagnostic> = report
+        .diagnostics
+        .iter()
+        .chain(first.report.diagnostics.iter())
+        .chain(caps.iter())
+        .chain(second.report.diagnostics.iter())
+        .cloned()
+        .collect();
+    let value = value(Parts {
+        root: &root,
+        step: "answer",
+        granularity: None,
+        records,
+        units: &all_units,
+        relations: &all_relations,
+        labels: &second.labels,
+        clean,
+        diagnostics: &diagnostics,
+        provider: report.provider.map(|p| p.to_string()),
+        model: report.model.clone(),
+        recipe: report.recipe,
+        family: report.family,
+        usage: &report.usage,
+        counts,
+    })?;
+    Ok(Answered { value, warnings })
 }
 
 // --- the commit (§P4, R40) -------------------------------------------------------------
@@ -587,9 +822,6 @@ fn committed(
             if step == Step::Ingest { "ingest" } else { "answer" }
         )));
     }
-    if step == Step::Answer {
-        return Err(sm03("staged step answer is not committed by this build"));
-    }
     let granularity = match field(m, "granularity")? {
         g if g.dt() == NODATA => None,
         g => Some(g.str_ref().map(str::to_owned).ok_or_else(|| {
@@ -604,7 +836,21 @@ fn committed(
         )),
         _ => None,
     };
-    let rung = Rung::Document;
+    // The rung §P7 attests the model's units at; an answer's dossier is
+    // attested at R15's, its units being the staged `View`'s roots (R50).
+    let rung = if step == Step::Ingest {
+        Rung::Document
+    } else {
+        Rung::Model
+    };
+    let roots: BTreeSet<Uid> = records
+        .iter()
+        .filter_map(|r| match r {
+            Record::View(v) => Some(v.roots.iter().copied()),
+            _ => None,
+        })
+        .flatten()
+        .collect();
 
     super::write::write("smysl.commit", &canon, |w| {
         let store = w.library.store();
@@ -614,6 +860,9 @@ fn committed(
         let mut units: Vec<UnitCore> = Vec::new();
         let mut relations: Vec<Relation> = Vec::new();
         let mut labels: BTreeMap<Label, Uid> = BTreeMap::new();
+        let mut schemas: Vec<smysl_core::SchemaDecl> = Vec::new();
+        let mut threads: Vec<smysl_core::Thread> = Vec::new();
+        let mut views: Vec<smysl_core::View> = Vec::new();
         for r in &records {
             match r {
                 Record::Unit(u) => {
@@ -623,14 +872,27 @@ fn committed(
                             u.status.as_str()
                         )));
                     }
-                    if u.status > smysl_ingest::ceiling::ceiling(rung) {
+                    let uid = canonical_uid(u);
+                    let at = if roots.contains(&uid) {
+                        form::rung(u.status)
+                    } else {
+                        rung
+                    };
+                    if u.status > smysl_ingest::ceiling::ceiling(at) {
                         return Err(sm03(format!(
-                            "{} exceeds the {rung} ceiling",
-                            canonical_uid(u).canonical()
+                            "{} exceeds the {at} ceiling",
+                            uid.canonical()
                         )));
                     }
                     units.push(u.clone());
                 }
+                // Step 4 admitted only `x.query/v1`; written once.
+                Record::SchemaDecl(d) if !declares_query(store) && schemas.is_empty() => {
+                    schemas.push(d.clone());
+                }
+                Record::SchemaDecl(_) => {}
+                Record::Thread(th) => threads.push(th.clone()),
+                Record::View(v) => views.push(v.clone()),
                 Record::Relation(rel) => {
                     if RelKind::parse(rel.kind.as_str()).is_err() {
                         return Err(sm05("relation kind", rel.kind.as_str()));
@@ -658,7 +920,16 @@ fn committed(
         // 6. Rule M and SMYSL's checks, again; the library alone under the
         //    same options; only what the batch adds refuses.
         let attest = Attest::new(h.agent.clone(), rung, Hlc::zero(h.agent.clone()));
-        let prepared = prepare_under(store, units, relations, labels, Vec::new(), &attest, g.clone());
+        let before: Vec<Uid> = units.iter().map(canonical_uid).collect();
+        let prepared = prepare_under(
+            store,
+            units,
+            relations,
+            labels,
+            schemas.clone(),
+            &attest,
+            g.clone(),
+        );
         let library_report = check(store, options(&prepared.labels, g.as_ref()));
         warnings.extend(own_warning(own_errors(&library_report)));
         let added = added(&library_report, &prepared.report);
@@ -671,6 +942,7 @@ fn committed(
         if let Some((holder, r)) = dangling(store, &prepared.units, &prepared.relations) {
             return Err(refers(&holder, &r));
         }
+        dossier_holds(store, &before, &prepared.units, &threads, &views)?;
         for rel in &prepared.relations {
             if let Some(held) = store.relation_by_id(&rel.uid())
                 && (held.weight != rel.weight || held.note != rel.note)
@@ -693,9 +965,34 @@ fn committed(
         //    declaration and §P7's attestations, in one `append_records`.
         let how = form::Imported { rung, recipe };
         let (records, withdrawn, written) = {
+            // The declaration, then the dossier's records, then the
+            // model's (§P6, R37); the dossier's attested as R15's (R50).
             let mut b = form::Batch::new(store, &h.agent);
             let mut written = Vec::new();
-            for u in &prepared.units {
+            for d in schemas {
+                b.unattested(Record::SchemaDecl(d));
+            }
+            let ours = |u: &UnitCore| roots.contains(&canonical_uid(u));
+            for u in prepared.units.iter().filter(|u| ours(u)) {
+                let uid = b.authored_unit(u.clone());
+                if b.writes(&uid) && !written.contains(&uid) {
+                    written.push(uid);
+                }
+            }
+            for rel in prepared.relations.iter().filter(|r| roots.contains(&r.from)) {
+                b.authored_relation(rel.clone());
+            }
+            for th in threads {
+                if !store.threads().any(|held| *held == th) {
+                    b.unattested(Record::Thread(th));
+                }
+            }
+            for v in views {
+                if !store.views().any(|held| *held == v) {
+                    b.unattested(Record::View(v));
+                }
+            }
+            for u in prepared.units.iter().filter(|u| !ours(u)) {
                 let uid = b.imported_unit(u.clone(), how);
                 if b.writes(&uid) && !written.contains(&uid) {
                     written.push(uid);
@@ -704,7 +1001,7 @@ fn committed(
             for (l, u) in kept {
                 b.imported_label(l, u);
             }
-            for rel in &prepared.relations {
+            for rel in prepared.relations.iter().filter(|r| !roots.contains(&r.from)) {
                 b.imported_relation(rel.clone(), how);
             }
             let (records, withdrawn) = b.finish();
@@ -719,6 +1016,64 @@ fn committed(
         w.append(&records)?;
         Ok(BundValue::list(written.iter().map(map::uid).collect()))
     })
+}
+
+/// §P4 step 7 for an answer's `Thread` and `View`: every unit a step or a
+/// root names is the batch's or the library's, and none is one step 6 moved,
+/// the remap read by position (`prepare_under` keeps the batch's order); and
+/// the `View` bounds the library as a dossier's does: `View::new`'s
+/// granularity, and the two schemas a dossier requires.
+fn dossier_holds(
+    store: &Store,
+    before: &[Uid],
+    after: &[UnitCore],
+    threads: &[smysl_core::Thread],
+    views: &[smysl_core::View],
+) -> Result<(), Refusal> {
+    let now: Vec<Uid> = after.iter().map(canonical_uid).collect();
+    let moved: BTreeSet<Uid> = before
+        .iter()
+        .zip(now.iter())
+        .filter(|(b, a)| b != a)
+        .map(|(b, _)| *b)
+        .collect();
+    let batch: BTreeSet<Uid> = now.into_iter().collect();
+    let judge = |what: &str, u: &Uid| {
+        if moved.contains(u) {
+            Err(sm03("staged dossier changed under the library"))
+        } else if !batch.contains(u) && !store.contains_uid(u) {
+            Err(sm03(format!(
+                "{what} names {}, which the library does not hold",
+                u.canonical()
+            )))
+        } else {
+            Ok(())
+        }
+    };
+    for th in threads {
+        for s in &th.steps {
+            judge(&format!("thread {}", th.id), &s.unit)?;
+        }
+    }
+    let requires: BTreeSet<smysl_core::SchemaId> = [
+        smysl_core::schemas::query::ID,
+        smysl_core::schemas::text::ID,
+    ]
+    .into_iter()
+    .filter_map(|s| smysl_core::SchemaId::parse(s).ok())
+    .collect();
+    for v in views {
+        for r in &v.roots {
+            judge(&format!("view {}", v.id), r)?;
+        }
+        if v.granularity != GranularityProfile::default() || v.requires != requires {
+            return Err(sm03(format!(
+                "view {} is not bounded as a dossier's view is",
+                v.id
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// R46's warning: a staged label the library binds to another unit.
