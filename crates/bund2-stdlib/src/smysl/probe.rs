@@ -5,13 +5,14 @@
 //! build enables, as `panic-probe` gives `test.panic` (D220). Without it the
 //! two points are empty functions.
 //!
-//! The probe is armed for one canonical root, so a test that arms it does
-//! not reach another test's library.
+//! The probe is armed per canonical root, so a test that arms it does not
+//! reach another test's library, nor disarm another test's probe.
 
 use std::path::Path;
 
 #[cfg(feature = "smysl-panic-probe")]
 mod armed {
+    use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
     use std::sync::Mutex;
     use std::time::{Duration, Instant};
@@ -26,28 +27,30 @@ mod armed {
         Pause(PathBuf),
     }
 
-    static ARMED: Mutex<Option<(PathBuf, Action)>> = Mutex::new(None);
+    /// One action per root, so that tests running at once on different
+    /// libraries do not disarm each other's.
+    static ARMED: Mutex<BTreeMap<PathBuf, Action>> = Mutex::new(BTreeMap::new());
+
+    fn armed() -> std::sync::MutexGuard<'static, BTreeMap<PathBuf, Action>> {
+        ARMED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 
     /// Arm the probe for writes to `root`, canonical.
     pub fn arm(root: &Path, action: Action) {
-        *ARMED
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) =
-            Some((root.to_path_buf(), action));
+        armed().insert(root.to_path_buf(), action);
     }
 
+    /// Disarm it for every root.
     pub fn disarm() {
-        *ARMED
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+        armed().clear();
     }
 
     fn take(root: &Path, want: impl Fn(&Action) -> bool) -> Option<Action> {
-        let mut armed = ARMED
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match armed.as_ref() {
-            Some((r, a)) if r == root && want(a) => armed.take().map(|(_, a)| a),
+        let mut armed = armed();
+        match armed.get(root) {
+            Some(a) if want(a) => armed.remove(root),
             _ => None,
         }
     }

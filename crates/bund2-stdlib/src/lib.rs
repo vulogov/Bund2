@@ -644,7 +644,7 @@ mod honesty_tests {
     // safety: the spawn had already happened by then, and a palette string
     // that happened to name a real command would have run it. Listed for
     // what it does, not for what it managed to do.
-    const ACTS_ON_HOST: [&str; 24] = [
+    const ACTS_ON_HOST: [&str; 25] = [
         "system.shell",
         "system.shell.",
         "fs.rm",
@@ -673,6 +673,7 @@ mod honesty_tests {
         "smysl.ingest",
         "smysl.answer",
         "smysl.commit",
+        "smysl.ingest.text",
     ];
 
     // **Natives a feature gate may or may not have registered — F123.**
@@ -702,7 +703,7 @@ mod honesty_tests {
     // `UNVARIED` audit filters it too (RFC-0014 criterion 16): a gated
     // native with an operand the palette leaves at seven is in one build's
     // list and not the other's, as it would be in `PROMOTABLE.txt`.
-    const FEATURE_GATED: [&str; 29] = [
+    const FEATURE_GATED: [&str; 30] = [
         "string.grok",
         "string.grok.",
         "smysl",
@@ -715,6 +716,7 @@ mod honesty_tests {
         "smysl.dossier",
         "smysl.get",
         "smysl.ingest",
+        "smysl.ingest.text",
         "smysl.kb",
         "smysl.label",
         "smysl.measure",
@@ -753,7 +755,12 @@ mod honesty_tests {
             .filter(|n| n == "smysl" || n.starts_with("smysl."))
             .collect();
         // RFC-0014 Phase 2's words are registered only under `smysl-model`.
-        const MODEL: [&str; 3] = ["smysl.answer", "smysl.commit", "smysl.ingest"];
+        const MODEL: [&str; 4] = [
+            "smysl.answer",
+            "smysl.commit",
+            "smysl.ingest",
+            "smysl.ingest.text",
+        ];
         let gated: Vec<String> = FEATURE_GATED
             .iter()
             .filter(|n| **n == "smysl" || n.starts_with("smysl."))

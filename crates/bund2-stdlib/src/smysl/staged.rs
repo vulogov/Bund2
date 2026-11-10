@@ -44,7 +44,6 @@ use super::{Code, Refusal, form, map, sm03, sm05};
 pub(crate) enum Step {
     Ingest,
     Answer,
-    #[expect(dead_code, reason = "RFC-0014 M14's smysl.ingest.text takes these opts")]
     Text,
 }
 
@@ -322,7 +321,7 @@ pub(crate) struct Answered {
     pub warnings: Vec<String>,
 }
 
-fn hex(bytes: &[u8; 32]) -> BundValue {
+pub(super) fn hex(bytes: &[u8; 32]) -> BundValue {
     BundValue::str(bytes.iter().map(|b| format!("{b:02x}")).collect::<String>())
 }
 
@@ -337,11 +336,11 @@ fn unhex(s: &str) -> Option<[u8; 32]> {
     Some(out)
 }
 
-fn int(n: impl TryInto<i64>) -> BundValue {
+pub(super) fn int(n: impl TryInto<i64>) -> BundValue {
     n.try_into().map_or_else(|_| BundValue::int(i64::MAX), BundValue::int)
 }
 
-fn opt_str(s: Option<String>) -> BundValue {
+pub(super) fn opt_str(s: Option<String>) -> BundValue {
     s.map_or_else(BundValue::nodata, BundValue::str)
 }
 
@@ -529,17 +528,19 @@ fn value(p: Parts<'_>) -> Result<BundValue, Refusal> {
     put("model", opt_str(p.model));
     put("recipe", p.recipe.as_ref().map_or_else(BundValue::nodata, hex));
     put("family", p.family.as_ref().map_or_else(BundValue::nodata, hex));
-    let mut usage = BTreeMap::new();
-    usage.insert("input".to_string(), int(p.usage.input_tokens));
-    usage.insert("output".to_string(), int(p.usage.output_tokens));
-    usage.insert(
-        "estimated".to_string(),
-        BundValue::boolean(p.usage.estimated),
-    );
-    usage.insert("retries".to_string(), int(p.usage.retries));
-    put("usage", BundValue::map(usage));
+    put("usage", usage(p.usage));
     put("counts", BundValue::map(p.counts));
     Ok(BundValue::map(m))
+}
+
+/// A run's `usage` MAP (§P4).
+pub(super) fn usage(u: &smysl_provider::Usage) -> BundValue {
+    let mut m = BTreeMap::new();
+    m.insert("input".to_string(), int(u.input_tokens));
+    m.insert("output".to_string(), int(u.output_tokens));
+    m.insert("estimated".to_string(), BundValue::boolean(u.estimated));
+    m.insert("retries".to_string(), int(u.retries));
+    BundValue::map(m)
 }
 
 /// Whether a store declares `x.query/v1`, as SMYSL's `ask` asks before it

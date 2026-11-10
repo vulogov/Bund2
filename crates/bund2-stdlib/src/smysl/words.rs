@@ -109,7 +109,7 @@ fn smysl_create(vm: &mut dyn Vm) -> Result<(), Error> {
             Refusal::new(Code::Sm01, format!("cannot reach {}: {e}", root.display()))
         })?;
         let canon = handle::canonical(root)?;
-        let _serial = super::write::serialise(&canon);
+        let _serial = super::write::serialise(&canon)?;
         smysl_text::Library::create(&canon).map_err(super::sm02)?;
         handle::opened(&canon)
     });
@@ -687,6 +687,28 @@ fn smysl_answer(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `handle target opts smysl.ingest.text` — ingest one text of the library
+/// window by window, holding it for the whole run, and answer the run's
+/// report (RFC-0014 §P4, §P6, M14). `target` is an alias, or a MAP
+/// `{ manifest: <id> }`.
+#[cfg(feature = "smysl-model")]
+fn smysl_ingest_text(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.ingest.text";
+    let [opts, target, h] = <[BundValue; 3]>::try_from(operands(vm, W, 3)?)
+        .map_err(|_| Error::internal(format!("{W}: three operands were guarded and not pulled")))?;
+    let answered = handle_at(&h, 3).and_then(|h| {
+        let target = super::ingest_text::target(&target, 2)?;
+        let o = super::staged::opts(&opts, 1, super::staged::Step::Text)?;
+        super::ingest_text::ingest_text(&h, target, &o)
+    });
+    let answered = answered.map_err(|r| r.for_word(W))?;
+    for text in &answered.warnings {
+        warn(vm, W, text);
+    }
+    vm.push(answered.value);
+    Ok(())
+}
+
 /// `handle staged smysl.commit` — check a staged value against the library
 /// under the locks and write it, answering the uids of the units written
 /// that the library did not hold (RFC-0014 §P4, R40, M12).
@@ -707,7 +729,12 @@ fn smysl_commit(vm: &mut dyn Vm) -> Result<(), Error> {
 /// RFC-0014 Phase 2's words, under `smysl-model`, stubbed under `--noio` as
 /// the rest are (§P5, R33).
 #[cfg(feature = "smysl-model")]
-pub const MODEL_WORDS: [&str; 3] = ["smysl.answer", "smysl.commit", "smysl.ingest"];
+pub const MODEL_WORDS: [&str; 4] = [
+    "smysl.answer",
+    "smysl.commit",
+    "smysl.ingest",
+    "smysl.ingest.text",
+];
 
 /// The words that touch disk, stubbed under `--noio` (R11).
 const ON_DISK: [&str; 21] = [
@@ -833,6 +860,12 @@ pub fn register(r: &mut Registry, opts: &crate::host::HostOptions) {
         {
             r.register_native("smysl.ingest", smysl_ingest, handle(3), WordKind::Sync);
             r.register_native("smysl.answer", smysl_answer, handle(3), WordKind::Sync);
+            r.register_native(
+                "smysl.ingest.text",
+                smysl_ingest_text,
+                handle(3),
+                WordKind::Sync,
+            );
             r.register_native(
                 "smysl.commit",
                 smysl_commit,
@@ -1415,7 +1448,7 @@ mod tests {
         let full = family(&interp(false));
         assert_eq!(full, family(&interp(true)));
         // RFC-0014 Phase 2's words, under `smysl-model`, are stubbed too.
-        let model = if cfg!(feature = "smysl-model") { 3 } else { 0 };
+        let model = if cfg!(feature = "smysl-model") { 4 } else { 0 };
         assert_eq!(full.len(), ON_DISK.len() + 3 + model, "{full:?}");
         for name in &full {
             let got = run_in(&mut interp(true), name);

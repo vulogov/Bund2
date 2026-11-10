@@ -41,6 +41,8 @@
 pub mod facts;
 pub(crate) mod form;
 pub mod handle;
+#[cfg(feature = "smysl-model")]
+pub(crate) mod ingest_text;
 pub mod map;
 #[cfg(feature = "smysl-model")]
 pub mod model;
@@ -178,6 +180,8 @@ mod model_tests;
 mod staged_tests;
 #[cfg(test)]
 mod answer_tests;
+#[cfg(test)]
+mod text_tests;
 #[cfg(test)]
 mod proving_tests;
 #[cfg(test)]

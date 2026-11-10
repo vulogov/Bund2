@@ -740,6 +740,7 @@ fn noio_stubs_the_model_words() {
         ("smysl.ingest", vec![p.handle(), s("text"), opts(&[])]),
         ("smysl.commit", vec![p.handle(), opts(&[])]),
         ("smysl.answer", vec![p.handle(), s("why?"), opts(&[])]),
+        ("smysl.ingest.text", vec![p.handle(), s("t"), opts(&[])]),
     ] {
         let e = r.call(operands, word).unwrap_err();
         assert!(e.contains(super::words::NOIO), "{word}: {e}");

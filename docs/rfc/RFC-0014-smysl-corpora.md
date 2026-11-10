@@ -4830,3 +4830,40 @@ gains the dossier's writes (`crates/bund2-stdlib/src/smysl/form.rs`,
   149 (smysl), 145 (default); clippy clean in five configurations; conform
   143/159, CEILING 143/159, IMPLEMENTED 597/602, COVERAGE 577/602,
   unchanged; cite and lint clean.
+
+**M14 (2026-11-10).** `smysl.ingest.text`
+(`crates/bund2-stdlib/src/smysl/ingest_text.rs`, `ingest_text`), registered
+under `smysl-model` and stubbed under `--noio`, and named in
+`crates/bund2-stdlib/src/lib.rs`, `FEATURE_GATED` and `ACTS_ON_HOST`.
+Its tests are `crates/bund2-stdlib/src/smysl/text_tests.rs`.
+- **R42 A, the table.** `crates/bund2-stdlib/src/smysl/write.rs` holds, per
+  canonical root, a `held` flag and a run's mark under one lock with one
+  condition variable. `serialise` waits while the root is held and answers
+  SM07 while another run marks it; `write_marked` marks first, then holds
+  the root passing its own mark. The guards `Serial` and `Mark` clear their
+  field on every exit, unwinding included, and notify every waiter.
+  `serialise` can now refuse, so `smysl.create` is SM07 too while a text
+  ingest marks its root.
+- **R25 for the run.** `Writer::within` takes the snapshot and runs a call
+  that reports its own failures; `Writer::failed` compares and keeps the
+  locks. `ingest_text` matches SMYSL's two commit messages, under
+  `SMY-E001` only, and a model answer with no units is not one of them.
+- **The configuration** is read as §P3's table says for this word:
+  `ingest.prompt`, and not `ingest.path` or `ingest.temperature`.
+- **Phase 1's probe** (`crates/bund2-stdlib/src/smysl/probe.rs`) is armed
+  per root rather than in one slot, so that criterion 27's tests and
+  Phase 1's, run at once on different libraries, do not disarm one
+  another's.
+- **Criteria.** 19's `bund2 words` case for `smysl.ingest.text`. 22's
+  `temperature`, `level` and target cases. 23's and 28's `smysl.ingest.text`
+  cases. 27 whole: the fixture's three paragraphs are three windows at a
+  context of 1024 (two paragraphs of the shorter kind were two windows);
+  "from another process" is SMYSL's `acquire_all` refused with `Locked`
+  while the run holds the locks; the commit failure is a directory where
+  the text's shard log will be, made on the third call, the second
+  window's first, the first window having answered no units.
+- **Counts.** Library tests 770 (smysl-model, smysl-model-probe,
+  smysl-panic-probe), 719 (smysl), 602 (default); CLI 149 (smysl-model),
+  149 (smysl), 145 (default); clippy clean in five configurations; conform
+  143/159, CEILING 143/159, IMPLEMENTED 597/602, COVERAGE 577/602,
+  unchanged; cite and lint clean.

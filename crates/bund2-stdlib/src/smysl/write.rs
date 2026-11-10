@@ -13,14 +13,15 @@
 //! 6. drop the locks, or forget them after a panic (R20) or a failed call
 //!    that changed a log or the marker (R25).
 //!
-//! Writes to one root are serialised within the process by a table of
-//! mutexes keyed by the canonical root (R13), before the file locks are
-//! taken. A poisoned mutex is recovered: it guards no data, only the order
-//! of writers.
+//! Writes to one root are serialised within the process by a table keyed
+//! by the canonical root (R13), before the file locks are taken: a `held`
+//! flag per root and a text ingest's mark, under one lock with one
+//! condition variable (R42 A). A writer waits while the root is held, and
+//! answers SM07 while another run marks it.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::{Condvar, Mutex, MutexGuard, OnceLock};
 
 use smysl_core::error::LibError;
 use smysl_core::{Record, from_cbor_seq};
@@ -35,37 +36,134 @@ use super::{Code, Refusal, sm02};
 pub const LEFT_LOCKED: &str =
     "; the library is left locked until an operator runs bund2 smysl-unlock";
 
-// --- the process mutex (R13) -----------------------------------------------
+// --- the process table (R13, R42) ----------------------------------------------
 
-/// Each canonical root's mutex. Never removed, so each is leaked once, when
-/// its root is first written, and lives as long as the process.
-type Table = Mutex<HashMap<PathBuf, &'static Mutex<()>>>;
+/// One canonical root in the table: whether a write holds it, and the text
+/// ingest that marks it, if one does.
+#[derive(Debug, Default)]
+struct Root {
+    held: bool,
+    mark: Option<u64>,
+}
+
+/// Every root this process has written, under one lock, with one condition
+/// variable that every release and every mark notifies (§P6, R42 A).
+struct Table {
+    roots: Mutex<HashMap<PathBuf, Root>>,
+    changed: Condvar,
+}
 
 fn table() -> &'static Table {
     static TABLE: OnceLock<Table> = OnceLock::new();
-    TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+    TABLE.get_or_init(|| Table {
+        roots: Mutex::new(HashMap::new()),
+        changed: Condvar::new(),
+    })
 }
 
-/// The mutex for a canonical root, held until this drops.
+/// The table's lock. It is held only to test and set a root's fields, never
+/// while a word runs, so no panicking thread holds it (D49); a poisoned lock
+/// is taken as it is, as it guards nothing a panic can leave half set.
+fn roots() -> MutexGuard<'static, HashMap<PathBuf, Root>> {
+    table()
+        .roots
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// What a writer in this process answers when a text ingest marks the root.
+fn marked() -> Refusal {
+    Refusal::new(
+        Code::Sm07,
+        "the library is locked: bund2 smysl.ingest.text is writing it in this process",
+    )
+}
+
+/// A canonical root held by this thread's write, until this drops. Dropped
+/// on every exit, unwinding included, it clears `held` and wakes every
+/// waiter.
 pub(crate) struct Serial {
-    _guard: MutexGuard<'static, ()>,
+    canon: PathBuf,
+}
+
+impl Drop for Serial {
+    fn drop(&mut self) {
+        if let Some(r) = roots().get_mut(&self.canon) {
+            r.held = false;
+        }
+        table().changed.notify_all();
+    }
 }
 
 /// Serialise this thread's write to `canon` behind every other write to it
-/// in this process.
-pub(crate) fn serialise(canon: &Path) -> Serial {
-    let mutex: &'static Mutex<()> = {
-        let mut t = table()
-            .lock()
+/// in this process: SM07 if a text ingest marks it, else wait while another
+/// write holds it, testing again at each release and each mark.
+pub(crate) fn serialise(canon: &Path) -> Result<Serial, Refusal> {
+    hold(canon, None)
+}
+
+/// [`serialise`] for a write that may pass the mark `own`.
+fn hold(canon: &Path, own: Option<u64>) -> Result<Serial, Refusal> {
+    let mut t = roots();
+    loop {
+        let r = t.entry(canon.to_path_buf()).or_default();
+        if r.mark.is_some() && r.mark != own {
+            return Err(marked());
+        }
+        if !r.held {
+            r.held = true;
+            return Ok(Serial {
+                canon: canon.to_path_buf(),
+            });
+        }
+        t = table()
+            .changed
+            .wait(t)
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        t.entry(canon.to_path_buf())
-            .or_insert_with(|| Box::leak(Box::new(Mutex::new(()))))
-    };
-    Serial {
-        _guard: mutex
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner),
     }
+}
+
+#[cfg(feature = "smysl-model")]
+/// A text ingest's mark on a canonical root, until this drops. Dropped on
+/// every exit, unwinding included, it clears its own mark and only its own,
+/// and wakes every waiter.
+pub(crate) struct Mark {
+    canon: PathBuf,
+    id: u64,
+}
+
+#[cfg(feature = "smysl-model")]
+impl Drop for Mark {
+    fn drop(&mut self) {
+        if let Some(r) = roots().get_mut(&self.canon)
+            && r.mark == Some(self.id)
+        {
+            r.mark = None;
+        }
+        table().changed.notify_all();
+    }
+}
+
+#[cfg(feature = "smysl-model")]
+/// Mark `canon` for a text ingest: SM07 if another run marks it, else set
+/// this run's mark and wake every waiter, so that a writer already waiting
+/// finds it and answers SM07 (§P6, R42 A).
+pub(crate) fn mark(canon: &Path) -> Result<Mark, Refusal> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    let mut t = roots();
+    let r = t.entry(canon.to_path_buf()).or_default();
+    if r.mark.is_some() {
+        return Err(marked());
+    }
+    let id = NEXT.fetch_add(1, Ordering::Relaxed);
+    r.mark = Some(id);
+    drop(t);
+    table().changed.notify_all();
+    Ok(Mark {
+        canon: canon.to_path_buf(),
+        id,
+    })
 }
 
 // --- the guard (R20, R25) ----------------------------------------------------
@@ -217,6 +315,15 @@ impl Writer {
         &mut self,
         f: impl FnOnce(&mut Library) -> Result<T, LibError>,
     ) -> Result<T, Refusal> {
+        match self.within(f)? {
+            Ok(v) => Ok(v),
+            Err(e) => Err(self.failed(super::shown(e).to_string())),
+        }
+    }
+
+    /// Run `f`, which may write, after R25's snapshot: the first call of the
+    /// acquisition takes it.
+    pub(crate) fn within<T>(&mut self, f: impl FnOnce(&mut Library) -> T) -> Result<T, Refusal> {
         if self.snapshot.is_none() {
             let (stamp_len, _) = self.library.stamp();
             let s = Snapshot::take(&self.root, stamp_len)
@@ -224,22 +331,25 @@ impl Writer {
             self.snapshot = Some(s);
         }
         super::probe::at_panic(&self.root);
-        let failed = match f(&mut self.library) {
-            Ok(v) => return Ok(v),
-            Err(e) => super::shown(e),
-        };
+        Ok(f(&mut self.library))
+    }
+
+    /// The SM02 for a call that failed with `failed`: compare a second
+    /// snapshot, and keep the locks if the library changed or cannot be
+    /// read (R25).
+    pub(crate) fn failed(&mut self, failed: String) -> Refusal {
         let keep = match &self.snapshot {
             Some(s) => s.changed(&self.root).unwrap_or(true),
             None => true,
         };
         if keep {
             self.guard.keep();
-            return Err(Refusal::new(
+            return Refusal::new(
                 Code::Sm02,
                 format!("SMYSL refused it: {failed}{LEFT_LOCKED}"),
-            ));
+            );
         }
-        Err(sm02(failed))
+        sm02(failed)
     }
 }
 
@@ -294,8 +404,23 @@ pub(crate) fn write<T>(
     f: impl FnOnce(&mut Writer) -> Result<T, Refusal>,
 ) -> Result<T, Refusal> {
     let canon = handle::canonical(root)?;
-    let _serial = serialise(&canon);
+    let _serial = serialise(&canon)?;
     let mut w = acquire(&canon, word)?;
+    f(&mut w)
+}
+
+/// [`write`] for a text ingest (§P6, R42 A): mark the root first, then hold
+/// it as any writer does, passing the mark. The mark, the hold and the locks
+/// go in that order's reverse on every exit.
+#[cfg(feature = "smysl-model")]
+pub(crate) fn write_marked<T>(
+    word: &str,
+    canon: &Path,
+    f: impl FnOnce(&mut Writer) -> Result<T, Refusal>,
+) -> Result<T, Refusal> {
+    let mark = mark(canon)?;
+    let _serial = hold(canon, Some(mark.id))?;
+    let mut w = acquire(canon, word)?;
     f(&mut w)
 }
 
