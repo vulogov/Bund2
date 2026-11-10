@@ -4867,3 +4867,57 @@ Its tests are `crates/bund2-stdlib/src/smysl/text_tests.rs`.
   149 (smysl), 145 (default); clippy clean in five configurations; conform
   143/159, CEILING 143/159, IMPLEMENTED 597/602, COVERAGE 577/602,
   unchanged; cite and lint clean.
+
+**M15 (2026-11-10).** `bund_examples/smysl_model/`: `demo.bund`, a
+Makefile that builds a `smysl-ollama` `bund2` in `target/smysl-ollama` and
+runs it from no library, and a README that says what each word sends, how
+`offline` keeps it local, that model calls ignore `http_proxy`, that an
+`ollama` provider at `https://` needs a hosted mapper's TLS, where the
+configuration is found, and how the text ingest's locks behave (§P2, §P3,
+§P5, N14). The `#[ignore]`d test is
+`crates/bund2-cli/tests/smysl_model.rs`, under `smysl-ollama`. The release
+notes gain the Phase 2 section (`docs/release_notes/0.54.0.md`).
+- **Criterion 29, complete.** M14 added `smysl.ingest.text` to
+  `FEATURE_GATED` and `ACTS_ON_HOST`, which the registry audit checks, and
+  to the `--noio` test, so all four words are in both lists and SM06
+  under `--noio`.
+- **Criterion 30, passed 2026-11-10** against a local Ollama with
+  `llama3.2` (`a80c4f17acd5`), SMYSL's default model, through the
+  `#[ignore]`d test: a document ingested and committed, a question answered
+  and the answer committed, a second document ingested and committed, and
+  a text ingested window by window and run again from its journal. The
+  test asserts that the run reached its last section, since a refusal
+  stops the program, and that no staged batch was left uncommitted.
+- **What the run found.**
+  - **A dossier needs an entity.** `smysl.answer` was refused, "no part of
+    `…` names an entity in scope", over a library that `smysl.ingest`
+    alone had formed: a dossier is built around an `x.text/entity` the
+    question names, through `x.text/mentions` edges, and a document ingest
+    makes neither. The demo writes the entity and the edges with Phase 1's
+    words, as `bund_examples/smysl/` does for `smysl.dossier`. This is
+    SMYSL's dossier as §S5 uses it, not a change to Phase 2.
+  - **An entity's source is an alias.** A hand-made entity whose source
+    named a document made the library `SMY-E403`. Its source is
+    `alias:log`, the log's alias, so the log is added first.
+  - **A small model's batches are not always clean.** One run's answer
+    staged nothing, every proposed unit refused for a label without its
+    `/`. `smysl.commit` would refuse such a value with SM03, so the demo
+    commits a batch only when `clean` and otherwise prints `not committed`.
+    The test fails on that line.
+  - **`llama3.2` cannot do the text step.** Its passes came back as JSON
+    cut short, and SMYSL committed the window as opaque prose with
+    `SMY-W304`, `degraded` 2. The words behaved as §P6 says. SMYSL's own
+    record says the same of `llama3.2` and `qwen2.5:14b-instruct` over a
+    real corpus (`smysl:CHANGELOG.md:1544`).
+- **Q60 stays open.** No hosted provider was run: none has a key on this
+  machine. The probe still refuses a model a hosted provider's list does not
+  name (§P6).
+- **Formatting.** `cargo fmt --all -- --check`, which CI runs, had failed
+  since the BIN commit, over that commit's files and M11–M14's. They are
+  reformatted here, layout only.
+- **Counts.** Library tests 770 (smysl-model, smysl-model-probe,
+  smysl-panic-probe), unchanged; CLI 149 (smysl-model), 149 (smysl), 145
+  (default), and the `#[ignore]`d test passed under smysl-ollama; clippy
+  clean in five configurations; fmt clean; conform 143/159, CEILING
+  143/159, IMPLEMENTED 597/602, COVERAGE 577/602, unchanged; cite and lint
+  clean.

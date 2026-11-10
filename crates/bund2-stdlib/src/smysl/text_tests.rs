@@ -50,7 +50,9 @@ fn config(endpoint: &str) -> String {
 fn paragraph(n: usize) -> String {
     let mut p = format!("Paragraph {n} says that the pool wait rose.");
     for i in 0..12 {
-        p.push_str(&format!(" On day {i} of week {n} the queue grew and the rollback held."));
+        p.push_str(&format!(
+            " On day {i} of week {n} the queue grew and the rollback held."
+        ));
     }
     p
 }
@@ -240,7 +242,10 @@ fn a_text_ingest_writes_journals_and_resumes() {
 #[test]
 fn the_default_level_is_the_readings_leaves() {
     for (reader, body) in [
-        ("txt/1", "the pool wait rose\nthe queue grew\nthe rollback held\n".to_string()),
+        (
+            "txt/1",
+            "the pool wait rose\nthe queue grew\nthe rollback held\n".to_string(),
+        ),
         ("md/1", markdown()),
     ] {
         let tag = format!("m14-level-{}", reader.replace('/', ""));
@@ -261,7 +266,11 @@ fn the_default_level_is_the_readings_leaves() {
             ("reextract", BundValue::boolean(true)),
         ]));
         assert_eq!(default, named, "{reader}: {leaves}");
-        let other = if leaves.as_str() == "line" { "paragraph" } else { "line" };
+        let other = if leaves.as_str() == "line" {
+            "paragraph"
+        } else {
+            "line"
+        };
         let elsewhere = recipe(opts(&[
             ("level", s(other)),
             ("reextract", BundValue::boolean(true)),
@@ -285,7 +294,10 @@ fn a_running_text_ingest_refuses_other_writers() {
     arrived(&flag);
 
     let r2 = root.clone();
-    let e = std::thread::spawn(move || unit(&r2)).join().unwrap().unwrap_err();
+    let e = std::thread::spawn(move || unit(&r2))
+        .join()
+        .unwrap()
+        .unwrap_err();
     assert_eq!(e, format!("SMYSL.UNIT: {MARKED}"));
     let e = ingest_elsewhere(&root).join().unwrap().unwrap_err();
     assert_eq!(e, format!("SMYSL.INGEST.TEXT: {MARKED}"));
@@ -374,13 +386,19 @@ fn a_failed_commit_inside_the_run_leaves_the_library_locked() {
     );
     let mut r = Run::new(false);
     let e = t.run(&mut r, opts(&[])).unwrap_err();
-    assert!(e.starts_with("SMYSL.INGEST.TEXT: SMYSL refused it: the batch could not be committed: "), "{e}");
+    assert!(
+        e.starts_with("SMYSL.INGEST.TEXT: SMYSL refused it: the batch could not be committed: "),
+        "{e}"
+    );
     assert!(e.ends_with(LEFT_LOCKED), "{e}");
     // The test's own sabotage goes first, or the next write's open would
     // meet it before the locks do.
     std::fs::remove_dir_all(&log).unwrap();
     let next = unit(&t.p.root()).unwrap_err();
-    assert!(next.starts_with("SMYSL.UNIT: the library is locked: "), "{next}");
+    assert!(
+        next.starts_with("SMYSL.UNIT: the library is locked: "),
+        "{next}"
+    );
     assert!(next.contains("bund2 smysl.ingest.text"), "{next}");
     super::unlock::unlock(&t.p.root, true).unwrap();
 }
@@ -398,8 +416,13 @@ fn text_opts_and_targets_are_checked() {
         .run(&mut r, opts(&[("temperature", BundValue::float(0.0))]))
         .unwrap_err();
     assert_eq!(e, "SMYSL.INGEST.TEXT: opts has no key temperature");
-    let e = t.run(&mut r, opts(&[("level", s("Not A Level"))])).unwrap_err();
-    assert!(e.starts_with("SMYSL.INGEST.TEXT: opts level Not A Level is not a level"), "{e}");
+    let e = t
+        .run(&mut r, opts(&[("level", s("Not A Level"))]))
+        .unwrap_err();
+    assert!(
+        e.starts_with("SMYSL.INGEST.TEXT: opts level Not A Level is not a level"),
+        "{e}"
+    );
     for o in [opts(&[]), opts(&[("level", s("paragraph"))])] {
         let e = r
             .call(vec![t.p.handle(), s("absent"), o], "smysl.ingest.text")
@@ -411,14 +434,20 @@ fn text_opts_and_targets_are_checked() {
     let e = t
         .run(&mut r, opts(&[("granularity", s("enormous"))]))
         .unwrap_err();
-    assert!(e.contains("the model refused it") || e.contains("enormous"), "{e}");
+    assert!(
+        e.contains("the model refused it") || e.contains("enormous"),
+        "{e}"
+    );
     let e = r
         .call(
             vec![t.p.handle(), m(&[("manifest", s("not a mid"))]), opts(&[])],
             "smysl.ingest.text",
         )
         .unwrap_err();
-    assert_eq!(e, "SMYSL.INGEST.TEXT: manifest not a mid is not a manifest id");
+    assert_eq!(
+        e,
+        "SMYSL.INGEST.TEXT: manifest not a mid is not a manifest id"
+    );
     assert!(script::calls(&t.ep).is_empty());
 }
 
@@ -431,7 +460,11 @@ fn a_target_may_name_a_manifest() {
     let mut r = Run::new(false);
     let v = r
         .call(
-            vec![t.p.handle(), m(&[("manifest", s(&mid.canonical()))]), opts(&[])],
+            vec![
+                t.p.handle(),
+                m(&[("manifest", s(&mid.canonical()))]),
+                opts(&[]),
+            ],
             "smysl.ingest.text",
         )
         .unwrap();
@@ -450,7 +483,10 @@ fn offline_refuses_a_remote_provider_for_a_text() {
     let e = t
         .run(&mut r, opts(&[("offline", BundValue::boolean(true))]))
         .unwrap_err();
-    assert!(e.starts_with("SMYSL.INGEST.TEXT: the model refused it: SMY-E301"), "{e}");
+    assert!(
+        e.starts_with("SMYSL.INGEST.TEXT: the model refused it: SMY-E301"),
+        "{e}"
+    );
     assert_eq!(script::probes(&far), 0);
     assert!(script::calls(&far).is_empty());
     assert_eq!(t.journal(), 0);
@@ -492,9 +528,15 @@ fn a_panicking_model_keeps_the_locks_and_clears_the_mark() {
         "{e}"
     );
     let next = unit(&t.p.root()).unwrap_err();
-    assert!(next.starts_with("SMYSL.UNIT: the library is locked: "), "{next}");
+    assert!(
+        next.starts_with("SMYSL.UNIT: the library is locked: "),
+        "{next}"
+    );
     assert!(next.contains("bund2 smysl.ingest.text"), "{next}");
-    assert!(next.contains(&format!("pid {}", std::process::id())), "{next}");
+    assert!(
+        next.contains(&format!("pid {}", std::process::id())),
+        "{next}"
+    );
     assert!(!next.contains("in this process"), "{next}");
     super::unlock::unlock(&t.p.root, true).unwrap();
 }
@@ -522,7 +564,10 @@ fn a_waiting_writer_finds_the_mark() {
     let waiter = std::thread::spawn(move || unit(&r2));
     // The waiter has begun waiting on the held root by now.
     std::thread::sleep(Duration::from_millis(300));
-    assert!(!waiter.is_finished(), "the waiter waits behind the earlier write");
+    assert!(
+        !waiter.is_finished(),
+        "the waiter waits behind the earlier write"
+    );
 
     let run = ingest_elsewhere(&root);
     let e = waiter.join().unwrap().unwrap_err();
@@ -551,7 +596,10 @@ fn a_panicking_write_does_not_leave_the_root_held() {
     let next = std::thread::spawn(move || unit(&root));
     let start = Instant::now();
     while !next.is_finished() {
-        assert!(start.elapsed() < Duration::from_secs(10), "the next write waited");
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "the next write waited"
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
     let e = next.join().unwrap().unwrap_err();
@@ -559,4 +607,3 @@ fn a_panicking_write_does_not_leave_the_root_held() {
     assert!(!e.contains("in this process"), "{e}");
     super::unlock::unlock(&t.p.root, true).unwrap();
 }
-

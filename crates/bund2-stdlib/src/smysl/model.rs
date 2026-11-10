@@ -124,7 +124,10 @@ impl Failures {
 
     /// The failed calls by kind.
     pub fn by_kind(&self) -> BTreeMap<&'static str, u64> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 }
 

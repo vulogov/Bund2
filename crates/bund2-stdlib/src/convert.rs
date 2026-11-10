@@ -21,8 +21,8 @@
 
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
 use bund2_value::{
-    BIN, BOOL, BundValue, CALL, CLASS, CONDITIONAL, FLOAT, INTEGER, JSON, LAMBDA, LIST, MAP, MATRIX,
-    NODATA, NONE, OBJECT, PTR, STRING, TEXTBUFFER, VALUEMAP,
+    BIN, BOOL, BundValue, CALL, CLASS, CONDITIONAL, FLOAT, INTEGER, JSON, LAMBDA, LIST, MAP,
+    MATRIX, NODATA, NONE, OBJECT, PTR, STRING, TEXTBUFFER, VALUEMAP,
 };
 
 fn eff(consumes: u8, produces: u8) -> StackEffect {
@@ -700,7 +700,10 @@ mod tests {
         let e = with_bin("", &[1], "convert.to_int").err().unwrap();
         assert!(e.contains("Can not convert NODATA to 2"), "{e}");
         let e = with_bin("", &[0xff], "convert.to_string").err().unwrap();
-        assert!(e.contains("Can not convert BIN to STR to 4: invalid utf-8"), "{e}");
+        assert!(
+            e.contains("Can not convert BIN to STR to 4: invalid utf-8"),
+            "{e}"
+        );
         let i = with_bin("", &[1, 2, 3], "len").unwrap();
         assert_eq!(top(&i).as_int(), Some(3));
         let i = with_bin("\"A\"", &[1], "+").unwrap();

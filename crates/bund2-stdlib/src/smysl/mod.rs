@@ -169,6 +169,8 @@ pub fn register(r: &mut bund2_api::Registry, opts: &crate::host::HostOptions) {
 }
 
 #[cfg(test)]
+mod answer_tests;
+#[cfg(test)]
 mod bridging_tests;
 #[cfg(test)]
 mod forming_tests;
@@ -177,14 +179,12 @@ mod measuring_tests;
 #[cfg(test)]
 mod model_tests;
 #[cfg(test)]
-mod staged_tests;
-#[cfg(test)]
-mod answer_tests;
-#[cfg(test)]
-mod text_tests;
-#[cfg(test)]
 mod proving_tests;
 #[cfg(test)]
 mod querying_tests;
 #[cfg(test)]
 mod research_tests;
+#[cfg(test)]
+mod staged_tests;
+#[cfg(test)]
+mod text_tests;

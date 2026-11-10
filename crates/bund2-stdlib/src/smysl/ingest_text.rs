@@ -199,8 +199,14 @@ fn value(r: &TextReport, failed: u64) -> Result<BundValue, Refusal> {
     }
     put("failed", int(failed));
     put("usage", usage(&r.usage));
-    put("recipe", r.recipe.as_ref().map_or_else(BundValue::nodata, hex));
-    put("family", r.family.as_ref().map_or_else(BundValue::nodata, hex));
+    put(
+        "recipe",
+        r.recipe.as_ref().map_or_else(BundValue::nodata, hex),
+    );
+    put(
+        "family",
+        r.family.as_ref().map_or_else(BundValue::nodata, hex),
+    );
     let diagnostics = r
         .diagnostics
         .iter()
@@ -220,14 +226,15 @@ mod tests {
     #[test]
     fn only_smysls_commit_messages_are_commit_failures() {
         let d = |m: &str| Diagnostic::new(Smy::E001).with_message(m.to_string());
-        assert!(commit_failure(&d("the batch could not be committed: disk full")));
+        assert!(commit_failure(&d(
+            "the batch could not be committed: disk full"
+        )));
         assert!(commit_failure(&d(
             "the reply edges could not be committed: disk full"
         )));
         assert!(!commit_failure(&d("the model answered no units")));
-        assert!(!commit_failure(
-            &Diagnostic::new(Smy::W304)
-                .with_message("the batch could not be committed: x".to_string())
-        ));
+        assert!(!commit_failure(&Diagnostic::new(Smy::W304).with_message(
+            "the batch could not be committed: x".to_string()
+        )));
     }
 }

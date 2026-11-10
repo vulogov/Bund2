@@ -73,7 +73,10 @@ impl Project {
             })
             .collect();
         let marker = self.root.join(smysl_text::library::MARKER);
-        out.push((marker.clone(), std::fs::metadata(&marker).map(|m| m.len()).unwrap_or(0)));
+        out.push((
+            marker.clone(),
+            std::fs::metadata(&marker).map(|m| m.len()).unwrap_or(0),
+        ));
         out
     }
 }
@@ -113,7 +116,12 @@ pub(super) fn opts(entries: &[(&str, BundValue)]) -> BundValue {
     m(entries)
 }
 
-pub(super) fn ingest(r: &mut Run, p: &Project, input: &str, o: BundValue) -> Result<BundValue, String> {
+pub(super) fn ingest(
+    r: &mut Run,
+    p: &Project,
+    input: &str,
+    o: BundValue,
+) -> Result<BundValue, String> {
     r.call(vec![p.handle(), s(input), o], "smysl.ingest")
 }
 
@@ -154,7 +162,10 @@ fn grounded(gist: &str, status: Status, grounds: &[Uid]) -> UnitCore {
 
 /// A uid nothing holds.
 fn missing(tag: &str) -> Uid {
-    canonical_uid(&claim(&format!("never appended: {tag}"), Status::Speculative))
+    canonical_uid(&claim(
+        &format!("never appended: {tag}"),
+        Status::Speculative,
+    ))
 }
 
 /// Append records straight through SMYSL, as a library a program built.
@@ -177,15 +188,30 @@ fn offline_refuses_a_remote_provider_before_any_probe() {
     let far = endpoint("192.0.2.1", "m12-offline");
     p.sidecar(&config(&far, SURFACE));
     let mut r = Run::new(false);
-    let e = ingest(&mut r, &p, "text", opts(&[("offline", BundValue::boolean(true))])).unwrap_err();
-    assert!(e.starts_with("SMYSL.INGEST: the model refused it: SMY-E301"), "{e}");
+    let e = ingest(
+        &mut r,
+        &p,
+        "text",
+        opts(&[("offline", BundValue::boolean(true))]),
+    )
+    .unwrap_err();
+    assert!(
+        e.starts_with("SMYSL.INGEST: the model refused it: SMY-E301"),
+        "{e}"
+    );
     assert_eq!(script::probes(&far), 0);
     assert!(script::calls(&far).is_empty());
 
     let near = endpoint("127.0.0.1", "m12-offline");
     p.sidecar(&config(&near, SURFACE));
     script::arm(&near, [Answer::Text(ANSWER.into())]);
-    let v = ingest(&mut r, &p, "text", opts(&[("offline", BundValue::boolean(true))])).unwrap();
+    let v = ingest(
+        &mut r,
+        &p,
+        "text",
+        opts(&[("offline", BundValue::boolean(true))]),
+    )
+    .unwrap();
     assert_eq!(text(&get(&v, "type")), "smysl.staged");
     script::disarm(&near);
 }
@@ -204,7 +230,10 @@ fn ingest_stages_and_commit_writes() {
     let mut r = Run::new(false);
     // An earlier write by the same agent, whose clock the commit's must pass.
     let earlier = r
-        .call(vec![p.handle(), super::forming_tests::unit("an earlier claim")], "smysl.unit")
+        .call(
+            vec![p.handle(), super::forming_tests::unit("an earlier claim")],
+            "smysl.unit",
+        )
         .unwrap();
     let earlier = uid(&text(&earlier));
     let before = p.logs();
@@ -331,8 +360,14 @@ fn commit_refuses_what_it_is_not_given_whole() {
     let before = p.logs();
     let refused = |r: &mut Run, v: BundValue| commit(r, &p, v).unwrap_err();
 
-    let e = refused(&mut r, staged(&other, "ingest", &[Record::Unit(u.clone())], true));
-    assert!(e.contains(&format!("staged batch belongs to {}", other.root())), "{e}");
+    let e = refused(
+        &mut r,
+        staged(&other, "ingest", &[Record::Unit(u.clone())], true),
+    );
+    assert!(
+        e.contains(&format!("staged batch belongs to {}", other.root())),
+        "{e}"
+    );
     let e = refused(&mut r, with(&good, "clean", BundValue::boolean(false)));
     assert!(e.ends_with("staged batch did not check clean"), "{e}");
     let e = refused(&mut r, with(&good, "records", s("not a bin")));
@@ -357,21 +392,38 @@ fn commit_refuses_what_it_is_not_given_whole() {
         staged(
             &p,
             "ingest",
-            &[Record::Unit(u.clone()), Record::Relation(Relation::new(RelKind::Retracts, x, x))],
+            &[
+                Record::Unit(u.clone()),
+                Record::Relation(Relation::new(RelKind::Retracts, x, x)),
+            ],
             true,
         ),
     );
-    assert!(e.contains("a retracts relation is written only by smysl.retract"), "{e}");
+    assert!(
+        e.contains("a retracts relation is written only by smysl.retract"),
+        "{e}"
+    );
     let measured = UnitCoreBuilder::new(KernelType::Claim, "measured", Status::Measured)
-        .source(smysl_core::SourceRef::new(smysl_core::SourceKind::Doc, "a meter"))
+        .source(smysl_core::SourceRef::new(
+            smysl_core::SourceKind::Doc,
+            "a meter",
+        ))
         .build()
         .unwrap();
-    let e = refused(&mut r, staged(&p, "ingest", &[Record::Unit(measured)], true));
+    let e = refused(
+        &mut r,
+        staged(&p, "ingest", &[Record::Unit(measured)], true),
+    );
     assert!(e.contains("status measured cannot be authored"), "{e}");
     let odd = Relation::new(RelKind::Extension("not a kind".into()), x, x);
     let e = refused(
         &mut r,
-        staged(&p, "ingest", &[Record::Unit(u.clone()), Record::Relation(odd)], true),
+        staged(
+            &p,
+            "ingest",
+            &[Record::Unit(u.clone()), Record::Relation(odd)],
+            true,
+        ),
     );
     // SMYSL's decoder refuses a kind `RelKind::parse` refuses, so it never
     // reaches step 5's SM05: it is step 3's refusal.
@@ -395,7 +447,12 @@ fn commit_refuses_what_it_is_not_given_whole() {
         smysl_core::Hlc::zero(smysl_core::AgentId::new("tool:someone").unwrap()),
     );
     lib_attest.hop = 0;
-    let v = staged(&p, "ingest", &[Record::Unit(u.clone()), Record::Attestation(lib_attest)], true);
+    let v = staged(
+        &p,
+        "ingest",
+        &[Record::Unit(u.clone()), Record::Attestation(lib_attest)],
+        true,
+    );
     commit(&mut r, &p, v).unwrap();
     let agents: Vec<String> = p
         .open()
@@ -416,7 +473,14 @@ fn a_dangling_ground_is_the_librarys_and_a_new_one_is_refused() {
     let ep = endpoint("localhost", "m12-dangling");
     p.sidecar(&config(&ep, SURFACE));
     let d = missing("library's");
-    seed(&p, &[Record::Unit(grounded("rests on D", Status::Speculative, &[d]))]);
+    seed(
+        &p,
+        &[Record::Unit(grounded(
+            "rests on D",
+            Status::Speculative,
+            &[d],
+        ))],
+    );
     let mut r = Run::new(false);
     script::arm(&ep, [Answer::Text(ANSWER.into())]);
     let v = ingest(&mut r, &p, "text", opts(&[])).unwrap();
@@ -432,10 +496,20 @@ fn a_dangling_ground_is_the_librarys_and_a_new_one_is_refused() {
     );
 
     let other = grounded("rests on E", Status::Speculative, &[missing("new")]);
-    let e = commit(&mut r, &p, staged(&p, "ingest", &[Record::Unit(other)], true)).unwrap_err();
+    let e = commit(
+        &mut r,
+        &p,
+        staged(&p, "ingest", &[Record::Unit(other)], true),
+    )
+    .unwrap_err();
     assert!(e.ends_with("staged batch no longer checks clean"), "{e}");
     let same = grounded("rests on D too", Status::Speculative, &[d]);
-    let e = commit(&mut r, &p, staged(&p, "ingest", &[Record::Unit(same.clone())], true)).unwrap_err();
+    let e = commit(
+        &mut r,
+        &p,
+        staged(&p, "ingest", &[Record::Unit(same.clone())], true),
+    )
+    .unwrap_err();
     assert!(
         e.ends_with(&format!(
             "{} refers to {}, which the library does not hold",
@@ -499,7 +573,9 @@ fn a_label_the_library_binds_elsewhere_is_dropped() {
     let written = commit(&mut r, &p, v).unwrap();
     assert_eq!(uids(&written), vec![canonical_uid(&x)]);
     assert!(
-        r.warnings().iter().any(|w| w.contains("label c/x is bound to")),
+        r.warnings()
+            .iter()
+            .any(|w| w.contains("label c/x is bound to")),
         "{:?}",
         r.warnings()
     );
@@ -577,7 +653,11 @@ fn rule_m_moves_a_unit_and_step_7_judges_the_moved_uid() {
         vec![canonical_uid(&u)],
         "c/x still binds one unit"
     );
-    assert!(r.warnings().iter().any(|w| w.contains("label c/x is bound to")));
+    assert!(
+        r.warnings()
+            .iter()
+            .any(|w| w.contains("label c/x is bound to"))
+    );
 
     // An edge U → V with no weight, where the library holds U' → V with one.
     let lowered = written[0];
@@ -616,7 +696,10 @@ fn the_probe_refuses_before_any_call() {
     for (probing, want) in [
         (Probing::Fail(ProviderError::Unreachable), "SMY-E300"),
         (Probing::Unreachable, "is unreachable"),
-        (Probing::Models(vec!["other".into()]), "does not offer model script-1"),
+        (
+            Probing::Models(vec!["other".into()]),
+            "does not offer model script-1",
+        ),
         (Probing::Models(Vec::new()), "does not offer model script-1"),
     ] {
         script::arm(&ep, [Answer::Text(ANSWER.into())]);
@@ -624,7 +707,10 @@ fn the_probe_refuses_before_any_call() {
         let e = ingest(&mut r, &p, "text", opts(&[])).unwrap_err();
         assert!(e.starts_with("SMYSL.INGEST: the model refused it: "), "{e}");
         assert!(e.contains(want), "{e}");
-        assert!(script::calls(&ep).is_empty(), "no completion before the probe");
+        assert!(
+            script::calls(&ep).is_empty(),
+            "no completion before the probe"
+        );
     }
     // `opts.model` is the model judged.
     script::arm(&ep, [Answer::Text(ANSWER.into())]);
@@ -654,7 +740,11 @@ fn a_failed_call_stages_an_unclean_value() {
             .iter()
             .any(|d| text(&get(d, "code")) == "SMY-W304")
     );
-    assert!(r.warnings().iter().any(|w| w.contains("model call(s) failed")));
+    assert!(
+        r.warnings()
+            .iter()
+            .any(|w| w.contains("model call(s) failed"))
+    );
     let e = commit(&mut r, &p, v).unwrap_err();
     assert!(e.ends_with("staged batch did not check clean"), "{e}");
     script::disarm(&ep);
@@ -674,10 +764,19 @@ fn opts_are_checked_and_the_configuration_fills_what_they_leave_out() {
     for (o, want) in [
         (opts(&[("colour", s("blue"))]), "opts has no key colour"),
         (opts(&[("offline", s("yes"))]), "opts offline must be BOOL"),
-        (opts(&[("temperature", BundValue::float(2.5))]), "outside 0.0 to 2.0"),
-        (opts(&[("path", s("auto"))]), "opts path auto is not surface or json-ast"),
+        (
+            opts(&[("temperature", BundValue::float(2.5))]),
+            "outside 0.0 to 2.0",
+        ),
+        (
+            opts(&[("path", s("auto"))]),
+            "opts path auto is not surface or json-ast",
+        ),
         (opts(&[("level", s("line"))]), "opts has no key level"),
-        (opts(&[("config", s("relative.hjson"))]), "is not an absolute path"),
+        (
+            opts(&[("config", s("relative.hjson"))]),
+            "is not an absolute path",
+        ),
     ] {
         let e = ingest(&mut r, &p, "text", o).unwrap_err();
         assert!(e.starts_with("SMYSL.INGEST: "), "{e}");
@@ -698,10 +797,7 @@ fn opts_are_checked_and_the_configuration_fills_what_they_leave_out() {
         ]),
     )
     .unwrap();
-    p.sidecar(&config(
-        &ep,
-        "ingest: { path: surface, temperature: 0.0 }",
-    ));
+    p.sidecar(&config(&ep, "ingest: { path: surface, temperature: 0.0 }"));
     script::arm(&ep, [Answer::Text(ANSWER.into())]);
     let filled = ingest(&mut r, &p, "The pool wait rose.", opts(&[])).unwrap();
     assert_eq!(text(&get(&filled, "recipe")), text(&get(&given, "recipe")));
@@ -713,7 +809,10 @@ fn opts_are_checked_and_the_configuration_fills_what_they_leave_out() {
 fn the_prompt_override_reaches_the_model() {
     let p = Project::new("m12-prompt");
     let ep = endpoint("localhost", "m12-prompt");
-    p.sidecar(&config(&ep, "ingest: { path: surface, prompt: \"prompts/p.hjson\" }"));
+    p.sidecar(&config(
+        &ep,
+        "ingest: { path: surface, prompt: \"prompts/p.hjson\" }",
+    ));
     let prompts = p.root.parent().unwrap().join("prompts");
     std::fs::create_dir_all(&prompts).unwrap();
     std::fs::write(
@@ -757,7 +856,10 @@ fn a_panicking_model_is_an_internal_error_and_leaves_no_lock() {
     script::arm(&ep, [Answer::Panic]);
     let mut r = Run::new(false);
     let e = ingest(&mut r, &p, "text", opts(&[])).unwrap_err();
-    assert!(e.starts_with("internal error: native `smysl.ingest` panicked: "), "{e}");
+    assert!(
+        e.starts_with("internal error: native `smysl.ingest` panicked: "),
+        "{e}"
+    );
     assert!(e.contains("bund2-script: the armed panic"), "{e}");
     assert!(super::unlock::unlock(&p.root, false).unwrap().is_empty());
     script::disarm(&ep);

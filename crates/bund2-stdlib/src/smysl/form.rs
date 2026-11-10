@@ -313,7 +313,9 @@ impl Batch<'_> {
             self.units.insert(uid);
             self.records.push(Record::Unit(core));
         }
-        self.attest_as(uid, |agent, ts| Self::imported_attestation(how, uid, agent, ts));
+        self.attest_as(uid, |agent, ts| {
+            Self::imported_attestation(how, uid, agent, ts)
+        });
         uid
     }
 
@@ -327,7 +329,9 @@ impl Batch<'_> {
             self.relations.insert(rid, rel.clone());
             self.records.push(Record::Relation(rel.clone()));
         }
-        self.attest_as(rid, |agent, ts| Self::imported_attestation(how, rid, agent, ts));
+        self.attest_as(rid, |agent, ts| {
+            Self::imported_attestation(how, rid, agent, ts)
+        });
         if self.store.is_withdrawn(&rel) {
             self.withdrawn.push(rid);
         }

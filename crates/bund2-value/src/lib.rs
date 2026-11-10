@@ -3410,7 +3410,11 @@ mod bin_tests {
         assert_eq!(b.type_name(), "Binary");
         assert_eq!(b.as_bin(), Some(&[104u8, 105][..]));
         assert_eq!(b.q(), 100.0);
-        assert!(b.render(false).contains("data: Binary([104, 105])"), "{}", b.render(false));
+        assert!(
+            b.render(false).contains("data: Binary([104, 105])"),
+            "{}",
+            b.render(false)
+        );
         assert!(BundValue::str("hi").as_bin().is_none());
     }
 
@@ -3446,7 +3450,10 @@ mod bin_tests {
     fn push_appends_a_string_or_a_bin_and_ignores_the_rest() {
         let b = BundValue::bin(vec![1]);
         assert_eq!(b.push(BundValue::str("A")).as_bin(), Some(&[1u8, 65][..]));
-        assert_eq!(b.push(BundValue::bin(vec![2, 3])).as_bin(), Some(&[1u8, 2, 3][..]));
+        assert_eq!(
+            b.push(BundValue::bin(vec![2, 3])).as_bin(),
+            Some(&[1u8, 2, 3][..])
+        );
         let same = b.push(BundValue::int(7));
         assert_eq!(same.as_bin(), Some(&[1u8][..]));
         assert_eq!(same.dt(), BIN);

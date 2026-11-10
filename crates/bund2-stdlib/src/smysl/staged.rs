@@ -20,8 +20,7 @@ use bund2_value::{BIN, BOOL, BundValue, FLOAT, INTEGER, MAP, NODATA, STRING};
 use smysl_check::{CheckOptions, check};
 use smysl_core::{
     Diagnostic, GranularityProfile, Hlc, Label, Record, RelKind, Relation, Report, Role, Rung,
-    SourcePolicy, SourceRef, Status, Uid, UnitCore, canonical_uid, from_cbor_seq,
-    to_cbor_seq,
+    SourcePolicy, SourceRef, Status, Uid, UnitCore, canonical_uid, from_cbor_seq, to_cbor_seq,
 };
 use smysl_graph::Store;
 use smysl_graph::labels::label_bindings;
@@ -152,9 +151,10 @@ pub(crate) fn opts(v: &BundValue, k: usize, step: Step) -> Result<Opts, Refusal>
             }
             "path" => {
                 let p = text(key, val)?;
-                o.path = Some(IngestPath::parse(&p).ok_or_else(|| {
-                    sm03(format!("opts path {p} is not surface or json-ast"))
-                })?);
+                o.path =
+                    Some(IngestPath::parse(&p).ok_or_else(|| {
+                        sm03(format!("opts path {p} is not surface or json-ast"))
+                    })?);
             }
             "max_output" => {
                 o.max_output = Some(usize::try_from(count(key, val)?).unwrap_or(usize::MAX));
@@ -230,11 +230,7 @@ type Key = (String, String, String);
 
 fn errors(report: &Report) -> BTreeMap<Key, Vec<&Diagnostic>> {
     let mut m: BTreeMap<Key, Vec<&Diagnostic>> = BTreeMap::new();
-    for d in report
-        .diagnostics
-        .iter()
-        .filter(|d| is_error(d))
-    {
+    for d in report.diagnostics.iter().filter(|d| is_error(d)) {
         m.entry((
             d.code.as_str().to_string(),
             format!("{:?}", d.subject),
@@ -260,11 +256,7 @@ pub(crate) fn added<'a>(library: &Report, batch: &'a Report) -> Vec<&'a Diagnost
 
 /// How many errors the library holds of its own.
 fn own_errors(library: &Report) -> usize {
-    library
-        .diagnostics
-        .iter()
-        .filter(|d| is_error(d))
-        .count()
+    library.diagnostics.iter().filter(|d| is_error(d)).count()
 }
 
 /// The options both checks run under (§P4 step 6): the same labels, and the
@@ -308,9 +300,7 @@ fn refers(holder: &Uid, r: &Uid) -> Refusal {
 
 /// The library's own errors, said once (R47).
 fn own_warning(n: usize) -> Option<String> {
-    (n > 0).then(|| {
-        format!("the library holds {n} error(s) of its own, which smysl.check lists")
-    })
+    (n > 0).then(|| format!("the library holds {n} error(s) of its own, which smysl.check lists"))
 }
 
 // --- the staged value ------------------------------------------------------------------
@@ -337,7 +327,8 @@ fn unhex(s: &str) -> Option<[u8; 32]> {
 }
 
 pub(super) fn int(n: impl TryInto<i64>) -> BundValue {
-    n.try_into().map_or_else(|_| BundValue::int(i64::MAX), BundValue::int)
+    n.try_into()
+        .map_or_else(|_| BundValue::int(i64::MAX), BundValue::int)
 }
 
 pub(super) fn opt_str(s: Option<String>) -> BundValue {
@@ -417,11 +408,7 @@ pub(crate) fn ingest(h: &Handle, input: &str, o: &Opts) -> Result<Answered, Refu
             "{failed} model call(s) failed, so the staged value is not clean; staging again may succeed"
         ));
     }
-    for d in report
-        .diagnostics
-        .iter()
-        .filter(|d| !is_error(d))
-    {
+    for d in report.diagnostics.iter().filter(|d| !is_error(d)) {
         warnings.push(d.to_string());
     }
 
@@ -483,7 +470,10 @@ fn value(p: Parts<'_>) -> Result<BundValue, Refusal> {
         m.insert(k.to_string(), v);
     };
     put("type", BundValue::str("smysl.staged"));
-    put("root", BundValue::str(p.root.to_string_lossy().into_owned()));
+    put(
+        "root",
+        BundValue::str(p.root.to_string_lossy().into_owned()),
+    );
     put("step", BundValue::str(p.step));
     put("granularity", opt_str(p.granularity));
     put("records", BundValue::bin(to_cbor_seq(&p.records)));
@@ -497,7 +487,10 @@ fn value(p: Parts<'_>) -> Result<BundValue, Refusal> {
             p.units
                 .iter()
                 .map(|u| {
-                    let ls = labels_of.get(&canonical_uid(u)).cloned().unwrap_or_default();
+                    let ls = labels_of
+                        .get(&canonical_uid(u))
+                        .cloned()
+                        .unwrap_or_default();
                     map::unit(u, &ls)
                 })
                 .collect(),
@@ -526,8 +519,14 @@ fn value(p: Parts<'_>) -> Result<BundValue, Refusal> {
     put("diagnostics", BundValue::list(diagnostics));
     put("provider", opt_str(p.provider));
     put("model", opt_str(p.model));
-    put("recipe", p.recipe.as_ref().map_or_else(BundValue::nodata, hex));
-    put("family", p.family.as_ref().map_or_else(BundValue::nodata, hex));
+    put(
+        "recipe",
+        p.recipe.as_ref().map_or_else(BundValue::nodata, hex),
+    );
+    put(
+        "family",
+        p.family.as_ref().map_or_else(BundValue::nodata, hex),
+    );
     put("usage", usage(p.usage));
     put("counts", BundValue::map(p.counts));
     Ok(BundValue::map(m))
@@ -623,9 +622,7 @@ pub(crate) fn answer(h: &Handle, question: &str, o: &Opts) -> Result<Answered, R
     // An answer with nothing to keep stages nothing, and no dossier (§P4).
     let Some(first) = report.staged else {
         counts.insert("capped".to_string(), int(0));
-        warnings.push(
-            "the answer staged nothing, so the staged value is not clean".to_string(),
-        );
+        warnings.push("the answer staged nothing, so the staged value is not clean".to_string());
         let value = value(Parts {
             root: &root,
             step: "answer",
@@ -670,7 +667,15 @@ pub(crate) fn answer(h: &Handle, question: &str, o: &Opts) -> Result<Answered, R
     if let (Some(r), Some(f)) = (report.recipe, report.family) {
         attest = attest.with_recipe(r, f);
     }
-    let second = prepare_under(&scratch, units, relations, labels, Vec::new(), &attest, None);
+    let second = prepare_under(
+        &scratch,
+        units,
+        relations,
+        labels,
+        Vec::new(),
+        &attest,
+        None,
+    );
     counts.insert("capped".to_string(), int(caps.len()));
     warnings.extend(caps.iter().map(ToString::to_string));
 
@@ -816,21 +821,35 @@ fn committed(
         Some("answer") => Step::Answer,
         _ => return Err(sm03("staged step is neither ingest nor answer")),
     };
-    if let Some((i, r)) = records.iter().enumerate().find(|(_, r)| !kind_made(step, r)) {
+    if let Some((i, r)) = records
+        .iter()
+        .enumerate()
+        .find(|(_, r)| !kind_made(step, r))
+    {
         return Err(sm03(format!(
             "record {i} is a {}, which {} does not make",
             kind_name(r),
-            if step == Step::Ingest { "ingest" } else { "answer" }
+            if step == Step::Ingest {
+                "ingest"
+            } else {
+                "answer"
+            }
         )));
     }
     let granularity = match field(m, "granularity")? {
         g if g.dt() == NODATA => None,
         g => Some(g.str_ref().map(str::to_owned).ok_or_else(|| {
-            sm03(format!("staged granularity must be STRING, found {}", g.type_name()))
+            sm03(format!(
+                "staged granularity must be STRING, found {}",
+                g.type_name()
+            ))
         })?),
     };
     let g = profile(granularity.as_deref())?;
-    let recipe = match (m.get("recipe").and_then(BundValue::str_ref), m.get("family").and_then(BundValue::str_ref)) {
+    let recipe = match (
+        m.get("recipe").and_then(BundValue::str_ref),
+        m.get("family").and_then(BundValue::str_ref),
+    ) {
         (Some(r), Some(f)) => Some((
             unhex(r).ok_or_else(|| sm03("staged recipe is not a hash"))?,
             unhex(f).ok_or_else(|| sm03("staged family is not a hash"))?,
@@ -980,7 +999,11 @@ fn committed(
                     written.push(uid);
                 }
             }
-            for rel in prepared.relations.iter().filter(|r| roots.contains(&r.from)) {
+            for rel in prepared
+                .relations
+                .iter()
+                .filter(|r| roots.contains(&r.from))
+            {
                 b.authored_relation(rel.clone());
             }
             for th in threads {
@@ -1002,7 +1025,11 @@ fn committed(
             for (l, u) in kept {
                 b.imported_label(l, u);
             }
-            for rel in prepared.relations.iter().filter(|r| !roots.contains(&r.from)) {
+            for rel in prepared
+                .relations
+                .iter()
+                .filter(|r| !roots.contains(&r.from))
+            {
                 b.imported_relation(rel.clone(), how);
             }
             let (records, withdrawn) = b.finish();

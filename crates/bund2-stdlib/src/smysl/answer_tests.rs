@@ -165,7 +165,12 @@ fn an_answer_is_grounded_on_its_dossier_and_written_with_it() {
     let n = naomi("m13-answer");
     let q = n.question(QUESTION);
     let reply = [
-        record("back-empty", "inferred", &[q], "Naomi came back with nothing."),
+        record(
+            "back-empty",
+            "inferred",
+            &[q],
+            "Naomi came back with nothing.",
+        ),
         record("outside", "inferred", &[n.entity], "Naomi is an entity."),
         record("sold", "inferred", &[n.guess], "Naomi sold her field."),
     ]
@@ -177,7 +182,12 @@ fn an_answer_is_grounded_on_its_dossier_and_written_with_it() {
     assert_eq!(n.p.logs(), before, "staging wrote nothing");
     assert_eq!(text(&get(&v, "step")), "answer");
     assert_eq!(get(&v, "granularity"), BundValue::nodata());
-    assert_eq!(get(&v, "clean"), BundValue::boolean(true), "{:?}", codes(&v));
+    assert_eq!(
+        get(&v, "clean"),
+        BundValue::boolean(true),
+        "{:?}",
+        codes(&v)
+    );
     assert_eq!(count(&v, "proposed"), 3);
     assert_eq!(count(&v, "dropped"), 1);
     assert_eq!(count(&v, "lowered"), 1);
@@ -186,7 +196,10 @@ fn an_answer_is_grounded_on_its_dossier_and_written_with_it() {
     assert!(cs.iter().any(|c| c == "SMY-W478"), "{cs:?}");
     assert!(cs.iter().any(|c| c == "SMY-W036"), "{cs:?}");
     let staged = records_of(&v);
-    assert!(declares_query(&staged), "the library did not declare x.query/v1");
+    assert!(
+        declares_query(&staged),
+        "the library did not declare x.query/v1"
+    );
     assert!(staged.iter().any(|r| matches!(r, Record::Thread(_))));
     assert!(staged.iter().any(|r| matches!(r, Record::View(_))));
 
@@ -257,7 +270,12 @@ fn a_derived_answer_is_capped_at_the_model_ceiling() {
     );
     let mut r = Run::new(false);
     let v = n.answer(&mut r, QUESTION, opts(&[])).unwrap();
-    assert_eq!(get(&v, "clean"), BundValue::boolean(true), "{:?}", codes(&v));
+    assert_eq!(
+        get(&v, "clean"),
+        BundValue::boolean(true),
+        "{:?}",
+        codes(&v)
+    );
     assert_eq!(count(&v, "capped"), 1);
     assert!(codes(&v).iter().any(|c| c == "SMY-E033"));
     assert!(r.warnings().iter().any(|w| w.contains("SMY-E033")));
@@ -292,7 +310,12 @@ fn a_question_too_long_for_the_profile_is_not_clean() {
     let q = n.question(long);
     script::arm(
         &n.ep,
-        [Answer::Text(record("long", "inferred", &[q], "She came back."))],
+        [Answer::Text(record(
+            "long",
+            "inferred",
+            &[q],
+            "She came back.",
+        ))],
     );
     let mut r = Run::new(false);
     let v = n.answer(&mut r, long, opts(&[])).unwrap();
@@ -340,7 +363,12 @@ fn commit_refuses_an_edited_answer() {
     let q = n.question(QUESTION);
     script::arm(
         &n.ep,
-        [Answer::Text(record("back-empty", "inferred", &[q], "She came back."))],
+        [Answer::Text(record(
+            "back-empty",
+            "inferred",
+            &[q],
+            "She came back.",
+        ))],
     );
     let mut r = Run::new(false);
     let v = n.answer(&mut r, QUESTION, opts(&[])).unwrap();
@@ -390,7 +418,13 @@ fn commit_refuses_an_edited_answer() {
         .collect();
     let e = refused(&mut r, edited);
     assert!(e.contains("thread dossier/"), "{e}");
-    assert!(e.contains(&format!("names {}, which the library does not hold", nowhere.canonical())), "{e}");
+    assert!(
+        e.contains(&format!(
+            "names {}, which the library does not hold",
+            nowhere.canonical()
+        )),
+        "{e}"
+    );
     let edited: Vec<Record> = records
         .iter()
         .map(|rec| match rec {
@@ -458,7 +492,10 @@ fn commit_refuses_an_edited_answer() {
         })
         .collect();
     let e = refused(&mut r, edited);
-    assert!(e.ends_with("staged dossier changed under the library"), "{e}");
+    assert!(
+        e.ends_with("staged dossier changed under the library"),
+        "{e}"
+    );
 
     // Committed whole, then a second answer with `step` edited to "ingest",
     // over a library that now declares x.query/v1: step 4 names its Thread.
@@ -496,9 +533,16 @@ fn offline_refuses_a_remote_provider_for_an_answer() {
     n.p.sidecar(&config(&far, SURFACE));
     let mut r = Run::new(false);
     let e = n
-        .answer(&mut r, QUESTION, opts(&[("offline", BundValue::boolean(true))]))
+        .answer(
+            &mut r,
+            QUESTION,
+            opts(&[("offline", BundValue::boolean(true))]),
+        )
         .unwrap_err();
-    assert!(e.starts_with("SMYSL.ANSWER: the model refused it: SMY-E301"), "{e}");
+    assert!(
+        e.starts_with("SMYSL.ANSWER: the model refused it: SMY-E301"),
+        "{e}"
+    );
     assert_eq!(script::probes(&far), 0);
     assert!(script::calls(&far).is_empty());
 }
@@ -546,7 +590,10 @@ fn a_panicking_model_is_an_internal_error_for_an_answer() {
     script::arm(&n.ep, [Answer::Panic]);
     let mut r = Run::new(false);
     let e = n.answer(&mut r, QUESTION, opts(&[])).unwrap_err();
-    assert!(e.starts_with("internal error: native `smysl.answer` panicked: "), "{e}");
+    assert!(
+        e.starts_with("internal error: native `smysl.answer` panicked: "),
+        "{e}"
+    );
     assert!(unlocked(&n.p));
     script::disarm(&n.ep);
 }

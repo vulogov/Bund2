@@ -89,7 +89,10 @@ fn config(endpoint: &str, extra: &str) -> String {
 /// A record's kind, by its variant's name.
 fn kind(r: &Record) -> String {
     let d = format!("{r:?}");
-    d.split(['(', ' ', '{']).next().unwrap_or_default().to_string()
+    d.split(['(', ' ', '{'])
+        .next()
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn kinds(records: &[Record]) -> Vec<String> {
@@ -139,9 +142,15 @@ fn the_spike_document_ingest_stages_the_kinds_p4_lists() {
     assert_eq!(report.calls, 1, "{:?}", report.diagnostics);
     let records = staged.records();
     let seen = kinds(&records);
-    let allowed: BTreeSet<&str> = ["SchemaDecl", "Unit", "LabelBinding", "Relation", "Attestation"]
-        .into_iter()
-        .collect();
+    let allowed: BTreeSet<&str> = [
+        "SchemaDecl",
+        "Unit",
+        "LabelBinding",
+        "Relation",
+        "Attestation",
+    ]
+    .into_iter()
+    .collect();
     assert!(
         seen.iter().all(|k| allowed.contains(k.as_str())),
         "{seen:?}"
@@ -149,7 +158,11 @@ fn the_spike_document_ingest_stages_the_kinds_p4_lists() {
     assert!(!seen.contains(&"SchemaDecl".to_string()), "{seen:?}");
     assert_eq!(seen.first().map(String::as_str), Some("Unit"), "{seen:?}");
     assert!(seen.contains(&"LabelBinding".to_string()), "{seen:?}");
-    assert_eq!(seen.last().map(String::as_str), Some("Attestation"), "{seen:?}");
+    assert_eq!(
+        seen.last().map(String::as_str),
+        Some("Attestation"),
+        "{seen:?}"
+    );
     // In `Staged::records`'s order: each kind appears in one run.
     let mut distinct = seen.clone();
     distinct.dedup();
@@ -169,16 +182,18 @@ fn the_spike_document_ingest_stages_the_kinds_p4_lists() {
 /// the dossier's (§P4).
 #[test]
 fn the_spike_an_answer_stages_the_kinds_p4_lists() {
-    use smysl_core::{
-        KernelType, SourceKind, SourceRef, Status, UnitCoreBuilder, canonical_uid,
-    };
+    use smysl_core::{KernelType, SourceKind, SourceRef, Status, UnitCoreBuilder, canonical_uid};
     let p = Project::new("spike-answer");
     let ep = endpoint("spike-answer");
     p.sidecar(&config(&ep, ""));
-    let question = UnitCoreBuilder::new(KernelType::Question, "Why did the pool wait rise?", Status::Cited)
-        .source(SourceRef::new(SourceKind::Doc, "ask:000000000000"))
-        .build()
-        .unwrap();
+    let question = UnitCoreBuilder::new(
+        KernelType::Question,
+        "Why did the pool wait rise?",
+        Status::Cited,
+    )
+    .source(SourceRef::new(SourceKind::Doc, "ask:000000000000"))
+    .build()
+    .unwrap();
     let passage = UnitCoreBuilder::new(KernelType::Claim, "The pool saturated.", Status::Cited)
         .source(SourceRef::new(SourceKind::Doc, "incident report"))
         .build()
@@ -186,7 +201,10 @@ fn the_spike_an_answer_stages_the_kinds_p4_lists() {
     let (q, c) = (canonical_uid(&question), canonical_uid(&passage));
     let mut store = Store::new();
     store
-        .append(&[Record::Unit(question.clone()), Record::Unit(passage.clone())])
+        .append(&[
+            Record::Unit(question.clone()),
+            Record::Unit(passage.clone()),
+        ])
         .unwrap();
     let members = vec![
         Member {
@@ -258,10 +276,30 @@ fn the_spike_a_text_ingest_writes_the_kinds_p4_lists() {
     script::arm(
         &ep,
         [
-            answer("c/pool", "the pool wait rose", "the pool wait rose to 1.9 seconds", "L1"),
-            answer("c/pool", "the pool wait rose", "the pool wait rose to 1.9 seconds", "L1"),
-            answer("c/back", "p99 returned", "the rollback returned p99 to baseline", "L2"),
-            answer("c/back", "p99 returned", "the rollback returned p99 to baseline", "L2"),
+            answer(
+                "c/pool",
+                "the pool wait rose",
+                "the pool wait rose to 1.9 seconds",
+                "L1",
+            ),
+            answer(
+                "c/pool",
+                "the pool wait rose",
+                "the pool wait rose to 1.9 seconds",
+                "L1",
+            ),
+            answer(
+                "c/back",
+                "p99 returned",
+                "the rollback returned p99 to baseline",
+                "L2",
+            ),
+            answer(
+                "c/back",
+                "p99 returned",
+                "the rollback returned p99 to baseline",
+                "L2",
+            ),
         ],
     );
     let built = model::registry(&p.setup().config, false);
@@ -289,8 +327,14 @@ fn the_spike_a_text_ingest_writes_the_kinds_p4_lists() {
     assert!(added.contains("Unit"), "{added:?}");
     for k in &added {
         assert!(
-            ["SchemaDecl", "Unit", "LabelBinding", "Relation", "Attestation"]
-                .contains(&k.as_str()),
+            [
+                "SchemaDecl",
+                "Unit",
+                "LabelBinding",
+                "Relation",
+                "Attestation"
+            ]
+            .contains(&k.as_str()),
             "a text ingest wrote a kind §P4 does not list: {added:?}"
         );
     }
@@ -331,7 +375,12 @@ fn a_named_configuration_is_read_instead_and_must_be_absolute_and_present() {
     assert_eq!(s.base, file.parent().unwrap());
     let built = model::registry(&s.config, false);
     assert_eq!(
-        built.registry.for_task(Task::ContentIngest).unwrap().caps().model,
+        built
+            .registry
+            .for_task(Task::ContentIngest)
+            .unwrap()
+            .caps()
+            .model,
         "other"
     );
 
@@ -355,7 +404,10 @@ fn with_no_file_the_configuration_is_the_local_default() {
     assert_eq!(s.config, smysl_provider::Config::local_default());
     let built = model::registry(&s.config, false);
     let ollama = ProviderId::new("ollama").unwrap();
-    assert_eq!(built.registry.routing().get(&Task::ContentIngest), Some(&ollama));
+    assert_eq!(
+        built.registry.routing().get(&Task::ContentIngest),
+        Some(&ollama)
+    );
     if cfg!(feature = "smysl-ollama") {
         assert!(built.warnings.is_empty(), "{:?}", built.warnings);
     } else {
@@ -392,7 +444,11 @@ fn a_key_in_the_file_is_refused_and_an_unknown_kind_is_skipped() {
     let built = model::registry(&s.config, false);
     assert_eq!(built.warnings.len(), 1, "{:?}", built.warnings);
     assert!(built.warnings[0].contains("far"), "{:?}", built.warnings);
-    assert!(built.warnings[0].contains("martian"), "{:?}", built.warnings);
+    assert!(
+        built.warnings[0].contains("martian"),
+        "{:?}",
+        built.warnings
+    );
     assert!(built.registry.for_task(Task::ContentIngest).is_ok());
 }
 
@@ -490,7 +546,11 @@ fn the_script_is_local_or_hosted_by_its_endpoint() {
     assert_eq!(e, ProviderError::OfflineViolation);
     let r = model::refused(&e);
     assert_eq!(r.code, Code::Sm13);
-    assert!(r.text.starts_with("the model refused it: SMY-E301 "), "{}", r.text);
+    assert!(
+        r.text.starts_with("the model refused it: SMY-E301 "),
+        "{}",
+        r.text
+    );
     assert!(script::calls(&hosted).is_empty());
 }
 

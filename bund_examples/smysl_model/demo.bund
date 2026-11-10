@@ -1,0 +1,145 @@
+//
+// A SMYSL library formed and questioned by a model, from Bund (RFC-0014,
+// Phase 2): why the harbour silted up. Run it, in a directory with no
+// `harbour` in it, against a local Ollama:
+//
+//   bund2 demo.bund
+//
+// It needs a `bund2` built with `--features smysl-ollama`, and an Ollama at
+// http://127.0.0.1:11434 that has pulled `llama3.2`, the model SMYSL asks
+// for when no configuration names another (README.md says how to name one).
+// A model's answers are not fixed, so a run prints differently each time
+// and there is no `expected.txt`: what it shows is that every step returns.
+//
+// Every call here passes `offline`, so a configuration that routed the
+// work to a hosted provider would be refused before anything was sent.
+//
+
+//
+// 1. A document, ingested and committed. `smysl.ingest` sends its text to
+//    the model and answers the units it extracted as a staged value,
+//    writing nothing. `clean` says whether the batch would check as cleanly
+//    as the library does; `smysl.commit` checks it again under the locks,
+//    writes it, and answers the uids it wrote.
+//
+"-- 1. a document, ingested and committed" println
+:lib "harbour" smysl.create var
+:local dict :offline true set var
+
+// A model can stage a batch that is not clean: a label without its `/`,
+// a unit grounded outside its dossier. `smysl.commit` refuses one with
+// SM03, so this commits only a clean batch, and otherwise says why not and
+// answers an empty LIST, so that the program goes on.
+:commit-clean {
+  :s swap var
+  :ok :s var? :clean get var
+  :ok var? { :lib var? :s var? smysl.commit } if
+  :ok var? not {
+    "not committed, not clean:  " print :s var? :diagnostics get len print drop
+    " diagnostic(s)" println
+    list
+  } if
+} register
+
+// The harbour log, a Markdown text, read into the library under the alias
+// `log` by Phase 1's `smysl.text.add`. Section 2's entity names it as its
+// source, and section 4 sends it to the model.
+:lib var?
+  dict :reader "md/1" set :alias "log" set :licence "CC0-1.0" set :lang "en" set
+       :title "Harbour log" set
+       :text "# Harbour log
+
+## March
+
+The dredger *Swift* was laid up for want of coal. Soundings at the outer
+mark gave two fathoms, a fathom less than the chart.
+
+## April
+
+A collier grounded at low water in the outer basin and was towed off on
+the next tide. The master blamed the new breakwater.
+" set
+  smysl.text.add drop
+
+:staged :lib var? "The harbour master's report for 1887 says the outer basin silted up
+by a metre in three years. The new breakwater, finished in 1884, cut
+the tidal current that used to scour the channel. Dredging stopped in
+1885 when the harbour board ran short of money." :local var? smysl.ingest var
+"the model:                 " print :staged var? :model get println
+"units staged:              " print :staged var? :units get len println drop
+"clean:                     " print :staged var? :clean get println
+:staged var? :units get { "  " print :gist get println } loop
+:committed :staged var? commit-clean var
+"units written:             " print :committed var? len println drop
+"" println
+
+//
+// 2. A question, answered and committed. `smysl.answer` assembles the
+//    dossier `smysl.dossier` would, sends its members to the model, and
+//    stages the dossier with the answer. Committed, the answer is attested
+//    at the Model rung and no stronger than `inferred`.
+//
+//    A dossier is built around an entity the question names, through the
+//    units that mention it: an `x.text/entity` and `x.text/mentions`
+//    edges, which `smysl.ingest` does not make. So the program writes them
+//    itself, with Phase 1's words: the harbour, an entity of the log, and
+//    an edge to it from each unit section 1 wrote, whatever the model
+//    extracted.
+//
+"-- 2. a question, answered and committed" println
+:harbour :lib var?
+  dict :schema "x.text/entity" set
+       :gist   "Harbour" set
+       :status "cited" set
+       :source dict :kind "doc" set :reference "alias:log" set set
+  smysl.unit var
+:committed var? {
+  :u swap var
+  :lib var? dict :kind "x.text/mentions" set :from :u var? set :to :harbour var? set smysl.rel drop
+} loop
+:answer :lib var? "Why did the Harbour silt up?" :local var? smysl.answer var
+"units staged:              " print :answer var? :units get len println drop
+"clean:                     " print :answer var? :clean get println
+// The staged units are the dossier's, cited, and the model's, which the
+// commit caps at `inferred`: the answer is those.
+"the answer:" println
+:answer var? :units get {
+  :u swap var
+  :u var? :status get "cited" == not
+    { "  " print :u var? :status get print " " print :u var? :gist get println } if
+} loop
+:written :answer var? commit-clean var
+"units written:             " print :written var? len println drop
+"" println
+
+//
+// 3. A second document, ingested and committed into the same library.
+//
+"-- 3. a second document" println
+:second :lib var? "A survey in 1890 found the inner basin still at its charted depth: the
+breakwater sheltered it from the swell that carries sand in." :local var? smysl.ingest var
+"units staged:              " print :second var? :units get len println drop
+"units written:             " print :second var? commit-clean len println drop
+"" println
+
+//
+// 4. A text, window by window. `smysl.ingest.text` sends the log to the
+//    model a window
+//    at a time, two calls each, and commits and journals every window as
+//    it goes, under the library's locks for the whole run. A window whose
+//    answers the model cannot make into units is committed as prose, and
+//    `degraded` counts it: a small model degrades often. A second run
+//    finds every window journalled and calls the model for none.
+//
+"-- 4. a text, window by window" println
+:report :lib var? "log" :local var? smysl.ingest.text var
+"windows:                   " print :report var? :windows get println
+"degraded to prose:         " print :report var? :degraded get println
+"units written:             " print :report var? :units get println
+:again :lib var? "log" :local var? smysl.ingest.text var
+"run again, journalled:     " print :again var? :skipped get print ", model calls " print :again var? :calls get println
+"" println
+
+"-- the library" println
+"units in it:               " print :lib var? "from library
+count" smysl.query :count get println
