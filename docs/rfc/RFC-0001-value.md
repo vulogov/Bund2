@@ -1,7 +1,8 @@
 # RFC-0001: `BundValue` — representation, identity, and value semantics
 
-- Status: **Accepted** (2026-09-04), **amended 2026-09-08 and 2026-09-10** —
-  see the amendments at the end. The second: `q` is kept, not averaged (D32
+- Status: **Accepted** (2026-09-04), **amended 2026-09-08, 2026-09-10,
+  2026-09-13 and 2026-11-09** — see the amendments at the end. The last adds
+  the `BIN` tag (D248 R49). The second: `q` is kept, not averaged (D32
   amended, Q35). The first: Q25 measures the stack tag at 60-75% of every word and lays out
   four options, deciding none. Re-verified at acceptance, not taken on the
   Proposed note: `cargo xtask layout` reports **0 allocations** to construct or
@@ -1841,3 +1842,53 @@ goes, a `dup` shares both, and an unboxed scalar has neither.
 
 - Amended by: repository owner, 2026-09-13, on RFC-0005's cache and counter
 - Consumes: D35 as amended (Q32), D42, D20 (unaffected)
+
+## Amendment, 2026-11-09 — `BIN`, the reference's binary value
+
+**Decided by the repository owner**, as D248's R49 ("Re-rule R49 as D"):
+RFC-0014's staged value carries SMYSL's CBOR as a binary value, and Bund2 had
+none to give it. The reference defines one. `BIN` is `dt` 8
+(`reference/rust_dynamic/src/types.rs:23`) over `Val::Binary(Vec<u8>)`
+(`:81`), built by `Value::from_bin` and `Value::binary()`
+(`reference/rust_dynamic/src/create.rs:116-126,140-148`), at `q` 100.
+
+**Why Bund2 had left it out.** No Bund word constructs one. The
+`Value::from_binary` calls in `reference/Bund/src` are bincode decoding of a
+whole serialised `Value` (`reference/rust_dynamic/src/bincode.rs:51-52`), not
+a BIN; and `convert.to_*` reaches `Value::conv` only with fixed targets
+(`reference/rust_multistackvm/src/stdlib/convert/internal.rs:25,107-123`),
+none of them `BIN`. So the type was unconstructible, and §"payload" listed
+`Val::Binary` (it carries `BIN` and `ENVELOPE`) without a tag Bund2 wrote.
+
+**What already held.** `Payload::Bin` existed, for the wire: bincode's
+`Val::Binary` decodes to it and encodes from it
+(`crates/bund2-value/src/wire.rs`, `leaf_payload` and the encoder's leaf
+arm), its `Debug` rendering is the oracle's `Binary([…])`, its summary is
+`bin/<n>`, and equality and hashing fall to identity, as the reference's do
+(`reference/rust_dynamic/src/eq.rs:45-53`; `reference/rust_dynamic/src/hash.rs`,
+by `id`). None of that changes.
+
+**What is added**, each as the reference does it:
+
+| | Behaviour | Reference |
+|---|---|---|
+| The tag | `BIN` = 8, exported beside `STRING` and the rest | `types.rs:23` |
+| A constructor | `BundValue::bin(Vec<u8>)`, and `as_bin()` to read it. Bund2's own: no word calls it but RFC-0014's | `create.rs:116-126` |
+| `type_name` | `Binary` | `value_types.rs:19` |
+| To STRING, and so `display`, `print`, `println` | the bytes as UTF-8; bytes that are not refuse with `Can not convert BIN to STR to 4: <the UTF-8 error>`, through `conv_refusal`, as every refused conversion is | `conv.rs:737-739,18-24`; `display.rs:7` |
+| To LIST | a LIST of one-byte BINs | `conv.rs:25-31` |
+| To any other target | `Can not convert NODATA to <t>`, the reference's text, which names the wrong source | `conv.rs:32` |
+| `len` | the number of bytes | `len.rs:57-62` |
+| `push` onto a BIN | a STRING appends its UTF-8 bytes; a BIN appends its bytes; anything else leaves the receiver as it was | `push.rs:130-160` |
+| `+` with a BIN on top | with a BIN, or any value whose payload is a string, appends as `push` does; `-`, `*` and `/` are `Unsupported operation for binary`; any other operand is `Unsupported datatype Y for binary` | `math.rs:207-235` |
+| To JSON | refused, `This Dynamic type is not supported for JSON: 8`, the existing default arm | `cast_value_to_json.rs:84` |
+
+**Nothing a program could do before changes**, and no golden moves: no Bund
+word makes a BIN, so a BIN reaches a program only from RFC-0014's
+`smysl.ingest` and `smysl.answer`, and `conform` cannot see one. The tests
+for each row are `bin_tests` in `crates/bund2-value/src/lib.rs`, and
+`a_bin_converts_measures_and_adds_as_the_reference_does` in
+`crates/bund2-stdlib/src/convert.rs`.
+
+- Amended by: repository owner, 2026-11-09, on RFC-0014's staged value
+- Consumes: D248 R49 (D), D20 (unaffected: `Val::Binary` was already on the wire)

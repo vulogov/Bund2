@@ -72,6 +72,10 @@ mod dt {
     pub const STRING: u16 = 4;
     pub const CALL: u16 = 6;
     pub const PTR: u16 = 7;
+    /// Over `Val::Binary`. No Bund word makes one; RFC-0014's staged value
+    /// is the first thing in Bund2 that does (RFC-0001's amendment of
+    /// 2026-11-09, D248 R49).
+    pub const BIN: u16 = 8;
     pub const LIST: u16 = 9;
     pub const MAP: u16 = 11;
     pub const PAIR: u16 = 10;
@@ -734,6 +738,13 @@ impl BundValue {
     pub fn metrics(m: Vec<Metric>) -> Self {
         Self::heap(METRICS, Payload::Metrics(m))
     }
+    /// A BIN holding `bytes` — `Value::from_bin`
+    /// (`reference/rust_dynamic/src/create.rs:116-126`). Bund2's own: no Bund
+    /// word constructs one, and RFC-0014's staged value is the one caller
+    /// (RFC-0001's amendment of 2026-11-09).
+    pub fn bin(bytes: Vec<u8>) -> Self {
+        Self::heap(BIN, Payload::Bin(bytes))
+    }
     /// A TIME value holding `t` — `Value::from_stamp`
     /// (`reference/rust_dynamic/src/create_special.rs`).
     pub fn time(t: u128) -> Self {
@@ -816,9 +827,10 @@ impl BundValue {
     /// `remove(0)`s (`push.rs:126`), so a push neither grows it nor keeps the
     /// oldest sample.
     ///
-    /// Arms for `RESULT`, `QUEUE`, `FIFO` and `BIN` are absent because Bund2
-    /// has no such `dt`; those receivers cannot arise, and the `_` arm would
-    /// cover them if they did.
+    /// Arms for `RESULT`, `QUEUE` and `FIFO` are absent because Bund2 has no
+    /// such `dt`; those receivers cannot arise, and the `_` arm would cover
+    /// them if they did. `BIN` has its arm since RFC-0001's amendment of
+    /// 2026-11-09.
     pub fn push(&self, value: BundValue) -> BundValue {
         match self.dt() {
             LIST => match self.as_list() {
@@ -869,6 +881,22 @@ impl BundValue {
                 }
                 // Not an array, or an operand that will not convert: the
                 // reference returns the receiver (`push.rs:12-30`).
+                _ => self.clone(),
+            },
+            // A STRING appends its UTF-8 bytes and a BIN its bytes; anything
+            // else leaves the receiver as it was
+            // (`reference/rust_dynamic/src/push.rs:130-160`).
+            BIN => match (self.as_bin(), value.dt()) {
+                (Some(b), STRING) => {
+                    let mut next = b.to_vec();
+                    next.extend_from_slice(value.str_ref().unwrap_or_default().as_bytes());
+                    BundValue::bin(next)
+                }
+                (Some(b), BIN) => {
+                    let mut next = b.to_vec();
+                    next.extend_from_slice(value.as_bin().unwrap_or_default());
+                    BundValue::bin(next)
+                }
                 _ => self.clone(),
             },
             METRICS => match (self.as_metrics(), value.as_float_exact()) {
@@ -1073,6 +1101,19 @@ impl BundValue {
     ///
     /// `Val::Time` carries a `u128` (`reference/rust_dynamic/src/create.rs:175`),
     /// so this does not narrow it.
+    /// The bytes a BIN holds — `Value::cast_bin`
+    /// (`reference/rust_dynamic/src/cast.rs:41-48`), which asks the payload,
+    /// not the tag.
+    pub fn as_bin(&self) -> Option<&[u8]> {
+        match self {
+            BundValue::Heap(h) => match &*h.payload {
+                Payload::Bin(b) => Some(b.as_slice()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     pub fn as_time(&self) -> Option<u128> {
         match self {
             BundValue::Heap(h) => match &*h.payload {
@@ -1372,6 +1413,14 @@ impl BundValue {
             // target only, and the one caller with another target asks the
             // table instead.
             MATRIX => Some(format!("Can not convert list to {STRING}")),
+            // A BIN converts to STRING when its bytes are UTF-8, and is
+            // refused with `str::from_utf8`'s error when they are not
+            // (`reference/rust_dynamic/src/conv.rs:18-24`). The `4` is the
+            // target, printed with `{:?}`.
+            BIN => match self.as_bin().map(std::str::from_utf8) {
+                Some(Err(e)) => Some(format!("Can not convert BIN to STR to {STRING:?}: {e}")),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -1425,6 +1474,15 @@ impl BundValue {
             }
             NONE => {
                 out.push_str("NONE");
+                return;
+            }
+            // Its bytes as text (`conv.rs:18-24`). A caller asks
+            // `conv_refusal` first; one that did not gets the lossy form
+            // rather than nothing.
+            BIN => {
+                if let Some(b) = self.as_bin() {
+                    out.push_str(&String::from_utf8_lossy(b));
+                }
                 return;
             }
             _ => {}
@@ -1707,6 +1765,7 @@ impl BundValue {
             STRING => "String",
             CALL => "Call",
             PTR => "Ptr",
+            BIN => "Binary",
             LIST => "List",
             MATRIX => "Matrix",
             PAIR => "Pair",
@@ -3334,5 +3393,82 @@ mod json_push_tests {
                 refused.summary(40)
             );
         }
+    }
+}
+
+/// `BIN`, RFC-0001's amendment of 2026-11-09 (D248 R49): each row of its
+/// table that lives in this crate, as the reference does it.
+#[cfg(test)]
+mod bin_tests {
+    use super::*;
+
+    #[test]
+    fn a_bin_has_its_tag_its_name_and_its_bytes() {
+        let b = BundValue::bin(vec![104, 105]);
+        assert_eq!(b.dt(), BIN);
+        assert_eq!(BIN, 8);
+        assert_eq!(b.type_name(), "Binary");
+        assert_eq!(b.as_bin(), Some(&[104u8, 105][..]));
+        assert_eq!(b.q(), 100.0);
+        assert!(b.render(false).contains("data: Binary([104, 105])"), "{}", b.render(false));
+        assert!(BundValue::str("hi").as_bin().is_none());
+    }
+
+    /// To STRING is its bytes as UTF-8; bytes that are not refuse with
+    /// `from_utf8`'s error (`conv.rs:18-24`).
+    #[test]
+    fn a_bin_displays_as_utf8_or_is_refused() {
+        let b = BundValue::bin("héllo".as_bytes().to_vec());
+        assert!(b.displayable());
+        assert_eq!(b.display(), "héllo");
+        let bad = BundValue::bin(vec![0xff, 0x41]);
+        assert_eq!(
+            bad.conv_refusal().as_deref(),
+            Some("Can not convert BIN to STR to 4: invalid utf-8 sequence of 1 bytes from index 0")
+        );
+        // A list leaves out a member `conv` refuses, as for any other kind.
+        let l = BundValue::list(vec![BundValue::bin(b"ok".to_vec()), bad]);
+        assert_eq!(l.display(), "[ ok :: ]");
+    }
+
+    /// Equality and hashing are the identity's, as `eq.rs`'s default arm and
+    /// `hash.rs` are: equal bytes are not equal values.
+    #[test]
+    fn a_bin_compares_by_identity() {
+        let a = BundValue::bin(vec![1, 2]);
+        let b = BundValue::bin(vec![1, 2]);
+        assert_ne!(a, b);
+        assert_eq!(a, a.clone());
+    }
+
+    /// `push` onto a BIN (`push.rs:130-160`).
+    #[test]
+    fn push_appends_a_string_or_a_bin_and_ignores_the_rest() {
+        let b = BundValue::bin(vec![1]);
+        assert_eq!(b.push(BundValue::str("A")).as_bin(), Some(&[1u8, 65][..]));
+        assert_eq!(b.push(BundValue::bin(vec![2, 3])).as_bin(), Some(&[1u8, 2, 3][..]));
+        let same = b.push(BundValue::int(7));
+        assert_eq!(same.as_bin(), Some(&[1u8][..]));
+        assert_eq!(same.dt(), BIN);
+    }
+
+    /// `Val::Binary` was already on the wire; a BIN round-trips with its tag.
+    #[test]
+    fn a_bin_round_trips_through_the_wire() {
+        let b = BundValue::bin(vec![0, 255, 7]);
+        let bytes = crate::wire::to_binary(&b).unwrap();
+        let back = crate::wire::from_binary(&bytes).unwrap();
+        assert_eq!(back.dt(), BIN);
+        assert_eq!(back.as_bin(), Some(&[0u8, 255, 7][..]));
+    }
+
+    /// To JSON is refused, by the existing default arm
+    /// (`cast_value_to_json.rs:84`).
+    #[test]
+    fn a_bin_has_no_json() {
+        assert_eq!(
+            BundValue::bin(vec![1]).to_json().unwrap_err(),
+            "This Dynamic type is not supported for JSON: 8"
+        );
     }
 }

@@ -27,6 +27,17 @@
   - Q60 as the Open questions leave it, with the answer route it names;
   - U11–U18 asked of SMYSL, none of them a precondition.
 
+  **Amended 2026-11-09**, while building M12. A staged value's `records`
+  is a BIN, and Bund2 had no BIN type (`crates/bund2-value/src/lib.rs`, the
+  note on `BundValue::push`: "Bund2 has no such `dt`"), although the
+  reference defines one: `BIN`, `dt` 8, over `Val::Binary`
+  (`reference/rust_dynamic/src/types.rs:23,81`;
+  `reference/rust_dynamic/src/create.rs:116-148`), which no Bund word
+  constructs. The owner first ruled R49 A, a hex STRING, then re-ruled it
+  D ("Re-rule R49 as D"): BIN is added to Bund2 as the reference defines
+  it, by an amendment of RFC-0001, before M12, and `records` stays a BIN.
+  D248's R49.
+
   The draft was written on the owner's
   request: "Create RFC for SMYSL project that will make it integrateable
   into Bund. The idea: use SMYSL ability to form, research and query SMYSL
@@ -2453,7 +2464,7 @@ so an absent alias is refused there; it is SM13 either way.
 | `root` | the canonical root of the library it was staged against |
 | `step` | `"ingest"` or `"answer"`; it chooses the rung §P7 attests at |
 | `granularity` | STRING, the profile `opts.granularity` named, or NODATA when none was, and always for an answer, so that step 6 checks under what staging checked under (`smysl-ingest/src/stage.rs:169-187`) |
-| `records` | BIN: the batch's records in SMYSL's CBOR, `to_cbor_seq` (`smysl-core/src/lib.rs:28`; `smysl-core/src/cbor/envelope.rs:634`), in the order `Staged::records` gives them (`smysl-ingest/src/stage.rs:89-111`), after the dossier's for an answer |
+| `records` | BIN [R49 D]: the batch's records in SMYSL's CBOR, `to_cbor_seq` (`smysl-core/src/lib.rs:28`; `smysl-core/src/cbor/envelope.rs:634`), in the order `Staged::records` gives them (`smysl-ingest/src/stage.rs:89-111`), after the dossier's for an answer |
 | `units`, `relations`, `labels` | LISTs of §S2's MAPs of the batch's units, relations and label bindings, the dossier's included: what a program reads to decide |
 | `clean` | BOOL: the staging adds no error to those the library already had, judged by step 6's comparison [R47, R48] and step 7's references, with the library as staging read it and the staged records, less an answer's `Thread` and `View`, as the batch; and no model call failed (§P6). Where the library had none, that is `Staged::has_errors` false (`smysl-ingest/src/stage.rs:80`). Where it had some, one `Warning` gives their count, as at commit |
 | `diagnostics` | LIST of §S2's diagnostic MAPs: the staging report's and the step's |
@@ -2552,9 +2563,10 @@ so an absent alias is refused there; it is SM13 either way.
    or SM03 `staged batch belongs to <root>`;
 2. `clean` is true, or SM03 `staged batch did not check clean`, as SMYSL's
    `stage_or_commit` refuses (`smysl:src/main.rs:14149-14155`);
-3. `records` decodes whole: `from_cbor_seq` succeeds and the offset it
-   stops at is the BIN's length, since it stops silently at a truncated
-   tail (`smysl-core/src/cbor/envelope.rs:2010-2029`); otherwise SM03
+3. `records` decodes whole: it is a BIN [R49 D]; `from_cbor_seq`
+   succeeds over its bytes; and the offset it stops at is their length,
+   since it stops silently at a truncated tail
+   (`smysl-core/src/cbor/envelope.rs:2010-2029`); otherwise SM03
    `records do not decode`;
 4. every record is of a kind the step makes (below), or SM03 naming it.
 
@@ -3744,7 +3756,8 @@ calls a model, and it is run by hand.
 25. **Commit trusts nothing it is given** [R40]. Each of these is refused
    and writes nothing, leaving no lock:
    - SM03 for: a staged value of another root; `clean` false; a `records`
-     BIN that does not decode, or decodes short of its length; a record of
+     value that is not a BIN, or whose bytes do not decode, or decode
+     short of their length (R49 D); a record of
      a kind the step does not make (§P4); a `retracts` relation; a unit
      at `measured`;
    - SM03 `exceeds the model ceiling` for an answer whose `records` were
@@ -4094,6 +4107,7 @@ A", "R48 A"), as recommended.*
 | R45 | An answer above the `Model` rung's ceiling | *Raised by revision 24 (second review B2).* **A** `smysl.answer` caps each answer unit with SMYSL's `ceiling::apply` and `monotone::resettle`, as `ingest` does, and stages again; `smysl.commit` refuses a unit above its rung's ceiling; U17. **B** attest answers at `Computed`. **C** commit judges only the batch's own diagnostics. **D** wait for U17 | **A** — **ruled A** 2026-11-09 |
 | R47 | An error the library already holds | *Raised by revision 25 (third review B1).* **A** under the locks, Bund2 checks the library alone and with the batch, and refuses only for an error the batch adds, compared by code and subject; staging's `clean` the same; the library's own errors counted in one `Warning`. *R48 amends the comparison.* **B** judge only diagnostics whose subject is a record of the batch. **C** keep the whole-library check, and state that one unmendable error ends model commits on that library | **A** — **ruled A** 2026-11-09 |
 | R48 | How the two reports are compared | *Raised by revision 26 (fourth review S1).* `SMY-E060` names the missing uid once, however many units refer to it, and a set of codes and subjects misses a second error on a unit that has one. **A** compare multisets of code, subject and message, and refuse by name every reference of the batch to a unit neither the batch nor the library holds. **B** multisets only, stating that a reference to a uid the library already lacks is not refused. **C** R47 as worded, stating both gaps | **A** — **ruled A** 2026-11-09 |
+| R49 | How a staged value carries its records | *Raised 2026-11-09 while building M12:* Bund2 has no BIN type, which §P4's `records` was. **A** a STRING of the CBOR in lowercase hex. **B** a STRING in base64. **C** a LIST of INTs, one per byte. **D** BIN added to Bund2 as the reference defines it (`reference/rust_dynamic/src/types.rs:23,81`), by an amendment of RFC-0001 | **A** — ruled A, then **re-ruled D** 2026-11-09 |
 | R46 | A model's label the library binds to another unit | *Raised by revision 24 (second review B3).* **A** `smysl.commit` drops the binding with a `Warning`, writing the unit unlabelled, as `ingest` does with `SMY-W054`; SM08 stays for a program's labels; the text ingest's bindings get a Preservation row and U18. **B** keep SM08 for the whole batch, with a word to drop bindings from a staged value. **C** refuse at staging | **A** — **ruled A** 2026-11-09 |
 
 ---
@@ -4715,3 +4729,13 @@ is `bund2-script` (§P8). Tests in `crates/bund2-stdlib/src/smysl/model_tests.rs
 - Library tests 731 (`smysl-model,smysl-model-probe,smysl-panic-probe`),
   718 (`smysl`); clippy clean under `smysl-model` with and without the
   probes.
+
+**BIN (2026-11-09), before M12** [R49 D]. Bund2 had no BIN type, which a
+staged value's `records` is. RFC-0001's amendment of 2026-11-09 adds the
+reference's: the tag, `BundValue::bin` and `as_bin`, `type_name`, display
+and conversion as `value_bin_conversion` does them, `len`, `push` onto a BIN,
+and `+` with a BIN on top. Tests: `bin_tests` in
+`crates/bund2-value/src/lib.rs`, and
+`a_bin_converts_measures_and_adds_as_the_reference_does` in
+`crates/bund2-stdlib/src/convert.rs`. No Bund word makes a
+BIN, so `conform` cannot see one.

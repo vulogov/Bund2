@@ -768,6 +768,8 @@ fn len(vm: &mut dyn Vm) -> Result<(), Error> {
         // LIST by tag. A PAIR and a CFLOAT hold a list and are neither, so
         // they reach the fallback below and answer 1 (`:27-32`).
         LIST => v.as_list().map_or(0, <[BundValue]>::len),
+        // Its bytes (`reference/rust_dynamic/src/len.rs:57-62`).
+        bund2_value::BIN => v.as_bin().map_or(0, <[u8]>::len),
         bund2_value::METRICS => v.as_metrics().map_or(0, <[bund2_value::Metric]>::len),
         // **The element count, not the shape** — the reference sums the row
         // lengths (`reference/rust_dynamic/src/len.rs:33-45`), so a 2x2 and a

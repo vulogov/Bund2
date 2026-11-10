@@ -21,7 +21,7 @@
 
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
 use bund2_value::{
-    BOOL, BundValue, CALL, CLASS, CONDITIONAL, FLOAT, INTEGER, JSON, LAMBDA, LIST, MAP, MATRIX,
+    BIN, BOOL, BundValue, CALL, CLASS, CONDITIONAL, FLOAT, INTEGER, JSON, LAMBDA, LIST, MAP, MATRIX,
     NODATA, NONE, OBJECT, PTR, STRING, TEXTBUFFER, VALUEMAP,
 };
 
@@ -169,6 +169,17 @@ pub(crate) fn conv_value(v: &BundValue, target: u16) -> Result<BundValue, Error>
         // captures. It converts only to a LIST of its rows
         // (`value_matrix_conversion`, `reference/rust_dynamic/src/conv.rs:268-290`),
         // which is the whole of its return path.
+        // **A BIN converts to a LIST of one-byte BINs**, and to nothing else
+        // but STRING, which `display` answered above; any other target is
+        // refused in the reference's words, which call the source NODATA
+        // (`value_bin_conversion`, `reference/rust_dynamic/src/conv.rs:9-33`,
+        // reached from `:737-739`). RFC-0001's amendment of 2026-11-09.
+        _ if dt == BIN => match (target, v.as_bin()) {
+            (LIST, Some(bytes)) => Ok(BundValue::list(
+                bytes.iter().map(|b| BundValue::bin(vec![*b])).collect(),
+            )),
+            _ => Err(Error(format!("Can not convert NODATA to {target:?}"))),
+        },
         _ if dt == MATRIX => {
             let rows = v
                 .as_matrix()
@@ -656,6 +667,48 @@ mod tests {
         assert_eq!(m.dt(), MAP, "a MAP, not the oracle's MATRIX");
         assert_eq!(m.get("0").and_then(|v| v.as_int()), Some(7));
         assert_eq!(m.get("1").and_then(|v| v.as_int()), Some(8));
+    }
+
+    /// `pre`, then a BIN of `bytes` pushed, then `post`.
+    fn with_bin(pre: &str, bytes: &[u8], post: &str) -> Result<Interp, String> {
+        use bund2_api::Vm as _;
+        let mut i = Interp::new();
+        crate::register_all(&mut i.registry);
+        let pre = bund2_syntax::compile(pre).map_err(|e| e.render(pre))?;
+        i.eval(&pre).map_err(|e| e.0)?;
+        i.push(BundValue::bin(bytes.to_vec()));
+        let post = bund2_syntax::compile(post).map_err(|e| e.render(post))?;
+        i.eval(&post).map_err(|e| e.0)?;
+        Ok(i)
+    }
+
+    /// RFC-0001's amendment of 2026-11-09: a BIN converts to STRING, to a
+    /// LIST of one-byte BINs, and to nothing else, in the reference's words
+    /// (`conv.rs:9-33`); `len` is its bytes; `+` with a BIN on top appends a
+    /// BIN or a string and refuses the rest (`math.rs:207-235`).
+    #[test]
+    fn a_bin_converts_measures_and_adds_as_the_reference_does() {
+        let top = |i: &Interp| i.peek().expect("a value").clone();
+        let i = with_bin("", b"hi", "convert.to_string").unwrap();
+        assert_eq!(top(&i).as_str().as_deref(), Some("hi"));
+        let i = with_bin("", &[1, 2], "convert.to_list").unwrap();
+        let l = top(&i);
+        let items = l.as_list().expect("a list");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[1].as_bin(), Some(&[2u8][..]));
+        assert_eq!(items[1].dt(), BIN);
+        let e = with_bin("", &[1], "convert.to_int").err().unwrap();
+        assert!(e.contains("Can not convert NODATA to 2"), "{e}");
+        let e = with_bin("", &[0xff], "convert.to_string").err().unwrap();
+        assert!(e.contains("Can not convert BIN to STR to 4: invalid utf-8"), "{e}");
+        let i = with_bin("", &[1, 2, 3], "len").unwrap();
+        assert_eq!(top(&i).as_int(), Some(3));
+        let i = with_bin("\"A\"", &[1], "+").unwrap();
+        assert_eq!(top(&i).as_bin(), Some(&[1u8, 65][..]));
+        let e = with_bin("\"A\"", &[1], "-").err().unwrap();
+        assert!(e.contains("Unsupported operation for binary"), "{e}");
+        let e = with_bin("1", &[1], "+").err().unwrap();
+        assert!(e.contains("Unsupported datatype Y for binary"), "{e}");
     }
 
     fn run(src: &str) -> Result<Interp, String> {

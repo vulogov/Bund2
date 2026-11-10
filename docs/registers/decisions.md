@@ -16978,3 +16978,25 @@ at revision 27 ("accept Phase 2"), after the fifth review
 (`docs/rfc/reviews/RFC-0014-review-2026-11-09-r26.md`) found nothing
 blocking and revision 27 answered its findings with no ruling changed.
 R30–R48 stand as ruled; Phase 2 is built as M11–M15.
+
+*Note 2026-11-09, R49,* raised while building RFC-0014 M12. §P4's staged
+value carried its `records` as a BIN, and Bund2 has no BIN type
+(`crates/bund2-value/src/lib.rs`, the note on `BundValue::push`: "Bund2 has
+no such `dt`"), so the accepted design could not be built as written. The
+owner ruled R49 A ("R49 A"). The entry now runs to R49.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **R49** | How a staged value carries its records, SMYSL's CBOR (`to_cbor_seq`, `smysl-core/src/cbor/envelope.rs:634`), with no BIN type in Bund2 | **A** a STRING of lowercase hex, two digits a byte; `smysl.commit`'s step 3 refuses one that is not even-length lowercase hex, or whose bytes do not decode whole, SM03 `records do not decode`. **B** a STRING in base64. **C** a LIST of INTs, one per byte. **D** a BIN type added to Bund2, by an RFC of its own | **A** — **ruled A** 2026-11-09 |
+
+*Note 2026-11-09, R49 re-ruled D.* The reference does define a binary type:
+`BIN`, `dt` 8, over `Val::Binary(Vec<u8>)`
+(`reference/rust_dynamic/src/types.rs:23,81`), built by `Value::from_bin`
+and `Value::binary()` (`reference/rust_dynamic/src/create.rs:116-148`). No
+Bund word constructs one: `from_binary` in `Bund/src` is bincode decoding of
+a whole `Value`, and `convert.to_*` reaches `Value::conv` only with fixed
+targets (`reference/rust_multistackvm/src/stdlib/convert/internal.rs:25,107-123`),
+which is why Bund2 left it out. Told so, the owner re-ruled R49 D ("Re-rule
+R49 as D"): BIN is added to Bund2 as the reference defines it, by an
+amendment of RFC-0001, before RFC-0014 M12, and a staged value's `records`
+stays a BIN. R49 A's hex STRING is withdrawn.

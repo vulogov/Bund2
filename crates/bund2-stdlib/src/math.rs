@@ -133,6 +133,26 @@ fn numeric_op_at(op: Op, x: &BundValue, y: &BundValue, depth: usize) -> Result<B
         return Ok(BundValue::json(a));
     }
 
+    // **A BIN on top** (`:207-235`): `+` appends a BIN, or any operand whose
+    // payload is a string, as `push` would; the other three operations are
+    // refused, and so is any other operand. RFC-0001's amendment of
+    // 2026-11-09.
+    if let Some(bytes) = x.as_bin() {
+        let tail: Vec<u8> = if let Some(b) = y.as_bin() {
+            b.to_vec()
+        } else if let Some(s) = y.str_ref() {
+            s.as_bytes().to_vec()
+        } else {
+            return Err(Error("Unsupported datatype Y for binary".into()));
+        };
+        if op != Op::Add {
+            return Err(Error("Unsupported operation for binary".into()));
+        }
+        let mut next = bytes.to_vec();
+        next.extend_from_slice(&tail);
+        return Ok(BundValue::bin(next));
+    }
+
     let ys = y.as_str();
     match x.unboxed() {
         // A float on top (`:147-176`). Its refusal says **`X`**, where the
