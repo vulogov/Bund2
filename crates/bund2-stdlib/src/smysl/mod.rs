@@ -33,6 +33,8 @@
 //!   Bund2's counting adaptor, under `smysl-model` (§P3, M11);
 //! - [`script`]: the test-only scripted provider `bund2-script`, under
 //!   `smysl-model-probe` (§P8, M11);
+//! - [`staged`]: `smysl.ingest`'s staged value and `smysl.commit`'s checks
+//!   and write, under `smysl-model` (§P4, M12);
 //! - [`words`]: the words, and the `--noio` stubs of those that touch
 //!   disk (§S8, R11).
 
@@ -48,6 +50,8 @@ pub mod query;
 pub mod research;
 #[cfg(feature = "smysl-model-probe")]
 pub mod script;
+#[cfg(feature = "smysl-model")]
+pub(crate) mod staged;
 pub mod surface;
 pub(crate) mod text;
 pub mod unlock;
@@ -170,6 +174,8 @@ mod forming_tests;
 mod measuring_tests;
 #[cfg(test)]
 mod model_tests;
+#[cfg(test)]
+mod staged_tests;
 #[cfg(test)]
 mod proving_tests;
 #[cfg(test)]

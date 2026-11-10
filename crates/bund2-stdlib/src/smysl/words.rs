@@ -644,6 +644,49 @@ fn smysl_word(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `handle input opts smysl.ingest` — extract units from `input` with
+/// SMYSL's `Ingestor::ingest` and answer them staged; writes nothing
+/// (RFC-0014 §P4, M12). The step's warnings are reported.
+#[cfg(feature = "smysl-model")]
+fn smysl_ingest(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.ingest";
+    let [opts, input, h] = <[BundValue; 3]>::try_from(operands(vm, W, 3)?)
+        .map_err(|_| Error::internal(format!("{W}: three operands were guarded and not pulled")))?;
+    let answered = handle_at(&h, 3).and_then(|h| {
+        let input = string(&input, 2)?;
+        let o = super::staged::opts(&opts, 1, super::staged::Step::Ingest)?;
+        super::staged::ingest(&h, &input, &o)
+    });
+    let answered = answered.map_err(|r| r.for_word(W))?;
+    for text in &answered.warnings {
+        warn(vm, W, text);
+    }
+    vm.push(answered.value);
+    Ok(())
+}
+
+/// `handle staged smysl.commit` — check a staged value against the library
+/// under the locks and write it, answering the uids of the units written
+/// that the library did not hold (RFC-0014 §P4, R40, M12).
+#[cfg(feature = "smysl-model")]
+fn smysl_commit(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "smysl.commit";
+    let [staged, h] = <[BundValue; 2]>::try_from(operands(vm, W, 2)?)
+        .map_err(|_| Error::internal(format!("{W}: two operands were guarded and not pulled")))?;
+    let h = handle_at(&h, 2).map_err(|r| r.for_word(W))?;
+    let committed = super::staged::commit(&h, &staged);
+    for text in &committed.warnings {
+        warn(vm, W, text);
+    }
+    vm.push(committed.result.map_err(|r| r.for_word(W))?);
+    Ok(())
+}
+
+/// RFC-0014 Phase 2's words, under `smysl-model`, stubbed under `--noio` as
+/// the rest are (§P5, R33).
+#[cfg(feature = "smysl-model")]
+pub const MODEL_WORDS: [&str; 2] = ["smysl.commit", "smysl.ingest"];
+
 /// The words that touch disk, stubbed under `--noio` (R11).
 const ON_DISK: [&str; 21] = [
     "smysl.append",
@@ -674,6 +717,10 @@ pub fn register(r: &mut Registry, opts: &crate::host::HostOptions) {
     let handle = |c| leaving(c, MAP);
     if opts.noio {
         for name in ON_DISK {
+            r.register_native(name, noio, StackEffect::opaque(0), WordKind::Sync);
+        }
+        #[cfg(feature = "smysl-model")]
+        for name in MODEL_WORDS {
             r.register_native(name, noio, StackEffect::opaque(0), WordKind::Sync);
         }
         // The constructor reads nothing, and is stubbed with the handler,
@@ -760,6 +807,16 @@ pub fn register(r: &mut Registry, opts: &crate::host::HostOptions) {
             WordKind::Sync,
         );
         r.register_conditional("smysl", super::query::run_smysl);
+        #[cfg(feature = "smysl-model")]
+        {
+            r.register_native("smysl.ingest", smysl_ingest, handle(3), WordKind::Sync);
+            r.register_native(
+                "smysl.commit",
+                smysl_commit,
+                leaving(2, LIST),
+                WordKind::Sync,
+            );
+        }
     }
     r.register_native("smysl.agent", smysl_agent, handle(2), WordKind::Sync);
     r.register_native("smysl.parse", smysl_parse, leaving(1, LIST), WordKind::Sync);
@@ -1334,7 +1391,9 @@ mod tests {
         };
         let full = family(&interp(false));
         assert_eq!(full, family(&interp(true)));
-        assert_eq!(full.len(), ON_DISK.len() + 3, "{full:?}");
+        // RFC-0014 Phase 2's words, under `smysl-model`, are stubbed too.
+        let model = if cfg!(feature = "smysl-model") { 2 } else { 0 };
+        assert_eq!(full.len(), ON_DISK.len() + 3 + model, "{full:?}");
         for name in &full {
             let got = run_in(&mut interp(true), name);
             match name.as_str() {

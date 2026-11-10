@@ -56,13 +56,15 @@ panic-probe = ["bund2-runtime/panic-probe"]
 # D168); `bund2-runtime` has nothing to forward.
 smysl = ["bund2-stdlib/smysl"]
 # RFC-0014 Phase 2 (§P2): the model words and their mappers, forwarded as
-# `smysl` is. The test-only `smysl-model-probe` is not forwarded.
-smysl-model     = ["bund2-stdlib/smysl-model"]
-smysl-ollama    = ["bund2-stdlib/smysl-ollama"]
-smysl-anthropic = ["bund2-stdlib/smysl-anthropic"]
-smysl-openai    = ["bund2-stdlib/smysl-openai"]
-smysl-gemini    = ["bund2-stdlib/smysl-gemini"]
-smysl-deepseek  = ["bund2-stdlib/smysl-deepseek"]
+# `smysl` is, and chained as `bund2-stdlib` chains them, so that a model
+# build has the CLI's own `smysl` too (`bund2 smysl-unlock`). The test-only
+# `smysl-model-probe` is not forwarded.
+smysl-model     = ["smysl", "bund2-stdlib/smysl-model"]
+smysl-ollama    = ["smysl-model", "bund2-stdlib/smysl-ollama"]
+smysl-anthropic = ["smysl-model", "bund2-stdlib/smysl-anthropic"]
+smysl-openai    = ["smysl-model", "bund2-stdlib/smysl-openai"]
+smysl-gemini    = ["smysl-model", "bund2-stdlib/smysl-gemini"]
+smysl-deepseek  = ["smysl-model", "bund2-stdlib/smysl-deepseek"]
 # No `async`: the façade's feature links `bund2-async` and the CLI names
 # none of it, so a feature here changed only a bundle's record (D168).
 

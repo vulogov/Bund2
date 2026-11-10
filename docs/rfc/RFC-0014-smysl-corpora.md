@@ -4739,3 +4739,42 @@ and `+` with a BIN on top. Tests: `bin_tests` in
 `a_bin_converts_measures_and_adds_as_the_reference_does` in
 `crates/bund2-stdlib/src/convert.rs`. No Bund word makes a
 BIN, so `conform` cannot see one.
+
+**M12 (2026-11-09).** `smysl.ingest` and `smysl.commit`
+(`crates/bund2-stdlib/src/smysl/staged.rs`, registered in
+`crates/bund2-stdlib/src/smysl/words.rs` under `smysl-model`, and stubbed
+under `--noio`); Phase 1's batch writes model output `Imported` at the step's
+rung with the run's recipe (`crates/bund2-stdlib/src/smysl/form.rs`,
+`Imported`). Both words are in `FEATURE_GATED` and `ACTS_ON_HOST`. Tests in
+`crates/bund2-stdlib/src/smysl/staged_tests.rs`.
+- **Criteria.** 19's `bund2 words` case for the two words this adds, in
+  `crates/bund2-cli/tests/cli_ux.rs`; M13 and M14 add theirs. 23,
+  `smysl.ingest`'s case. 24, whole, its clocks judged against an earlier
+  write by the same agent, its last case through
+  `bund2_value::wire`, the encoding `save.model` and `load.model` use: the
+  words themselves sanitise a world's name to a file in the working
+  directory (`crates/bund2-stdlib/src/world.rs`, `world_file`), where a test
+  must not write. 25, every case of an ingest; its answer
+  cases are M13's, and until then `smysl.commit` refuses a staged `answer`
+  (SM03). 28, `smysl.ingest`'s cases, the panic included. 22's cases that
+  need a word: the `opts` refusals, a granularity SMYSL refuses, the recipe
+  from the configuration's `ingest.temperature` and `ingest.path`, and the
+  prompt override's system text.
+- **M11's CLI features did not chain.** `bund2-cli`'s `smysl-model` and
+  mapper features forwarded only `bund2-stdlib`'s, so a CLI built with
+  `smysl-model` alone had the model words but not its own `smysl`: no
+  `bund2 smysl-unlock`, and `--version` read `smysl` as absent. They now
+  chain as `bund2-stdlib`'s do (`crates/bund2-cli/Cargo.toml`), which the
+  CLI suite under `smysl-model` found.
+- **Criterion 25's SM05 case cannot arise as written.** SMYSL's
+  `from_cbor_seq` refuses a relation kind `RelKind::parse` refuses, so such a
+  `records` is step 3's SM03 `records do not decode`; the test asserts that.
+  Step 5's SM05 stays, for a decoder that admits one.
+- **R48's second-error case** names the units in the body by their display
+  form, the 26 characters a body's prose uses; a shorter prefix is not read
+  as a reference (`smysl-check/src/passes/closure.rs:64-78`).
+- Library tests 747 (`smysl-model,smysl-model-probe,smysl-panic-probe`),
+  719 (`smysl`), 602 (default); `bund2-value` 71; CLI 149 (`smysl-model`),
+  149 (`smysl`), 145 (default); clippy clean in five configurations;
+  `conform` 143/159, CEILING 143/159, IMPLEMENTED 597/602, COVERAGE
+  577/602, unchanged.

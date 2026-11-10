@@ -644,7 +644,7 @@ mod honesty_tests {
     // safety: the spawn had already happened by then, and a palette string
     // that happened to name a real command would have run it. Listed for
     // what it does, not for what it managed to do.
-    const ACTS_ON_HOST: [&str; 21] = [
+    const ACTS_ON_HOST: [&str; 23] = [
         "system.shell",
         "system.shell.",
         "fs.rm",
@@ -668,6 +668,10 @@ mod honesty_tests {
         "smysl.text.add",
         "smysl.retract",
         "smysl.prove",
+        // RFC-0014 Phase 2's (§P4), under `smysl-model`: each reaches a
+        // model, and `smysl.commit` writes.
+        "smysl.ingest",
+        "smysl.commit",
     ];
 
     // **Natives a feature gate may or may not have registered — F123.**
@@ -697,16 +701,18 @@ mod honesty_tests {
     // `UNVARIED` audit filters it too (RFC-0014 criterion 16): a gated
     // native with an operand the palette leaves at seven is in one build's
     // list and not the other's, as it would be in `PROMOTABLE.txt`.
-    const FEATURE_GATED: [&str; 26] = [
+    const FEATURE_GATED: [&str; 28] = [
         "string.grok",
         "string.grok.",
         "smysl",
         "smysl.agent",
         "smysl.append",
         "smysl.check",
+        "smysl.commit",
         "smysl.create",
         "smysl.dossier",
         "smysl.get",
+        "smysl.ingest",
         "smysl.kb",
         "smysl.label",
         "smysl.measure",
@@ -744,9 +750,12 @@ mod honesty_tests {
             .map(|(n, _)| n)
             .filter(|n| n == "smysl" || n.starts_with("smysl."))
             .collect();
+        // RFC-0014 Phase 2's words are registered only under `smysl-model`.
+        const MODEL: [&str; 2] = ["smysl.commit", "smysl.ingest"];
         let gated: Vec<String> = FEATURE_GATED
             .iter()
             .filter(|n| **n == "smysl" || n.starts_with("smysl."))
+            .filter(|n| cfg!(feature = "smysl-model") || !MODEL.contains(n))
             .map(|n| (*n).to_owned())
             .collect();
         if cfg!(feature = "smysl") {
@@ -767,7 +776,10 @@ mod honesty_tests {
             "smysl.text.add",
             "smysl.retract",
             "smysl.prove",
-        ] {
+        ]
+        .into_iter()
+        .chain(MODEL.into_iter().filter(|_| cfg!(feature = "smysl-model")))
+        {
             assert!(
                 ACTS_ON_HOST.contains(&w),
                 "{w} writes and is not in ACTS_ON_HOST"

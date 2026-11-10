@@ -145,6 +145,14 @@ impl<'s> Batch<'s> {
     /// Attest `uid` unless this agent already has, in the library or in
     /// this batch (§S4), naming `parents`.
     fn attest(&mut self, uid: Uid, rung: Rung, parents: BTreeSet<Uid>) {
+        self.attest_as(uid, |agent, ts| {
+            attestation(uid, rung, agent, ts).with_parents(parents)
+        });
+    }
+
+    /// Attest `uid` with the attestation `make` builds from this agent and
+    /// the next clock, unless this agent already has (§S4).
+    fn attest_as(&mut self, uid: Uid, make: impl FnOnce(&AgentId, Hlc) -> Attestation) {
         let held = self
             .store
             .attestations_of(&uid)
@@ -154,9 +162,8 @@ impl<'s> Batch<'s> {
             return;
         }
         let ts = self.clock.next();
-        self.records.push(Record::Attestation(
-            attestation(uid, rung, &self.agent, ts).with_parents(parents),
-        ));
+        self.records
+            .push(Record::Attestation(make(&self.agent, ts)));
     }
 
     /// One record MAP, of whichever kind its keys say (§S2), answering its
@@ -274,6 +281,72 @@ impl<'s> Batch<'s> {
                 .push(Record::LabelBinding(LabelBinding::new(label, uid)));
         }
         Ok(uid)
+    }
+}
+
+/// How model output is attested (RFC-0014 §P7, R39 A): `Imported`, at the
+/// rung SMYSL uses for the step, with the run's recipe and family.
+#[cfg(feature = "smysl-model")]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Imported {
+    pub rung: Rung,
+    pub recipe: Option<([u8; 32], [u8; 32])>,
+}
+
+#[cfg(feature = "smysl-model")]
+impl Batch<'_> {
+    fn imported_attestation(how: Imported, uid: Uid, agent: &AgentId, ts: Hlc) -> Attestation {
+        let a = Attestation::new(uid, agent.clone(), Op::Imported, how.rung, ts);
+        match how.recipe {
+            Some((r, f)) => a.with_recipe(r, f),
+            None => a,
+        }
+    }
+
+    /// A unit a model staged, already checked (§P4): written unless the
+    /// library or this batch holds it, and attested as `how` says unless this
+    /// agent has attested it already. Answers its uid.
+    pub(crate) fn imported_unit(&mut self, core: smysl_core::UnitCore, how: Imported) -> Uid {
+        let uid = canonical_uid(&core);
+        self.text_schema |= is_text(core.schema.as_str());
+        if !self.holds_unit(&uid) {
+            self.units.insert(uid);
+            self.records.push(Record::Unit(core));
+        }
+        self.attest_as(uid, |agent, ts| Self::imported_attestation(how, uid, agent, ts));
+        uid
+    }
+
+    /// A relation a model staged, already checked (§P4): written unless held
+    /// with the same weight and note, which step 7 has already required.
+    pub(crate) fn imported_relation(&mut self, rel: Relation, how: Imported) -> Uid {
+        let rid = rel.uid();
+        self.text_schema |= is_text(rel.kind.as_str());
+        let held = self.relations.contains_key(&rid) || self.store.relation_by_id(&rid).is_some();
+        if !held {
+            self.relations.insert(rid, rel.clone());
+            self.records.push(Record::Relation(rel.clone()));
+        }
+        self.attest_as(rid, |agent, ts| Self::imported_attestation(how, rid, agent, ts));
+        if self.store.is_withdrawn(&rel) {
+            self.withdrawn.push(rid);
+        }
+        rid
+    }
+
+    /// A label a model staged, which step 7 has decided may be written: bound
+    /// unless the library or this batch binds it already.
+    pub(crate) fn imported_label(&mut self, label: Label, uid: Uid) {
+        if self.bindings(&label).is_empty() {
+            self.labels.insert(label.clone(), uid);
+            self.records
+                .push(Record::LabelBinding(LabelBinding::new(label, uid)));
+        }
+    }
+
+    /// Whether this batch writes `uid` as a new unit.
+    pub(crate) fn writes(&self, uid: &Uid) -> bool {
+        self.units.contains(uid)
     }
 }
 

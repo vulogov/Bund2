@@ -417,7 +417,7 @@ fn references(
 /// A source MAP as `SourceRef`. Its kind must be one SMYSL knows (SM05);
 /// a `span` needs its `manifest`, and is built by `SourceRef::in_part`,
 /// which refuses an empty or reversed one (SM03).
-fn source_ref(v: &BundValue) -> Result<SourceRef, Refusal> {
+pub(crate) fn source_ref(v: &BundValue) -> Result<SourceRef, Refusal> {
     const KEYS: [&str; 7] = [
         "kind",
         "reference",
