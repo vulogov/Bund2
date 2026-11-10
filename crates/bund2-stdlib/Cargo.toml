@@ -140,6 +140,13 @@ smysl-retrieve = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", de
 smysl-pack    = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
 smysl-text    = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, features = ["reader-txt", "reader-md"], optional = true }
 smysl-measure = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
+# RFC-0014 Phase 2 (§P2, D248 R36): the model steps, behind `smysl-model`.
+# `smysl-ingest`'s `model` compiles `Ingestor` and `answer`, its `text` the
+# text run, which adds `smysl-text` and `smysl-pack`, already linked above.
+# `smysl-provider` is named only so a registry can be built; it is the crate
+# `model` brings in. Neither links an HTTP client until a mapper is chosen.
+smysl-ingest   = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, features = ["model", "text"], optional = true }
+smysl-provider = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
 # The NFC SMYSL normalises unit text with (`smysl-core/src/types/mod.rs:274-281`):
 # `smysl.prove` normalises a rendering before fitting its gist, so SMYSL's
 # own normalisation cannot lengthen it past the bound (RFC-0014 §S7).
@@ -312,6 +319,20 @@ smysl = [
 # crate's own tests arm, to make a write panic, or pause, at a named point.
 # As `panic-probe` gives `test.panic` (D220).
 smysl-panic-probe = ["smysl"]
+# RFC-0014 Phase 2 (§P2, D248 R36): the model words, with no mapper. A
+# provider a configuration names is then "not compiled into this build".
+smysl-model = ["smysl", "dep:smysl-ingest", "dep:smysl-provider"]
+# One feature per mapper, mirroring SMYSL's own. `smysl-ollama` builds with
+# no C compiler (criterion 21); the four hosted mappers link `ring` through
+# `rustls`, which compiles C, as `grok` does (D10, D40, U11).
+smysl-ollama    = ["smysl-model", "smysl-ingest/ollama"]
+smysl-anthropic = ["smysl-model", "smysl-ingest/anthropic"]
+smysl-openai    = ["smysl-model", "smysl-ingest/openai"]
+smysl-gemini    = ["smysl-model", "smysl-ingest/gemini"]
+smysl-deepseek  = ["smysl-model", "smysl-ingest/deepseek"]
+# **Test-only, and never in a shipped build** (§P8, R38): the scripted
+# provider `bund2-script`, which the crate's own tests arm.
+smysl-model-probe = ["smysl-model"]
 # **Measurement only, and unsound when used.** RFC-0013 criterion 16 asks for
 # the occurs check's share of naive reverse, and the per-inference guard
 # poll's. Both are unconditional (L7; S4's poll), so there is nothing to

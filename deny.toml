@@ -30,6 +30,11 @@ allow = [
     # links GPL code.
     "GPL-3.0-or-later",
     "GPL-2.0-or-later",
+    # `webpki-roots`, the root certificates every hosted SMYSL mapper links
+    # through `ureq`'s `tls`. Reached only through `smysl-anthropic`,
+    # `smysl-openai`, `smysl-gemini` and `smysl-deepseek`, all off by
+    # default. Allowed by the owner's ruling, D248 R43.
+    "CDLA-Permissive-2.0",
 ]
 
 # `algos` declares no licence in its manifest; its LICENSE file is BSD-3-Clause.

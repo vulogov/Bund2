@@ -60,6 +60,11 @@ jobs:
           cargo check --workspace --features smysl
           # RFC-0014 criterion 3 (R18): the feature builds with no C compiler.
           CC=false CXX=false cargo build -p bund2-cli --features smysl
+          # RFC-0014 criterion 21 (R36): the local model build too. The
+          # hosted mappers may compile C, so they are checked, not built
+          # without a compiler.
+          CC=false CXX=false cargo build -p bund2-cli --features smysl-ollama
+          cargo check -p bund2-cli --features smysl-ollama,smysl-anthropic,smysl-openai,smysl-gemini,smysl-deepseek
       # RFC-0005's criteria are mostly held by tests behind `jit`, and until
       # this step every one of them was held by a command someone ran by hand
       # (the twenty-third review's S11). `relocation-test` gates criterion 4's
@@ -88,6 +93,13 @@ jobs:
         run: cargo nextest run -p bund2-stdlib --features smysl,smysl-panic-probe --profile ci
       - name: clippy over the SMYSL probe
         run: cargo clippy -p bund2-stdlib --all-targets --features smysl,smysl-panic-probe
+      # RFC-0014 Phase 2 (§P2, §P8): the model words' suites, under the
+      # scripted provider and Phase 1's probe, which criterion 27 uses, and
+      # clippy over the same.
+      - name: the SMYSL model words' tests
+        run: cargo nextest run -p bund2-stdlib --features smysl-model,smysl-model-probe,smysl-panic-probe --profile ci
+      - name: clippy over the SMYSL model words
+        run: cargo clippy -p bund2-stdlib --all-targets --features smysl-model,smysl-model-probe,smysl-panic-probe
       # RFC-0005 criterion 15, asserted "so a later change cannot invert it
       # quietly": the mandatory vocabulary must not reach the optional tier or
       # the code generator, by any feature.
@@ -134,3 +146,7 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           arguments: --features smysl
+      # RFC-0014 criterion 20: and the model build's, with every mapper.
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          arguments: --features smysl-ollama,smysl-anthropic,smysl-openai,smysl-gemini,smysl-deepseek

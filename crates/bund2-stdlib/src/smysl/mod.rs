@@ -29,6 +29,10 @@
 //! - [`text`]: `smysl.text.add`'s spec, and its input read (§S4);
 //! - [`unlock`]: what `bund2 smysl-unlock` does (§S9, R14);
 //! - [`probe`]: the test-only probe, under `smysl-panic-probe` (§S9);
+//! - [`model`]: Phase 2's configuration, prompt override and registry, with
+//!   Bund2's counting adaptor, under `smysl-model` (§P3, M11);
+//! - [`script`]: the test-only scripted provider `bund2-script`, under
+//!   `smysl-model-probe` (§P8, M11);
 //! - [`words`]: the words, and the `--noio` stubs of those that touch
 //!   disk (§S8, R11).
 
@@ -36,10 +40,14 @@ pub mod facts;
 pub(crate) mod form;
 pub mod handle;
 pub mod map;
+#[cfg(feature = "smysl-model")]
+pub mod model;
 pub mod probe;
 pub mod prove;
 pub mod query;
 pub mod research;
+#[cfg(feature = "smysl-model-probe")]
+pub mod script;
 pub mod surface;
 pub(crate) mod text;
 pub mod unlock;
@@ -76,6 +84,8 @@ pub enum Code {
     Sm10,
     Sm11,
     Sm12,
+    /// Phase 2's one code (§P9): the model layer refused.
+    Sm13,
 }
 
 impl Refusal {
@@ -158,6 +168,8 @@ mod bridging_tests;
 mod forming_tests;
 #[cfg(test)]
 mod measuring_tests;
+#[cfg(test)]
+mod model_tests;
 #[cfg(test)]
 mod proving_tests;
 #[cfg(test)]

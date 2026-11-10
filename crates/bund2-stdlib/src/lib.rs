@@ -25,6 +25,18 @@ pub const GROK_BUILT_IN: bool = cfg!(feature = "grok");
 /// asked by `features_built_in` for the reason `GROK_BUILT_IN` is.
 pub const SMYSL_BUILT_IN: bool = cfg!(feature = "smysl");
 
+/// Whether this build carries RFC-0014 Phase 2's model words, and which of
+/// SMYSL's mappers it drives (§P2), asked by `features_built_in` for the
+/// reason `GROK_BUILT_IN` is. A mapper is named by its feature's name.
+pub const SMYSL_MODEL_BUILT_IN: bool = cfg!(feature = "smysl-model");
+pub const SMYSL_MAPPERS_BUILT_IN: [(&str, bool); 5] = [
+    ("smysl-ollama", cfg!(feature = "smysl-ollama")),
+    ("smysl-anthropic", cfg!(feature = "smysl-anthropic")),
+    ("smysl-openai", cfg!(feature = "smysl-openai")),
+    ("smysl-gemini", cfg!(feature = "smysl-gemini")),
+    ("smysl-deepseek", cfg!(feature = "smysl-deepseek")),
+];
+
 pub mod stack;
 
 /// The `smysl.` words (RFC-0014), only under the `smysl` feature (§S1).

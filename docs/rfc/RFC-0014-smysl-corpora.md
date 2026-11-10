@@ -4686,3 +4686,32 @@ ruled. No ruling changes. Each SMYSL line cited here was re-read at
 | N3 §P6's closing sentence | "each release and each mark" |
 | N4 criterion 25's headings | The R47 and R48 refusals moved to the refused list; "three cases that commit" |
 | N5 the first label pass | §P4 step 5 states both directions of its residue |
+
+## Implementation record, Phase 2
+
+**M11 (2026-11-09).** §P2's features on `bund2-stdlib`, `smysl-model`, one
+per mapper and the test-only `smysl-model-probe`, forwarded by `bund2-cli`
+but for the probe; `SMYSL_MODEL_BUILT_IN` and `SMYSL_MAPPERS_BUILT_IN`,
+which `features_built_in` reads; R43's entry in `deny.toml`; §P2's CI steps.
+`crates/bund2-stdlib/src/smysl/model.rs` holds §P3's configuration
+(`configuration`), prompt override (`prompt`) and registry (`registry`),
+with the counting adaptor and SM13; `crates/bund2-stdlib/src/smysl/script.rs`
+is `bund2-script` (§P8). Tests in `crates/bund2-stdlib/src/smysl/model_tests.rs`.
+- **The spike** drove `Ingestor::ingest`, `Ingestor::answer` and
+  `Ingestor::ingest_text` through `registry` over `bund2-script`. Each
+  stages, or for the text ingest writes, only kinds §P4 lists: document
+  ingest `Unit`, `LabelBinding` and `Attestation` in `Staged::records`'s
+  order and no `SchemaDecl`; the answer no `SchemaDecl`, `Thread` or
+  `View`. Q59's answer holds.
+- **Criteria.** 19: `cargo tree -p bund2-cli --features smysl` names none of
+  `tokio`, `ureq`, `smysl-ingest` and `smysl-provider`; `conform` 143/159,
+  CEILING 143/159, IMPLEMENTED 597/602, COVERAGE 577/602, unchanged; its
+  `bund2 words` case waits for M12–M14, which add the words. 20: `cargo deny
+  check` with every mapper passes. 21: `cargo build -p bund2-cli --features
+  smysl-ollama` with `CC` and `CXX` `false` succeeds. 22: its
+  function-level cases (the sidecar, a named file, the local default, a key
+  in the file, an unknown kind, the prompt override's base) are tested
+  here; the cases that need `smysl.ingest` are M12's.
+- Library tests 731 (`smysl-model,smysl-model-probe,smysl-panic-probe`),
+  718 (`smysl`); clippy clean under `smysl-model` with and without the
+  probes.

@@ -58,6 +58,15 @@ fn features_built_in() -> String {
     if bund2_stdlib::SMYSL_BUILT_IN {
         on.push("smysl");
     }
+    // RFC-0014 Phase 2 (§P2): the model words, and each mapper they drive.
+    if bund2_stdlib::SMYSL_MODEL_BUILT_IN {
+        on.push("smysl-model");
+    }
+    for (name, built) in bund2_stdlib::SMYSL_MAPPERS_BUILT_IN {
+        if built {
+            on.push(name);
+        }
+    }
     on.join(",")
 }
 
