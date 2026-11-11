@@ -1,0 +1,598 @@
+//
+// Logic programming and SMYSL together, with a local model: why the
+// Fenwick reservoir turned green. One program, every capability:
+//
+//   - a SMYSL library formed by hand, from SMYSL's syntax, and by a model
+//     reading a report, a text window by window, and answering a question
+//     (RFC-0014, Phases 1 and 2);
+//   - that library checked, researched, measured and queried;
+//   - knowledge bases built, edited and asked every way RFC-0013 offers:
+//     control, bridges into Bund, predicates made words, tabling,
+//     saturation, an expert system that asks, proof trees and CLP(FD);
+//   - the library made a knowledge base, rules reasoning over what the
+//     model and the analyst wrote, and the proofs written back into it.
+//
+// Run it in a directory with no `fenwick` in it, against a local Ollama:
+//
+//   bund2 demo.bund
+//
+// It needs a `bund2` built with `--features smysl-ollama`, and an Ollama at
+// http://127.0.0.1:11434 that has pulled `llama3.2`, the model SMYSL asks
+// for when no configuration names another. Every model call passes
+// `offline`, so nothing leaves the machine. A model's answers are not
+// fixed, so a run prints differently each time and there is no
+// `expected.txt`; the reasoning over the analyst's units is the same on
+// every run, and what the model adds changes only the counts around it.
+//
+// Each section names the words it shows. A capitalised name in a clause is
+// a variable, `_` a fresh one; any other name is an atom.
+//
+
+//
+// 0. Two helpers. `render` writes a term the way it was written, which
+//    `println` does not: a LIST in brackets, a functor by its name, an
+//    atom with a space in quotes, a uid cut to its first twelve
+//    characters, a variable by its name. `type.of` leaves the value and
+//    pushes its type: 9 a LIST, 7 a PTR, 6 a CALL, 4 a STRING. `tree`
+//    prints a proof, `[ goal ← premise … ]`, one goal a line, each
+//    premise indented under the goal it proves; the indent is saved on the
+//    workbench across the recursion. `commit-clean` commits a
+//    staged batch only when it is clean, and otherwise says why not and
+//    answers an empty LIST, so the program goes on whatever the model did.
+//
+:render {
+  type.of 9 ==
+  { type.of 4 ==
+    { type.of 6 == { type.of 7 == { convert.to_string } { "" + } ifthenelse } { "" + } ifthenelse }
+    { :rs swap var
+      "^b3:[a-z0-9]{9}" :rs var? string.regex.matches :rm swap var
+      :rm var? len swap drop 0 ==
+      { :rm var? 1 swap at "…" swap + }
+      { :rs var? dup "* *" swap string.wildcard { "'" + "'" swap + } if } ifthenelse } ifthenelse }
+  { "[" swap { render " " + swap + } loop " ]" swap + } ifthenelse
+} register
+
+:indent "  " var
+:tree {
+  dup 1 swap at render :indent var? print println
+  len 2 swap - swap tail
+  :indent var? . :indent :indent var? "  " swap + var
+  { type.of 9 == { :indent var? print println } { tree } ifthenelse } loop
+  take :indent swap var
+} register
+
+:commit-clean {
+  :s swap var
+  :ok :s var? :clean get var
+  :ok var? { :lib var? :s var? smysl.commit } if
+  :ok var? not {
+    "  not committed, not clean: " print :s var? :diagnostics get len print drop
+    " diagnostic(s), the errors among them:" println
+    :s var? :diagnostics get {
+      dup :severity get "error" ==
+        { "    " print dup :code get print " " print dup :message get println } if
+      drop
+    } loop
+    list
+  } if
+} register
+
+// A LIST printed on one line; a unit's gist by uid; a LIST of uids
+// printed one gist per line.
+:words { { print " " print } loop "" println } register
+:gist { :lib var? swap smysl.get :gist get } register
+:gists { { "  " print gist println } loop } register
+
+//
+// 1. A library, a handle, a text.
+//    smysl.create  smysl.open  smysl.agent  smysl.text.add  smysl.texts
+//
+"== 1. a library, a handle, a text" println
+:lib "fenwick" smysl.create var
+"the same root, opened:     " print
+"fenwick" smysl.open :root get :lib var? :root get == println
+// Every unit written through this handle is attested as the analyst's.
+:lib :lib var? "human:analyst" smysl.agent var
+"writing as:                " print :lib var? :agent get println
+
+:notes :lib var?
+  dict :reader "md/1" set :alias "notes" set :licence "CC0-1.0" set :lang "en" set
+       :title "Fenwick field notes" set
+       :text "# Fenwick field notes
+
+## June
+
+Water at the dam wall was clear. Surface temperature 17 degrees. The
+farms on Mill Brook spread fertiliser after the first cut of hay.
+
+## July
+
+Three weeks without wind. Surface temperature 24 degrees, and the
+sonde showed no oxygen below six metres. Heavy rain on the 19th washed
+brown water down Mill Brook into the north arm.
+
+## August
+
+The whole reservoir turned green. Dead roach along the north shore.
+The waterworks closed the intake and drew from the river instead.
+" set
+  smysl.text.add var
+"parts read from the notes: " print :notes var? :parts get len println drop
+"aliases in the library:    " print :lib var? smysl.texts len println drop
+"" println
+
+// Every model call keeps to the machine.
+:local dict :offline true set var
+
+//
+// 2. A report, read by the model and committed.
+//    smysl.ingest  smysl.commit
+//    The model extracts units from the text and stages them; nothing is
+//    written until the commit, which checks them again under the locks.
+//
+"== 2. a report, read by the model" println
+:staged :lib var? "The Fenwick reservoir warden reported in September that the bloom began
+in the north arm, where Mill Brook enters. Phosphate in the brook was four
+times the spring level after the July storm. The warden believes the
+fertiliser washed off the farms fed the algae, and that the still, warm
+water let them grow." :local var? smysl.ingest var
+"the model:                 " print :staged var? :model get println
+"units it staged:           " print :staged var? :units get len println drop
+"clean:                     " print :staged var? :clean get println
+:staged var? :units get { "  " print dup :schema get print ": " print :gist get println } loop
+:from_model :staged var? commit-clean var
+"units written:             " print :from_model var? len println drop
+"" println
+
+//
+// 3. The field notes, window by window.
+//    smysl.ingest.text
+//    Two calls per window; each window is committed and journalled as it
+//    goes, so a second run calls the model for none.
+//
+"== 3. the field notes, window by window" println
+:report :lib var? "notes" :local var? smysl.ingest.text var
+"windows:                   " print :report var? :windows get println
+"degraded to prose:         " print :report var? :degraded get println
+"units written:             " print :report var? :units get println
+:again :lib var? "notes" :local var? smysl.ingest.text var
+"again, from the journal:   " print :again var? :skipped get print " skipped, " print
+  :again var? :calls get print " model calls" println
+"" println
+
+//
+// 4. The analyst's account, by hand.
+//    smysl.parse  smysl.append  smysl.unit  smysl.label  smysl.rel
+//    Observations, the claims they ground, the question, and the edges
+//    between them. `x.text/entity` is the reservoir: a dossier (section 6)
+//    and an answer (section 8) are built around the entity a question
+//    names, through the units that mention it.
+//
+"== 4. the analyst's account, by hand" println
+:doc '@x.text/entity e/fenwick { status: cited, source: { kind: doc, ref: "alias:notes" } }
+~ Fenwick
+
+@question q/why { status: speculative }
+~ Why did the Fenwick reservoir turn green?
+
+@question q/again { status: speculative }
+~ Will the Fenwick reservoir bloom again next summer?
+
+@observation o/green { status: cited, source: { kind: doc, ref: "Field notes, August" } }
+~ The whole Fenwick reservoir turned green in August.
+
+@observation o/fert { status: cited, source: { kind: doc, ref: "Field notes, June" } }
+~ The Mill Brook farms spread fertiliser in June.
+
+@observation o/storm { status: cited, source: { kind: doc, ref: "Field notes, July" } }
+~ A storm on 19 July washed brown water down Mill Brook into the north arm.
+
+@observation o/calm { status: cited, source: { kind: doc, ref: "Field notes, July" } }
+~ Three windless weeks warmed the surface to 24 degrees.
+
+@observation o/fish { status: cited, source: { kind: doc, ref: "Field notes, August" } }
+~ Dead roach lay along the north shore.
+
+@claim c/runoff { status: inferred, grounds: [o/fert, o/storm] }
+~ Fertiliser runoff from Mill Brook fed the algae.
+
+@claim c/still { status: inferred, grounds: [o/calm] }
+~ Still, warm water let the algae multiply.
+
+@claim c/sewage { status: speculative }
+~ A sewage leak at the dam fed the algae.
+
+@claim c/oxygen { status: inferred, grounds: [o/calm, o/green] }
+~ The bloom stripped the deep water of oxygen.
+
+@rel c/runoff --answers--> q/why
+@rel c/still --answers--> q/why
+@rel c/runoff --causes--> o/green
+@rel c/still --causes--> o/green
+@rel c/oxygen --causes--> o/fish
+@rel c/runoff --rebuts--> c/sewage
+@rel q/why --x.text/mentions--> e/fenwick
+@rel q/again --x.text/mentions--> e/fenwick
+@rel o/green --x.text/mentions--> e/fenwick
+@rel c/runoff --x.text/mentions--> e/fenwick
+@rel c/still --x.text/mentions--> e/fenwick
+@rel c/oxygen --x.text/mentions--> e/fenwick
+' var
+:records :doc var? smysl.parse var
+"records parsed:            " print :records var? len println drop
+"ids appended:              " print :lib var? :records var? smysl.append len println drop
+
+// The library's own `label` facts (section 9) give each label's uid.
+:labels dict var
+:lib var? "from library" smysl.kb [ label L U ] kb.query
+  { :b swap var :labels :labels var? :b var? :L get :b var? :U get set var } loop
+:uid-of { :labels var? swap get } register
+
+// One more observation, one MAP at a time, labelled and linked.
+:sonde :lib var?
+  dict :schema "observation" set
+       :gist   "The sonde found no oxygen below six metres in July." set
+       :status "cited" set
+       :source dict :kind "doc" set :reference "Sonde log, 28 July" set set
+  smysl.unit var
+:lib var? "o/sonde" :sonde var? smysl.label
+:lib var? dict :kind "backs" set :from :sonde var? set :to "c/oxygen" uid-of set smysl.rel drop
+
+// What the model wrote mentions the reservoir too, so the dossier and the
+// answer can reach it: one edge per unit, appended as one LIST of MAPs.
+:edges :from_model var?
+  { :u swap var dict :kind "x.text/mentions" set :from :u var? set :to "e/fenwick" uid-of set } map var
+"model units linked:        " print :lib var? :edges var? smysl.append len println drop
+"" println
+
+//
+// 5. Checking, and the library as text.
+//    smysl.check  smysl.write
+//
+"== 5. checking, and the library as text" println
+"diagnostics:               " print :lib var? smysl.check len println drop
+:lib var? smysl.check { "  " print dup :code get print " " print :message get println } loop
+"lines of SMYSL's syntax:   " print :lib var? smysl.write string.tokenize.lines len println drop
+"" println
+
+//
+// 6. Researching.
+//    smysl.get  smysl.trace  smysl.status  smysl.salience  smysl.pack
+//    smysl.dossier  smysl.measure
+//
+"== 6. researching" println
+"the runoff claim, read back: " print "c/runoff" uid-of :lib var? swap smysl.get :status get println
+"what it rests on:" println
+:lib var? "c/runoff" uid-of "rests-on" ∅ smysl.trace
+  { "  " print dup :depth get print " " print :uid get gist println } loop
+"what depends on the calm weeks:" println
+:lib var? "o/calm" uid-of "dependents" ∅ smysl.trace
+  { "  " print dup :depth get print " " print :uid get gist println } loop
+"retraction has changed:    " print :lib var? smysl.status len println drop
+"the three most salient units:" println
+:lib var? dict smysl.salience 3 swap head { :uid get } map gists
+"what fits in 60 tokens:" println
+:lib var? dict :budget 60 set smysl.pack gists
+:dossier :lib var? "Why did the Fenwick reservoir turn green?" smysl.dossier var
+"the dossier's subject:     " print :dossier var? :subject get println
+:dossier var? :slots get
+  { "  " print dup :name get print ": " print :units get len println drop } loop
+"measured over the claims:" println
+:lib var? [ "A4" ] "from library
+where kind = claim" smysl.measure
+  { "  " print dup :id get print " " print dup :ok get print ": " print :value get println } loop
+"" println
+
+//
+// 7. Querying.
+//    smysl.query  smysl (the conditional)
+//
+"== 7. querying" println
+"units:                     " print :lib var? "from library
+count" smysl.query :count get println
+"by kind:" println
+:lib var? "from library
+group by kind" smysl.query :groups get
+  { "  " print dup :key get print " " print :units get len println drop } loop
+'found for "algae":' println
+:lib var? 'from library
+find "algae"' smysl.query :hits get 3 swap head { :uid get } map gists
+"the claims, one at a time:" println
+smysl
+  :handle :lib var? set
+  :query  "from library
+where kind = claim" set
+  :lambda { "  " print dup :status get print " " print :gist get println } set
+!
+"" println
+
+//
+// 8. A question, answered by the model.
+//    smysl.answer  smysl.commit
+//    The dossier's members go to the model, and its answer is staged with
+//    them. Committed, the answer is attested at the Model rung, no
+//    stronger than `inferred`.
+//
+"== 8. a question, answered by the model" println
+:answer :lib var? "Why did the Fenwick reservoir turn green?" :local var? smysl.answer var
+"units staged:              " print :answer var? :units get len println drop
+"clean:                     " print :answer var? :clean get println
+"the answer:" println
+:answer var? :units get {
+  :u swap var
+  :u var? :status get "cited" == not
+    { "  " print :u var? :status get print " " print :u var? :gist get println } if
+} loop
+:written :answer var? commit-clean var
+"units written:             " print :written var? len println drop
+"" println
+
+//
+// 9. The library as a knowledge base.
+//    smysl.kb  kb.clauses  kb.query  kb.holds  kb.once  kb.call
+//    query (the conditional: limit, skip_first, prove)
+//    `smysl.kb` gives the units a query names as facts: `unit`, `gist`,
+//    `grounds`, `deps`, `label`, `effective`, `rel` and `rank`.
+//
+"== 9. the library as a knowledge base" println
+:facts :lib var? "from library" smysl.kb var
+"facts:                     " print :facts var? kb.clauses len println drop
+"the claims and their status:" println
+:facts var? [ [ unit U claim S ] [ gist U G ] ] kb.query
+  { "  " print dup :S get print " " print :G get println } loop
+"does anything rebut a claim: " print :facts var? [ rel rebuts _ _ ] kb.holds println
+"one thing that causes the bloom: " print
+:facts var? [ [ label o/green G ] [ rel causes C G ] ] kb.once :C get gist println
+"causes edges, by kb.call:  " print
+"causes" ∅ ∅ :facts var? :rel 3 kb.call len println drop
+"the second and third units by kind, by the query conditional:" println
+query
+  :kb         :facts var? set
+  :goal       [ unit U K S ] set
+  :skip_first 1 set
+  :limit      2 set
+  :lambda     { "  " print dup :K get print " " print :U get gist println } set
+!
+"why q/why has an answer, as a proof tree:" println
+query
+  :kb     :facts var? set
+  :goal   [ [ label q/why Q ] [ rel answers C Q ] ] set
+  :limit  1 set
+  :prove  true set
+  :lambda { :proof get tree } set
+!
+"" println
+
+//
+// 10. Building and editing a knowledge base, in named stacks.
+//     kb.new  kb.assert  kb.asserta  kb.retract  kb.consult*  kb.merge
+//     kb.clauses  kb.inferences, and the `.` forms on the workbench
+//     The catchment above the reservoir, written in its own namespace,
+//     `@catchment`, as the zebra example writes each part of its puzzle.
+//
+"== 10. building and editing a knowledge base" println
+@catchment
+  [ drains farm_hill mill_brook ]
+  [ drains farm_low mill_brook ]
+  [ drains mill_brook north_arm ]
+  [ drains north_arm fenwick ]
+  [ drains heath_beck fenwick ]
+  [ fertilised farm_hill ]
+  [ fertilised farm_low ]
+kb.consult* :catchment swap var
+@main
+"catchment clauses:         " print :catchment var? kb.clauses len println drop
+
+// kb.assert appends, kb.asserta prepends, kb.retract removes the first
+// clause that unifies. Each answers a new KB: the old one is unchanged.
+:works kb.new
+  [ intake fenwick closed ] kb.assert
+  [ intake river open ] kb.assert
+  [ intake fenwick open ] kb.asserta
+  var
+"the intakes, in order:     " print :works var? [ intake W S ] kb.query { dup :S get swap :W get "{0}={1}" format } map words
+:works :works var? [ intake fenwick open ] kb.retract var
+"after the retraction:      " print :works var? [ intake W S ] kb.query { dup :S get swap :W get "{0}={1}" format } map words
+
+// The `.` forms work on the workbench: `.` moves the KB there, each form
+// edits it in place, and `take` brings it back.
+:catchment var? .
+  [ fertilised farm_heath ] kb.assert.
+  [ fertilised farm_heath ] kb.retract.
+  :works var? kb.merge.
+take :site swap var
+"merged, edited on the workbench: " print :site var? kb.clauses len println drop
+
+// kb.inferences caps the work a query may do; past it, the query is
+// refused, and ?try catches it.
+:spinner [ [ [ spin ] ← [ spin ] ] ] kb! 1000 kb.inferences var
+?try
+  :try    { :spinner var? [ spin ] kb.holds } set
+  :except { "a capped query:            " print :context get println } set
+!
+"" println
+
+//
+// 11. Control, and bridges into Bund.
+//     = not or if once call findall dif, and is test in
+//
+"== 11. control, and bridges into Bund" println
+:control :site var? [
+  [ [ feeds A B ] ← [ drains A B ] ]
+  [ [ feeds A C ] ← [ drains A B ] [ feeds B C ] ]
+  [ [ clean_water S ] ← [ in S [ :mill_brook :north_arm :heath_beck :fenwick ] ]
+      [ not [ drains F S ] [ fertilised F ] ] ]
+  [ [ risk S Level ] ← [ drains S _ ]
+      [ if [ [ drains F S ] [ fertilised F ] ] [ = Level high ] [ = Level low ] ] ]
+  [ [ status P S ] ← [ if [ intake P closed ] [ = S shut ] [ = S drawing ] ] ]
+  [ [ near X ] ← [ or [ drains X fenwick ] [ drains X north_arm ] ] ]
+] kb! kb.merge var
+"waters no fertilised farm drains into: " print :control var? [ clean_water S ] kb.query { :S get } map words
+"risk to mill_brook:        " print :control var? [ risk mill_brook R ] kb.once :R get println
+"risk to heath_beck:        " print :control var? [ risk heath_beck R ] kb.once :R get println
+"the reservoir's intake:    " print :control var? [ status fenwick S ] kb.once :S get println
+"the river's intake:        " print :control var? [ status river S ] kb.once :S get println
+"what lies near the reservoir: " print :control var? [ near X ] kb.query { :X get } map words
+"the first thing feeding it: " print :control var? [ once [ feeds X fenwick ] ] kb.once :X get println
+"all it feeds, by findall:  " print :control var? [ findall T [ feeds farm_hill T ] L ] kb.once :L get words
+"by call, with an argument added: " print :control var? [ call [ feeds mill_brook ] T ] kb.query { :T get } map words
+"two different farms, by dif: " print
+:control var? [ [ fertilised A ] [ fertilised B ] [ dif A B ] ] kb.query len println drop
+"dif left waiting, a residual: " print
+:control var? [ [ fertilised A ] [ dif A B ] ] kb.once :_residual get render println
+
+// Bridges run Bund inside a rule: `is` binds what a lambda answers, `test`
+// keeps a solution a lambda accepts, `in` ranges over a LIST, written or
+// answered by a lambda. A lambda sees the clause's bound variables, and
+// its operands go in Bund's order: `{ T C > }` asks C > T. A LIST of atoms
+// is written `[ :june :july ]`; `[ june july ]` is the term june(july).
+:temps [
+  [ reading june 17 ] [ reading july 24 ] [ reading august 26 ]
+  [ [ above M T ] ← [ reading M C ] [ test { T C > } ] ]
+  [ [ rise M D ] ← [ reading june J ] [ reading M C ] [ is D { J C - } ] ]
+  [ [ summer M ] ← [ in M [ :june :july :august ] ] ]
+  [ [ cause C ] ← [ in C { :lib var? "o/green" uid-of "dependents" ∅ smysl.trace { :uid get } map } ] ]
+] kb! var
+"months above 20 degrees:   " print :temps var? [ above M 20 ] kb.query { :M get } map words
+"the rise by August:        " print :temps var? [ rise august D ] kb.once :D get println
+"the summer months:         " print :temps var? [ summer M ] kb.query len println drop
+"what rests on the bloom, from smysl.trace inside a rule:" println
+:temps var? [ cause C ] kb.query { :C get } map gists
+"" println
+
+//
+// 12. Tabling, saturation, and a predicate made a word.
+//     kb.table  kb.saturate  kb.word
+//     `upstream` is left recursive, which would loop untabled.
+//
+"== 12. tabling, saturation, a predicate as a word" println
+:flow :catchment var? [
+  [ [ upstream A B ] ← [ upstream A M ] [ drains M B ] ]
+  [ [ upstream A B ] ← [ drains A B ] ]
+] kb! kb.merge :upstream 2 kb.table var
+"what lies upstream of the reservoir: " print
+:flow var? [ upstream X fenwick ] kb.query { :X get } map words
+"clauses, then saturated:   " print
+:flow var? kb.clauses len swap drop print " " print
+:flow var? kb.saturate kb.clauses len swap drop println
+// A word: one argument per position, NODATA (∅) for what it should find,
+// answering a LIST of every solution's arguments.
+:flow :upstream 2 kb.word
+"upstream of the north arm, by the word: " print
+∅ :north_arm upstream { 1 swap at } map words
+"" println
+
+//
+// 13. An expert system that asks, and a proof.
+//     kb.askable  query (ask, known)  kb.prove
+//     `smell` and `scum` are askable: a goal no clause proves is put to
+//     the `ask` lambda, unless `known` already holds the reply. Both
+//     replies are seeded, so nothing is read from the terminal.
+//
+"== 13. an expert system, and a proof" println
+:triage [
+  [ [ bloom cyanobacteria ] ← [ green_water ] [ scum yes ] [ smell earthy ] ]
+  [ [ bloom green_algae ]   ← [ green_water ] [ scum no ] ]
+  [ [ action close_beach ] ← [ bloom cyanobacteria ] ]
+  [ green_water ]
+] kb! :scum 1 kb.askable :smell 1 kb.askable var
+:replies [ [ [ scum yes ] true ] [ [ scum no ] false ] [ [ smell earthy ] true ] ] var
+query
+  :kb     :triage var? set
+  :goal   [ action A ] set
+  :known  :replies set
+  :ask    { "{0}? (y/n) " format input "y" == } set
+  :lambda { "  the advice:              " print :A get println } set
+!
+"why farm_hill feeds the reservoir, by kb.prove:" println
+:control var? [ feeds farm_hill fenwick ] kb.prove { :proof get tree } loop
+"" println
+
+//
+// 14. A remediation plan, by CLP(FD).
+//     in  ins  #=  #≠  #<  #>  #<=  #>=  all_different  label  labeling
+//     Four jobs, each a start day from 0: aerating takes 2 days, buffer
+//     strips 3, barley straw 1, and a test 1. Straw goes in after the
+//     aeration; the test follows everything; buffer strips wait for the
+//     farms, after day 1; no two jobs start on one day; all done by day 8.
+//
+"== 14. a remediation plan, by constraints" println
+:plan [
+  [ [ schedule [ A B S T ] End ] ←
+      [ ins [ A B S T ] 0 8 ]
+      [ all_different [ A B S T ] ]
+      [ #> B 1 ]
+      [ #>= S [ + A 2 ] ]
+      [ #>= T [ + S 1 ] ]
+      [ #>= T [ + B 3 ] ]
+      [ #>= T [ + A 2 ] ]
+      [ #= End [ + T 1 ] ]
+      [ #<= End 8 ]
+      [ #≠ A 1 ]
+      [ #< A B ]
+      [ labeling [ :ff ] [ A B S T ] ] ]
+] kb! var
+:first :plan var? [ schedule P E ] kb.once var
+"the first plan found ends:  day " print :first var? :E get println
+"aerate, strips, straw, test: days " print :first var? :P get words
+"plans that fit:            " print :plan var? [ schedule P E ] kb.query len println drop
+// Labelling the finish first, smallest first, finds the earliest; the
+// test's day labelled downwards first finds the latest it can start.
+"the earliest finish:       " print
+:plan var? [ [ in E 0 8 ] [ label [ E ] ] [ schedule P E ] ] kb.once :E get println
+"the latest day for the test: " print
+:plan var? [ [ in T 0 8 ] [ labeling [ :down ] [ T ] ] [ schedule [ A B S T ] E ] ] kb.once :T get println
+"an unlabelled domain, as a residual: " print
+:plan var? [ [ in X 0 8 ] [ #≠ X 4 ] [ #> X 1 ] ] kb.once :_residual get render println
+"" println
+
+//
+// 15. Proofs written back into the library.
+//     smysl.prove  smysl.retract  smysl.status
+//     Rules over the library's facts: a fact the library bears out stands
+//     for its units; a rule's conclusion becomes a claim grounded on what
+//     its premises became; the root is a `finding`, never stronger than
+//     its weakest ground. What the model wrote is in the library like
+//     anything else, so a rule can reason over it too.
+//
+"== 15. proofs written back into the library" println
+:show { dup :schema get print " " print dup :status get print ": " print dup :gist get println } register
+:prove-into {
+  :goal swap var :opts swap var
+  :lib var? :lib var? "from library" smysl.kb :theory var? kb.merge :goal var? :opts var? smysl.prove
+  { :lib var? swap smysl.get "  " print show
+    :grounds get { :lib var? swap smysl.get "    on " print show drop } loop } loop
+} register
+:theory [
+  [ [ explains C ] ← [ label q/why Q ] [ rel answers C Q ] ]
+  [ [ culprit C ] ← [ explains C ] [ rel rebuts C _ ] ]
+  [ [ grounded C ] ← [ unit C claim inferred ] [ once [ grounds C G ] [ unit G observation cited ] ] ]
+  [ [ open Q ] ← [ unit Q question _ ] [ not [ rel answers _ Q ] ] ]
+  [ [ model_says U ] ← [ in U { :from_model var? } ] [ unit U _ _ ] ]
+] kb! var
+"the culprit, a finding at the status its grounds allow:" println
+dict [ culprit C ] prove-into
+"claims grounded on a cited observation:" println
+dict [ grounded C ] prove-into
+"questions nothing answers, by negation:" println
+dict [ open Q ] prove-into
+"units the model wrote, each proved and written: " print
+:lib var? :lib var? "from library" smysl.kb :theory var? kb.merge [ model_says U ] dict smysl.prove len println drop
+
+// The roach were found after a cold night, not the bloom: retract it.
+// Only the retracted unit's effective status changes, and a rule that
+// reads `effective` finds the claims the retraction shakes.
+"the dead fish are retracted" println
+:lib var? "o/fish" uid-of smysl.retract drop
+"retraction has changed:    " print :lib var? smysl.status len println drop
+:theory :theory var? [ [ shaken C ] ← [ rel causes C X ] [ effective X unfounded ] ] kb.assert var
+"claims it shakes, proved and written:" println
+dict [ shaken C ] prove-into
+"findings in the library:   " print :lib var? "from library
+where kind = finding
+count" smysl.query :count get println
+"" println
+
+"-- the library" println
+"units in it:               " print :lib var? "from library
+count" smysl.query :count get println
