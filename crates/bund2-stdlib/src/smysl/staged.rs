@@ -174,10 +174,11 @@ pub(crate) fn opts(v: &BundValue, k: usize, step: Step) -> Result<Opts, Refusal>
 
 /// Probe the provider `content-ingest` routes to, before anything is sent:
 /// `for_task`, which applies `offline`, then `probe`. A probe that fails, or
-/// answers unreachable, is SM13; so is a model the provider's list does not
-/// offer, judged as its mapper's own probe judges it: `ollama` (and the
-/// scripted provider) by prefix, an empty list being "not installed";
-/// `openai`, `gemini` and `deepseek` exactly; any other kind not at all.
+/// answers unreachable, is SM13; so is a model an `ollama` provider (or the
+/// scripted one) does not offer, judged by prefix as its mapper's probe
+/// judges it, an empty list being "not installed". A hosted provider's model
+/// is not judged: its list is not every model it accepts (Q60, answered
+/// 2026-11-10), and its own probe answers reachable either way.
 pub(crate) fn probe(built: &Built, config: &Config, asked: Option<&str>) -> Result<(), Refusal> {
     let p = built
         .registry
@@ -196,7 +197,6 @@ pub(crate) fn probe(built: &Built, config: &Config, asked: Option<&str>) -> Resu
     let kind = kind_of(config, &p.id());
     let offered = match kind.as_str() {
         "ollama" | "bund2-script" => answer.models.iter().any(|m| m.starts_with(model)),
-        "openai" | "gemini" | "deepseek" => answer.models.iter().any(|m| m == model),
         _ => true,
     };
     if !offered {

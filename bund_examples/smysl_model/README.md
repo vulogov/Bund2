@@ -75,8 +75,11 @@ along with the text of every `*_file` it names, wherever on the host that
 file is.
 
 Before calling the model, each word probes the provider. A provider that
-cannot be reached, or does not offer the model, is SM13, and nothing is
-sent, staged or written.
+cannot be reached, or an Ollama that does not have the model, is SM13, and
+nothing is sent, staged or written. A hosted provider's model is not
+checked against its list, which leaves out names it accepts (DeepSeek's
+`deepseek-chat`, for one); a model it does not take fails at the first
+call instead.
 
 ## Keeping it local: `offline`
 

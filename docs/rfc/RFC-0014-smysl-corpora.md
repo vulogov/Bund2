@@ -2847,18 +2847,22 @@ done, so that the next run skips it. Recommended (R41 A):
      - `ollama`, by prefix (`smysl-provider/src/map/ollama.rs:384-395`),
        an empty list being "not installed", since `parse_tags` gives one
        when nothing is (`:165-185`);
-     - `openai`, `gemini` and `deepseek`, exactly
-       (`smysl-provider/src/map/openai.rs:234-248`;
+     - not `openai`, `gemini` or `deepseek` (Q60, answered 2026-11-10):
+       their lists are not every model they accept, and each mapper's
+       probe answers `reachable` with the model missing, saying so only in
+       its detail (`smysl-provider/src/map/openai.rs:234-248`;
        `smysl-provider/src/map/gemini.rs:469-481`;
-       `smysl-provider/src/map/deepseek.rs:232-242`);
+       `smysl-provider/src/map/deepseek.rs:232-242`). As first accepted,
+       these were judged exactly; Q60's answer narrowed the check, as the
+       question said it would;
      - not `anthropic`, whose probe reports a count and judges no model
        (`smysl-provider/src/map/anthropic.rs:344-350`).
 
      The model asked for is `opts.model`, else the provider's
      `caps().model` (`smysl-provider/src/lib.rs:185-191`). One missing is
-     SM13 naming the model and the probe's detail. A list that does not
-     show a model the provider would accept, by pagination or an alias, is
-     a refusal where SMYSL's commands would try [UNGROUNDED: Q60].
+     SM13 naming the model and the probe's detail. A hosted model the
+     provider does not accept fails at the first call instead, as any
+     failed call does (below).
    - A hosted probe is a request, with the key, to the provider, and
      resolves the key (§P3).
    - A text ingest probes even when every window is journalled, so a
@@ -3052,6 +3056,11 @@ One code is added:
   window binds its labels with no check against the store
   (`smysl-ingest/src/text/run.rs:439-441,519-529`), so a run can bind one
   label to several units (R46).
+- **U19. A temperature the Anthropic mapper can leave out.** Its request
+  always carries `temperature` (`smysl-provider/src/map/anthropic.rs:101`),
+  and Anthropic's current models refuse the field: `claude-haiku-5-5`
+  answered "`temperature` is deprecated for this model" to every call on
+  2026-11-10 (added after M15).
 
 ---
 
@@ -3193,7 +3202,7 @@ and its `FEATURE_GATED` and `ACTS_ON_HOST` entries.
 | Files read | **Outside the library's root, for the first time.** The configuration beside the library, or the one `opts.config` names; a prompt override it names; and every `*_file` the override names, anywhere on the host, whose text is sent to the model (§P3). No Phase 1 word reads outside `root` |
 | Keys and the environment | **Keys are never Bund values** [R32]. A configuration names a variable or a command, SMYSL resolves it on every call to a hosted provider, and no word answers a configuration. The variable `api_key_env` names is read |
 | Running a program | **Once per model call, and once per word for the probe, through a configuration** [R32 A]. A hosted provider's `api_key_cmd` is run without a shell each time the provider is called or probed (§P3, §P6): for a text ingest, per window and pass. `--noio` stubs every model word, so it runs nothing then |
-| The probe | **One request per word, before any content** [R41]. To a hosted provider it carries the key. A text ingest probes even when every window is journalled, so a rerun with nothing to do needs a reachable provider, where SMYSL's command would skip every window. Bund2 refuses where SMYSL's commands would try: an Ollama with no model installed, and a model the `openai`, `gemini` or `deepseek` list does not show, which may be a model the provider accepts (Q60) (§P6) |
+| The probe | **One request per word, before any content** [R41]. To a hosted provider it carries the key. A text ingest probes even when every window is journalled, so a rerun with nothing to do needs a reachable provider, where SMYSL's command would skip every window. Bund2 refuses where SMYSL's commands would try: an Ollama with no model installed (§P6). A hosted provider's model is not judged, since its list does not show every model it accepts (Q60) |
 | `--noio` | **Extended by four words** [R33], each SM06 |
 | SMYSL's rule S | **Kept, with the program confirming** [R34]. `smysl.ingest` and `smysl.answer` stage; only `smysl.commit` writes, and no `.smysl/staged.smy` is written. `smysl.ingest.text` writes as it goes, as SMYSL's `ingest --text --yes` does |
 | What `smysl.commit` writes | **Only what `smysl.append` would accept** [R40], with an answer's `Thread` and `View`, which no Phase 1 word writes, checked to name only units the batch or the library holds. A staged value is re-checked against the library under the locks, with Phase 1's write checks, rule T, rule M and SMYSL's checks, so a value edited or built by hand gains nothing, and one committed late is judged as the library now stands, but for retraction (below) |
@@ -4051,7 +4060,9 @@ Each is in `docs/registers/open-questions.md`.
   dossier adds its question unit, its saved queries' units and edges, a
   `Thread` and a `View`, and `ask` the `x.query/v1` declaration (§P4, "The
   kinds a step makes"). M11's spike confirms it against fixtures.
-- **Q60. Open.** Does a hosted provider's model list show every model it
+- **Q60. Answered 2026-11-10: no**, by the run recorded under M15 in the
+  implementation record, and the check is narrowed to `ollama`. As first
+  raised: does a hosted provider's model list show every model it
   accepts? §P6's probe refuses a model the `openai`, `gemini` or
   `deepseek` list does not hold, as each mapper's probe judges it
   (`smysl-provider/src/map/openai.rs:234-248`;
@@ -4921,3 +4932,38 @@ notes gain the Phase 2 section (`docs/release_notes/0.54.0.md`).
   clean in five configurations; fmt clean; conform 143/159, CEILING
   143/159, IMPLEMENTED 597/602, COVERAGE 577/602, unchanged; cite and lint
   clean.
+
+**Q60 answered (2026-11-10).** Run against the live APIs with the owner's
+keys. DeepSeek's `GET /models` listed `deepseek-flash` and
+`deepseek-v4-pro`, and its chat completion answered 200 for
+`deepseek-chat`, `deepseek-reasoner` and `deepseek-v4-flash` as well, each
+served as `deepseek-flash`; a name it did not know was 400. Gemini's
+`GET /v1beta/models` is paginated, 50 of 62 models on the first page with a
+`nextPageToken`, and the mapper reads that page alone; the second page held
+no model offering `generateContent`, and each unlisted name tried was 404.
+A list is therefore not every model a provider accepts, and §P6's check is
+narrowed to `ollama` and the scripted provider, as Q60 said
+(`crates/bund2-stdlib/src/smysl/staged.rs`, `probe`). The Preservation
+row "The probe" and §P6 say so.
+The same day, `bund_examples/smysl_model/demo.bund`, without `offline`, ran
+whole through a `bund2` built with `smysl-deepseek` and `smysl-gemini`:
+against DeepSeek configured with `deepseek-chat`, which its list does not
+show and which the check as first accepted would have refused with SM13,
+and against Gemini with `gemini-flash-lite-latest`. Both staged every batch
+clean and committed it; each text window was extracted with none degraded,
+where `llama3.2` degraded it; and `SMY-E033` capped each answer at
+`inferred`.
+Against Anthropic the same day, the key read by `api_key_cmd` and in no
+environment variable: with `claude-haiku-5-5` every call was refused,
+"`temperature` is deprecated for this model", which SMYSL's mapper always
+sends (U19), and Bund2 answered as criterion 28 says (`smysl.ingest`
+staged a value not clean, its call counted failed, with `SMY-W304`;
+`smysl.answer` refused). With `claude-haiku-4-5` both documents and the
+text were extracted and committed, none degraded; the answer staged
+`SMY-E022`, its gist 35 tokens where the default allows 30, so it was not
+clean and the demo did not commit it.
+Library tests 770 (smysl-model, smysl-model-probe, smysl-panic-probe),
+unchanged; clippy clean under smysl-model with both probes, smysl-model
+and smysl-ollama; fmt, cite and lint clean. The probe's narrowed rule has
+no scripted test, since `bund2-script` is judged by `ollama`'s rule; the
+runs above against DeepSeek and Gemini check it.
