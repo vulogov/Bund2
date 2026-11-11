@@ -515,7 +515,7 @@ dependencies = [
 
 [[package]]
 name = "bund2"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "bund2-async",
  "bund2-ir",
@@ -526,14 +526,14 @@ dependencies = [
 
 [[package]]
 name = "bund2-api"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "bund2-value",
 ]
 
 [[package]]
 name = "bund2-async"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "bund2-api",
  "bund2-runtime",
@@ -542,7 +542,7 @@ dependencies = [
 
 [[package]]
 name = "bund2-bench"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "bund2-api",
  "bund2-interp",
@@ -556,7 +556,7 @@ dependencies = [
 
 [[package]]
 name = "bund2-cli"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "ariadne",
  "bund2",
@@ -576,14 +576,14 @@ dependencies = [
 
 [[package]]
 name = "bund2-host"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "bund2-interp"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "bund2-api",
  "bund2-ir",
@@ -592,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "bund2-ir"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "bund2-syntax",
  "bund2-value",
@@ -600,7 +600,7 @@ dependencies = [
 
 [[package]]
 name = "bund2-jit"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "bund2-api",
  "bund2-interp",
@@ -618,7 +618,7 @@ dependencies = [
 
 [[package]]
 name = "bund2-runtime"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "bund2-api",
  "bund2-interp",
@@ -631,7 +631,7 @@ dependencies = [
 
 [[package]]
 name = "bund2-stdlib"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "algos",
  "anomaly_detection",
@@ -726,14 +726,14 @@ dependencies = [
 
 [[package]]
 name = "bund2-syntax"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "bund2-value",
 ]
 
 [[package]]
 name = "bund2-value"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "bincode 2.0.1",
  "dtoa",
@@ -5773,7 +5773,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.54.0"
+version = "0.55.0"
 dependencies = [
  "bund2-api",
  "bund2-interp",
