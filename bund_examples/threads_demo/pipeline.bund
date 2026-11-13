@@ -1,0 +1,37 @@
+//
+// Part 2, a pipeline: one stage after another, each a VM on its own thread.
+//
+//   this VM --p.numbers--> square --p.squares--> sum --p.sums--> this VM
+//
+// This VM sends 1 to 10, then "stop", and reads the running sums of their
+// squares as they come out of the last stage. The "stop" travels down the
+// pipeline behind the numbers, so each stage stops once it has passed on
+// everything before it, and when it reaches this VM every sum has
+// arrived. Each channel is first in, first out, and each has one reader,
+// so this part prints the same lines on every run.
+//
+
+"p.sums" bus.data drop
+
+[ 1 2 3 4 5 6 7 8 9 10 ] { "p.numbers" swap send.quick } loop
+"p.numbers" "stop" send.quick
+
+"running sums of the squares of 1 to 10:" println
+{
+  "p.sums" recv
+  type.of 97 ==
+  {
+    type.of 4 ==
+    { print " " print true }
+    { drop false }
+    ifthenelse
+  }
+  { drop 0 sleep true }
+  ifthenelse
+} for
+"" println
+
+2 {
+  drop "p.tally" recv
+  dup :name get print " handled " print :handled get println
+} times

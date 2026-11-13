@@ -421,6 +421,10 @@ vocabulary, not a language feature.
 That is a defensible position and it is not obviously the right one. It is in
 the open questions rather than settled here.
 
+*(2026-11-12: **D249** settles it, additively. Embedding stays as it was,
+`bund2_async::host::Host` unchanged, and a program may also start VMs with
+`vm.spawn`, `vm.join` and `vm.done?`. See the amendment at the end.)*
+
 ### §C7 — The local bus is in scope; zenoh is not — D87
 
 **D28 deferred `Bund/src/stdlib/functions/bus` whole**, which the first draft
@@ -1126,6 +1130,8 @@ reference has no concurrency vocabulary at all.
 - **Does a Bund program create tasks?** §C6. This RFC says no, following the
   reference by omission, which makes concurrency an embedding feature with a
   message vocabulary. The alternative — a `spawn` word — is a language decision.
+  *(2026-11-12: D249 took that decision — both. A program may start VMs; an
+  embedder still may too.)*
 - **What `Async` means**, if anything, now that D84 removed the mechanism it
   would have used. §C5 declines to invent it.
   *(2026-10-14: D164, ruled C — no kind has a meaning until a reader
@@ -1430,3 +1436,42 @@ document leaves out. None changes code that a test holds.
   `reference/Bund/src/stdlib/functions/bus/mod.rs:63,78,102,128` each
   follow a `contains_key` or an insert under the same lock, so none can
   fire. The poisoned-map row counts the six lock sites, which can.
+
+## Amendment, 2026-11-12 — D249, Bund words that start VMs
+
+**The owner asked for them** ("Add Bund-level words for starting VMs"), with
+the condition that they be additive. D249 records the ten rulings; this is
+what they put into the runtime. Nothing in §C1–§C8 changes: the bus, its
+words, the wire form and `Host` behave as before, and no golden runs a
+`vm.` word, so `conform` cannot move.
+
+- **The words**, in every build (R1 A), in `crates/bund2-runtime/src/vms.rs`:
+  `program values vm.spawn -- handle`, `handle vm.join -- list`,
+  `handle vm.done? -- bool` (R2 A). `program` is a LAMBDA or a STRING
+  (R3 C); `values` is a LIST pushed onto the new VM's stack in order (R4 B).
+- **A handle** is an INTEGER, never reused; the first `vm.join` takes the
+  answer and a second is an error (R5 A). The answer is the child's final
+  stack as a LIST, and a child that stopped with an error fails the join
+  with it (R6 A+i).
+- **Options are inherited**: `--noio`, `--noeval`, `--nocolor`. Under
+  `--noeval` a STRING program is refused and a LAMBDA is not, since the
+  LAMBDA was parsed where it was written (R7 A+i).
+- **The limit** is D85's 64, counted apart from any `Host`'s, and past it
+  `vm.spawn` fails (R8 A).
+- **At the end of a program**, the CLI warns once if VMs were never joined;
+  they end with the process (R9 C).
+- **Thread set-up** moved into `bund2-runtime` as `vm_thread` and
+  `vm_on_this_thread`, which `Host::spawn` now calls; its API is unchanged
+  (R10 A).
+
+**Why it is additive.** A slot's lambda resolves before its native, so a
+program that registers its own `vm.spawn` still calls its own; a test holds
+it (`crates/bund2-runtime/tests/vm_words.rs`). The words are registered by
+the runtime after the standard vocabulary, so the stdlib's palette audit and
+`PROMOTABLE.txt` do not see them.
+
+**Not a preservation claim.** The reference has no such words (§C6), so
+the oracle has no opinion, as with criteria 9–14. Unit tests in
+`crates/bund2-runtime/tests/vm_words.rs` and
+`crates/bund2-cli/tests/vm_words.rs` hold the behaviour, and
+`bund_examples/threads_demo_inner` uses all three.

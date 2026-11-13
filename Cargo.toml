@@ -23,6 +23,7 @@ members = [
   "crates/bund2-cli",
   "crates/bund2-bench",
   "xtask",
+  "bund_examples/threads_demo",
 ]
 
 [workspace.package]

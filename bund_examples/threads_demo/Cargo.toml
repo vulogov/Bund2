@@ -1,0 +1,19 @@
+[package]
+name = "threads_demo"
+description = "Several Bund VMs, each on its own thread, exchanging work and answers over the local bus."
+version.workspace      = true
+edition.workspace      = true
+license.workspace      = true
+repository.workspace   = true
+rust-version.workspace = true
+publish                = false
+
+# A workspace member, so it shares the workspace's lock file, target
+# directory and lints, and CI's clippy and build reach it.
+[dependencies]
+bund2-api.workspace     = true
+bund2-async.workspace   = true
+bund2-runtime.workspace = true
+
+[lints]
+workspace = true

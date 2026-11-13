@@ -1,0 +1,176 @@
+//
+// Several Bund VMs, each on its own thread, started by this program with
+// `vm.spawn` and joined with `vm.join`, sending work and answers over the
+// local bus. No host code: `bund_examples/threads_demo` does the same with
+// a Rust host, from before Bund had these words (D249).
+//
+//   bund2 demo.bund
+//
+// `program values vm.spawn` starts a VM on its own thread and answers a
+// handle. `program` is a LAMBDA or a STRING; `values` is a LIST the new VM
+// finds on its stack. The new VM starts with the standard vocabulary only,
+// so a LAMBDA must define every word it uses inside itself.
+//
+// `handle vm.join` waits for that VM and answers its final stack as a
+// LIST. `handle vm.done?` asks whether it has finished, without waiting.
+//
+// Which worker takes which job, and the order the pool's answers arrive
+// in, change from run to run; the answers, their total and the pipeline's
+// sums do not.
+//
+
+// ---------------------------------------------------------------------
+// Part 1: a worker pool. Fan out, fan in.
+//
+//   this VM --jobs--> w1 … w4 --results--> this VM
+//
+// Every worker reads "jobs", so each job goes to whichever asks first.
+// A worker stops at the string "stop", and its final stack, its name and
+// how many jobs it handled, is what `vm.join` gives back.
+// ---------------------------------------------------------------------
+
+:worker {
+  :name swap var
+  :fib {
+    dup 1 < {
+      dup 1 swap - fib
+      swap 2 swap - fib
+      +
+    } if
+  } register
+
+  // A `recv` on a channel nothing has created is an error, and with
+  // several VMs no order says who creates it first; `bus.data` creates it.
+  "jobs" bus.data drop
+  :handled 0 var
+  {
+    "jobs" recv
+    type.of 97 ==            // NODATA: nothing there yet
+    {
+      type.of 4 ==           // the string "stop"
+      {
+        :job swap var
+        "results"
+          dict
+            :n     :job var?     set
+            :value :job var? fib set
+            :by    :name var?    set
+          send.quick
+        :handled :handled var? 1 + var
+        true
+      }
+      { drop false }
+      ifthenelse
+    }
+    { drop 0 sleep true }    // yield the thread and ask again
+    ifthenelse
+  } for
+  :name var? :handled var?
+} var
+
+"results" bus.data drop
+
+"Part 1: four worker VMs, started from Bund" println
+"" println
+:w1 :worker var? [ "w1" ] vm.spawn var
+:w2 :worker var? [ "w2" ] vm.spawn var
+:w3 :worker var? [ "w3" ] vm.spawn var
+:w4 :worker var? [ "w4" ] vm.spawn var
+
+[ 25 18 23 20 24 16 22 21 19 17 25 24 ] { "jobs" swap send.quick } loop
+4 { drop "jobs" "stop" send.quick } times
+
+:answers 0 var
+:total 0 var
+{
+  "results" recv
+  type.of 97 ==
+  {
+    dup :by get print "  fib(" print
+    dup :n get print ") = " print
+    :value get dup println
+    :total swap :total var? + var
+    :answers :answers var? 1 + var
+  }
+  { drop 0 sleep }
+  ifthenelse
+  12 :answers var? <
+} for
+
+"" println
+:answers var? print " answers, total " print :total var? println
+
+// Each worker's final stack: [ name handled ].
+[ :w1 :w2 :w3 :w4 ] {
+  var? vm.join
+  dup 1 swap at print " handled " print
+  2 swap at println
+} loop
+
+// ---------------------------------------------------------------------
+// Part 2: a pipeline. One stage after another.
+//
+//   this VM --p.numbers--> square --p.squares--> sum --p.sums--> this VM
+//
+// A stage is one LAMBDA, started twice with different values: its inbox,
+// its outbox and its step, a LAMBDA it registers as a word. The "stop"
+// travels behind the numbers, so each stage stops only after it has passed
+// everything on. Each channel has one reader and keeps its order, so this
+// part prints the same lines every run.
+// ---------------------------------------------------------------------
+
+:stage {
+  :step swap register
+  :outbox swap var
+  :inbox swap var
+  :inbox var? bus.data drop
+  :total 0 var
+  :handled 0 var
+  {
+    :inbox var? recv
+    type.of 97 ==
+    {
+      type.of 4 ==
+      {
+        step
+        :outbox var? swap send.quick
+        :handled :handled var? 1 + var
+        true
+      }
+      { :outbox var? swap send.quick false }
+      ifthenelse
+    }
+    { drop 0 sleep true }
+    ifthenelse
+  } for
+  :handled var?
+} var
+
+"" println
+"Part 2: a pipeline of two stage VMs" println
+"" println
+"p.sums" bus.data drop
+:square :stage var? [ "p.numbers" "p.squares" { dup * } ] vm.spawn var
+:sum    :stage var? [ "p.squares" "p.sums" { :total var? + dup :total swap var } ] vm.spawn var
+
+[ 1 2 3 4 5 6 7 8 9 10 ] { "p.numbers" swap send.quick } loop
+"p.numbers" "stop" send.quick
+
+"running sums of the squares of 1 to 10:" println
+{
+  "p.sums" recv
+  type.of 97 ==
+  {
+    type.of 4 ==
+    { print " " print true }
+    { drop false }
+    ifthenelse
+  }
+  { drop 0 sleep true }
+  ifthenelse
+} for
+"" println
+
+// Both stages have passed the "stop" on, so both are finishing or done.
+"square handled " print :square var? vm.join 1 swap at println
+"sum handled " print    :sum var? vm.join 1 swap at println

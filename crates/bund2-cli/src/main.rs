@@ -2185,6 +2185,19 @@ fn finish_profile(
     ended: profile::Ended,
     code: Option<i32>,
 ) -> Option<i32> {
+    // D249 R9: VMs the program started and never joined end with the
+    // process. That is often what a program means, since a worker waiting on
+    // a channel never ends by itself, so it is a Warning, said once.
+    let unjoined = bund2_runtime::vms::unjoined();
+    if unjoined > 0 {
+        bund2_api::Vm::report(
+            &mut rt.interp,
+            bund2_api::diag::Diagnostic::warning(format!(
+                "{unjoined} VM(s) started with vm.spawn were not joined; they end with the \
+                 program"
+            )),
+        );
+    }
     // RFC-0011 §S8: the sites labelled while the positions are to hand.
     rt.interp.label_profile_sites();
     let Some(mut record) = rt.interp.profile.take() else {

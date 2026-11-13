@@ -17014,3 +17014,107 @@ to R50.
 | | Question | Options | Recommended |
 |---|---|---|---|
 | **R50** | How a commit tells an answer's dossier records from the model's | **A** by the staged `View`: a unit is the dossier's when the `View` names it as a root, which a dossier's `View` does for the question and each saved query and nothing else (`smysl-query/src/dossier/mod.rs:1129-1132`), and a relation is the dossier's when its `from` is one, as a saved query's result edges are (`smysl-query/src/saved.rs:421-426`); the dossier's are attested `Authored` at R15's rung and held to its ceiling, every other unit and relation `Imported` at `Model`. **B** by position: records up to the `View` are the dossier's. **C** every unit at `Model`, amending §P7 | **A** — **ruled A** 2026-11-10 |
+
+## D249 — Bund words that start VMs, additive (RFC-0007 §C6)
+
+**Raised 2026-11-12** on the owner's "Add Bund-level words for starting
+VMs" and "new words must be additive, not changing how it is working
+now". RFC-0007 §C6 left open whether a Bund program creates tasks or an
+embedder does, and followed the reference's answer by omission: no spawn
+word, so concurrency is an embedding feature
+(`docs/rfc/RFC-0007-concurrency-and-the-two-buses.md:405-421`). The owner
+has now asked for the words. What is open is their shape.
+
+- **What exists:**
+  - `bund2_async::host::Host` builds each VM on its own thread with
+    `EVAL_STACK`, declares the thread's region and Tier 1 share before any
+    `Interp` exists, runs a closure against a `Runtime`, and counts live
+    VMs against a limit, 64 by default (D85)
+    (`crates/bund2-async/src/host.rs`, `DEFAULT_LIMIT` and `Host::spawn`). It takes
+    `HostOptions` for every VM it builds (D165).
+  - The bus is one process-wide map of named channels carrying encoded
+    values (`crates/bund2-stdlib/src/bus.rs`, the module doc); `recv` does not wait
+    (the same file, `recv_base`).
+  - `bund2-stdlib` registers the vocabulary and sits below
+    `bund2-runtime`, which builds a `Runtime` and already registers a word
+    of its own, `test.panic`, after the vocabulary
+    (`crates/bund2-runtime/src/lib.rs`, `Runtime`'s `build`). A native is a plain `fn`
+    (`crates/bund2-api/src/lib.rs`, `NativeFn`). So a word that builds a VM cannot
+    live in `bund2-stdlib`.
+  - A program's own word shadows a native of the same name: resolution
+    takes a slot's lambda before its native
+    (`crates/bund2-api/src/lib.rs`, `resolve_uncached`). No word begins `vm.` today
+    (`bund2 words`).
+  - `tests/golden/PROMOTABLE.txt` is regenerated whenever the default
+    build gains or loses natives, and a native behind a feature is named in
+    it and excluded from its audit (F123).
+- **What "additive" is taken to mean**, for the owner to confirm: every
+  existing program, flag, embedder API and golden behaves as before.
+  `Host`'s API and behaviour are unchanged, the bus words are unchanged,
+  and conform moves by exactly zero. New names appear in `bund2 words`;
+  that is the addition.
+- Blocks: the words, and a Bund-only version of
+  `bund_examples/threads_demo`.
+- Depends on: D84, D85, D86, D87, D165, RFC-0007 §C6 and §C8.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **R1** | Which build has the words | **A** the default build. **B** a Cargo feature, off by default, as `smysl` is. **C** a feature, on by default | **A** |
+| **R2** | Their names | **A** `vm.spawn`, `vm.join`, `vm.done?`. **B** `thread.`. **C** `task.` | **A** |
+| **R3** | What `vm.spawn` runs | **A** a STRING of Bund source. **B** a LAMBDA. **C** either | **C** |
+| **R4** | What a new VM starts with | **A** the standard vocabulary and an empty stack. **B** A, plus a LIST of values from the parent pushed onto its stack. **C** B, plus a copy of the parent's own words | **B** |
+| **R5** | What a handle is | **A** an INT, unique in the process and never reused. **B** a MAP, as SMYSL's handle is. **C** a name the program chooses | **A** |
+| **R6** | What `vm.join` answers | **A** the child's whole final stack as a LIST. **B** its top value. **C** a BOOL. A child that failed: **i** `vm.join` fails with the child's error, naming its handle; **ii** it answers the error as a value | **A** and **i** |
+| **R7** | What restricts a child | **A** the parent's `--noio`, `--noeval` and `--nocolor`, inherited. **B** none. Under `--noeval`: **i** `vm.spawn` refuses a STRING and accepts a LAMBDA; **ii** it refuses both | **A** and **i** |
+| **R8** | How many | **A** a process-wide count of live VMs started from Bund, its own limit of 64 (D85's figure), and `vm.spawn` past it fails naming the limit. **B** one count shared with every embedder's `Host`. **C** past the limit, wait for a slot | **A** |
+| **R9** | A child still running when the program ends | **A** the process ends and takes it, silently. **B** the end waits for every child. **C** A, with one Warning naming how many were not joined | **C** |
+| **R10** | Where the thread code lives | **A** `Host`'s thread set-up moves into `bund2-runtime`, `Host` calls it with its API unchanged, and the words are registered in `Runtime::build` as `test.panic` is. **B** the set-up is copied into `bund2-runtime` and `Host` keeps its own | **A** |
+
+- **R1, A over B.** The words need no dependency, so a feature would buy
+  nothing a smaller binary needs, and it would mean a Bund-only demo runs
+  only in a special build. A is still additive: a program that defines a
+  `vm.` word of its own keeps it (lambda before native), no golden runs a
+  `vm.` word, and conform cannot move. What changes is the generated
+  `PROMOTABLE.txt`, regenerated by its own test as for any new native, and
+  the words are added to the palette audit's `ACTS_ON_HOST`. B is the
+  choice if "additive" is meant to cover the default binary's word list
+  too.
+- **R3, C.** A LAMBDA is parsed where it is written, so a mistake is
+  found in the parent. A STRING can be assembled at run time. A child has
+  its own word table either way (R4), so a LAMBDA that calls the parent's
+  own words fails in the child; the words' documentation says so.
+- **R4, B.** Passing a worker its number or its channel names is the
+  first thing every program needs, and doing it through the bus means a
+  channel per child. The LIST is encoded as the bus encodes, so what
+  crosses is the same as what `send` carries (D86). C is refused because a
+  word's body holds `Rc` values and the word table is not `Send`; copying
+  it means encoding every user word, which is the most work for a
+  convenience the parent can supply with R3's STRING.
+- **R5, A.** It prints, compares and crosses the bus, so another VM can
+  be handed a handle. Any VM may join any handle; the first `vm.join`
+  takes the answer, and a second is an error naming the handle.
+- **R6, A and i.** The final stack is what a program produces, and a
+  LIST of it costs nothing when the child leaves one value. A failure is
+  the parent's to handle, as a failed word is, and an error value would be
+  a new kind of thing for every caller to test for. `vm.done?` answers
+  whether `vm.join` would answer at once.
+- **R7, A and i.** D165 made a host's options reach every VM it builds,
+  for the same reason: a restriction the parent cannot pass on is not a
+  restriction. Under `--noeval`, a STRING is code the program did not
+  contain, which is what the flag refuses, and a LAMBDA is not. `--noio`
+  does not refuse spawning, since starting a VM is not I/O, but a child
+  under it has no bus, so it can return only through `vm.join`.
+- **R8, A.** D85 bounds memory: about 75 KiB of word table per VM. A
+  count of its own keeps an embedder's `Host` exactly as it is. C would
+  let a program that spawns in a loop hang where it should fail.
+- **R9, C.** B would hang every program that leaves a worker waiting on a
+  channel, which is the usual shape of a worker, since `recv` does not
+  wait. A loses a child's failure silently. C ends as A does and says so,
+  once.
+- **R10, A.** One copy of `declare_region` before the first `Interp` on
+  a thread (RFC-0007 criterion 10), which is the step a second copy could
+  get wrong. Moving it changes no behaviour of `Host`; its tests are the
+  check.
+- Status: **RESOLVED** by the repository owner, 2026-11-12: "R1: A", then
+  R2–R10 "All recommended". R1 A, R2 A, R3 C, R4 B, R5 A, R6 A and i, R7 A
+  and i, R8 A, R9 C, R10 A.

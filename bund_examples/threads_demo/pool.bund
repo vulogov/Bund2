@@ -1,0 +1,50 @@
+//
+// Part 1, a worker pool: fan out, fan in.
+//
+// This VM sends every job to the "jobs" channel, then one "stop" per
+// worker. The workers are stages that share "jobs" as their inbox, so each
+// job goes to whichever worker asks first, and a worker that has stopped
+// takes nothing more. Each answer comes back on "results" as a MAP; this
+// VM reads until it has seen every worker's "stop", then reads each
+// worker's tally from "pool.tally".
+//
+// The host defines :workers, how many there are, before this file runs.
+// Which worker takes which job, and the order the answers arrive in,
+// change from run to run; the answers and their total do not.
+//
+
+"results" bus.data drop
+
+[ 25 18 23 20 24 16 22 21 19 17 25 24 ] { "jobs" swap send.quick } loop
+:workers var? { drop "jobs" "stop" send.quick } times
+
+:stops 0 var
+:total 0 var
+:answers 0 var
+
+{
+  "results" recv
+  type.of 97 ==
+  {
+    type.of 4 ==
+    {
+      dup :by get print "  fib(" print
+      dup :n get print ") = " print
+      :value get dup println
+      :total swap :total var? + var
+      :answers :answers var? 1 + var
+    }
+    { drop :stops :stops var? 1 + var }
+    ifthenelse
+  }
+  { drop 0 sleep }
+  ifthenelse
+  :workers var? :stops var? <
+} for
+
+"" println
+:answers var? print " answers, total " print :total var? println
+:workers var? {
+  drop "pool.tally" recv
+  dup :name get print " handled " print :handled get println
+} times

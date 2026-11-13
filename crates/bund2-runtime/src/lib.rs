@@ -24,6 +24,9 @@ use bund2_interp::Interp;
 #[cfg(feature = "jit")]
 mod tier;
 
+/// D249: `vm.spawn`, `vm.join` and `vm.done?`.
+pub mod vms;
+
 /// Re-exported so an embedder that builds VMs through `bund2-async`'s host
 /// can say which restrictions they run under (D165) without depending on
 /// `bund2-stdlib` itself.
@@ -123,6 +126,27 @@ pub fn declare_region() {
     );
 }
 
+/// **A thread for one VM: named, with [`EVAL_STACK`] bytes of stack.**
+///
+/// Every thread that evaluates Bund needs exactly this stack, and then
+/// [`vm_on_this_thread`] first thing on it. `bund2-async`'s host and
+/// `vm.spawn` both start their threads here, so the size cannot differ
+/// between them (D249 R10).
+pub fn vm_thread(name: String) -> std::thread::Builder {
+    std::thread::Builder::new()
+        .name(name)
+        .stack_size(EVAL_STACK)
+}
+
+/// **Declare this thread's region, then build a VM on it**: the two steps a
+/// [`vm_thread`] takes first, in the order RFC-0007 §C8 criterion 10 needs.
+/// Every `Interp` takes its floor from the region, so a region declared after
+/// one was built would not move it.
+pub fn vm_on_this_thread(opts: &HostOptions, threshold: Option<u32>) -> Runtime {
+    declare_region();
+    Runtime::with_options_and_threshold(opts, threshold)
+}
+
 impl Runtime {
     /// An interpreter with the full vocabulary and, under `--features jit`, a
     /// tier installed with §S7's default caps.
@@ -209,6 +233,9 @@ impl Runtime {
         #[cfg_attr(not(feature = "jit"), allow(unused_mut))]
         let mut startup_defect = None;
         bund2_stdlib::register_all_with(&mut interp.registry, opts);
+        // After the vocabulary, as `test.panic` is: a word that starts a VM
+        // builds a `Runtime`, which `bund2-stdlib` cannot (D249).
+        vms::register(&mut interp.registry, opts);
         #[cfg(feature = "panic-probe")]
         interp.registry.register_native(
             "test.panic",

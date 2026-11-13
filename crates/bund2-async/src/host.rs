@@ -337,9 +337,7 @@ impl Host {
         self.live.fetch_add(1, Ordering::AcqRel);
         let thread_state = Arc::clone(&state);
         let thread_live = Arc::clone(&self.live);
-        let handle = std::thread::Builder::new()
-            .name(format!("bund2-vm-{}", self.spawned))
-            .stack_size(bund2_runtime::EVAL_STACK)
+        let handle = bund2_runtime::vm_thread(format!("bund2-vm-{}", self.spawned))
             .spawn(move || {
                 // Armed before the work, so it fires however the work ends.
                 let finish = Finish {
@@ -350,8 +348,7 @@ impl Host {
                 // Every `Interp` built here takes its floor from this region,
                 // and a share declared after a floor was taken would not move
                 // it.
-                bund2_runtime::declare_region();
-                let mut rt = Runtime::with_options_and_threshold(&options, threshold);
+                let mut rt = bund2_runtime::vm_on_this_thread(&options, threshold);
                 let out = f(&mut rt);
                 if let Ok(mut g) = thread_state.lock() {
                     g.answer = Some(out);

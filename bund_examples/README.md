@@ -19,6 +19,8 @@ explains it. They are not part of the conformance corpus; that lives under
 | [`smysl_demo/`](smysl_demo/) | A SMYSL library about why an old mill grinds slowly, formed from Bund one MAP at a time and from SMYSL's own syntax, researched by its grounds and salience, a ground retracted, queried with `smysl.query` and the `smysl` conditional, written back out as text, then made a knowledge base with `smysl.kb` and reasoned over with `smysl.prove`, which writes its proof into the library as a grounded `finding`. Needs a `bund2` built with `--features smysl`; each run starts from no library. `expected.txt` is what it prints, and a test compares the two. The example for SMYSL corpora. |
 | [`smysl/`](smysl/) | SMYSL and logic programming together, over why a village well ran dry: a library formed from a Markdown text, from SMYSL's own syntax and from Bund MAPs; checked, written out and parsed back; researched by lineage, salience and budget; a dossier and measures; every query shape; then the library as a knowledge base, with CLP(FD) over its ranks, tabled rules, a predicate as a word, bridges that call `smysl.trace` while solving, saturation and askable goals; `smysl.prove` writing findings, a proof by negation and a cited program fact back into the library, a rule resting on those findings, and a retraction the facts then show. Needs a `bund2` built with `--features smysl`. `expected.txt` and `expected.stderr.txt` are what it prints, and a test compares them. The long tour of SMYSL with `kb.` words. |
 | [`smysl_demo_full/`](smysl_demo_full/) | Logic programming and SMYSL together with a local model, over why a reservoir turned green: a report and a Markdown text read by the model and committed when clean, a question answered over its dossier; the analyst's own units, checked, researched, measured and queried; every `kb.` word, from a KB written in a named stack and edited on the workbench, through control, bridges, tabling, saturation, an expert system that asks and proof trees, to a remediation plan by CLP(FD); and `smysl.prove` writing findings over the analyst's units and the model's back into the library, then a retraction and what it shakes. Needs a `bund2` built with `--features smysl-ollama` and a local Ollama with `llama3.2`. A model's answers are not fixed, so there is no `expected.txt`. Every `smysl.` and `kb.` word in one program. |
+| [`threads_demo/`](threads_demo/) | Several Bund VMs, each on its own thread, joined by the local bus: a worker pool, where a driver VM sends Fibonacci jobs to a channel that four worker VMs share and reads their answers back as MAPs, and a pipeline, where numbers pass through a squaring VM and a summing VM and come back as running sums. Every VM runs Bund; the Rust host, a workspace binary, only starts them with `bund2_async::host::Host` and waits. The pool's order of answers varies between runs and its total does not; the pipeline prints the same lines every run. The example for embedding Bund2 and for the bus between VMs. |
+| [`threads_demo_inner/`](threads_demo_inner/) | The same pool and pipeline with no Rust: one `demo.bund` starts its worker and stage VMs with `vm.spawn`, giving each its name, or its inbox, outbox and step, as start-up values, and joins them with `vm.join`, whose answer is the VM's final stack, a worker's name and how many jobs it handled. The example for the `vm.` words (D249). |
 
 ## Running an example
 
@@ -37,6 +39,12 @@ Any of them runs straight from its source, with `bund2` built:
     cd bund_examples/smysl_demo && rm -rf mill && bund2 demo.bund   # a --features smysl build
     cd bund_examples/smysl && rm -rf ashby && bund2 demo.bund       # a --features smysl build
     cd bund_examples/smysl_demo_full && rm -rf fenwick && bund2 demo.bund   # smysl-ollama, and Ollama
+    cd bund_examples/threads_demo_inner && bund2 demo.bund
+
+`threads_demo` is the one example with a Rust host, an embedding of Bund2.
+It runs as a workspace binary:
+
+    cargo run -p threads_demo -- 4
 
 With the bare path, everything after it belongs to the program. The
 `script --file` form takes the program's arguments after `--`:

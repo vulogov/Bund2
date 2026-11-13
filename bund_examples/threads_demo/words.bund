@@ -1,0 +1,31 @@
+//
+// The work the stages do. Every VM loads this file: a VM has its own word
+// table, and nothing defined in one VM exists in another.
+//
+
+// n -- fib(n), the slow way on purpose, so a job is worth a thread.
+:fib {
+  dup 1 < {
+    dup 1 swap - fib
+    swap 2 swap - fib
+    +
+  } if
+} register
+
+// n -- MAP { n, value, by }: a job's answer, and which VM computed it.
+:fib-job {
+  :job swap var
+  dict
+    :n     :job var?     set
+    :value :job var? fib set
+    :by    :name var?    set
+} register
+
+// n -- n*n
+:square { dup * } register
+
+// n -- the sum of every n this VM has seen so far.
+:running-sum {
+  :total var? +
+  dup :total swap var
+} register

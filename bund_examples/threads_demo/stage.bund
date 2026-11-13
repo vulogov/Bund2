@@ -1,0 +1,53 @@
+//
+// A stage: one Bund VM on its own thread, between two channels of the
+// local bus. It takes a value from its inbox, runs `step` on it, and sends
+// what `step` leaves to its outbox, until it takes the string "stop".
+//
+// The host defines, before this file runs:
+//
+//   :name     what the stage is called, for its tally
+//   :inbox    the channel it reads
+//   :outbox   the channel it writes
+//   :tally    the channel it reports its count on when it stops
+//   step      the work: one value in, one value out
+//
+// A `recv` on a channel nothing has created is an error, not NODATA, and
+// under several VMs no program order says who creates it first. `bus.data`
+// creates the channel it asks about, so every stage creates its own inbox
+// before it reads it.
+//
+// `recv` does not wait: an empty channel answers NODATA (type 97), and the
+// stage yields its thread with `0 sleep` and asks again. When several
+// stages share one inbox, each value goes to exactly one of them, and the
+// others are answered NODATA.
+//
+// On "stop" the stage reports how many values it handled, then passes the
+// "stop" on, so the stage after it stops too.
+//
+
+:inbox var? bus.data drop
+:handled 0 var
+
+{
+  :inbox var? recv
+  type.of 97 ==
+  {
+    type.of 4 ==
+    {
+      step
+      :outbox var? swap send.quick
+      :handled :handled var? 1 + var
+      true
+    }
+    {
+      :tally var?
+        dict :name :name var? set :handled :handled var? set
+        send.quick
+      :outbox var? swap send.quick
+      false
+    }
+    ifthenelse
+  }
+  { drop 0 sleep true }
+  ifthenelse
+} for
