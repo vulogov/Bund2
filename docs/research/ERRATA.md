@@ -218,3 +218,15 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   writes a markdown report and a Graphviz file. If profile-guided guard
   ordering ever returns it needs another name; the research's sentence is
   left as the design it was.
+
+- `06-biomathematics-and-genetics.md:70,74,116,217` -> `argmin`'s
+  Gauss–Newton is not usable as linked, and so "Phases 1 and 4 … add no new
+  crate" rested on a solver that cannot be built; recorded here on
+  2026-11-14 (RFC-0015's review, B1). `GaussNewton` needs `ArgminInv` of
+  its Jacobian, which `argmin-math` 0.4.0 implements only in its nalgebra
+  and ndarray backends; the lock compiles neither, and the newest nalgebra
+  backend is 0.32. RFC-0015 revision 2 drops `argmin` and specifies a
+  Levenberg–Marquardt of Bund2's own over `nalgebra`, so the conclusion
+  "no new crate" holds by another route. The research's §3.4 ChaCha
+  generator value is refined, not contradicted: RFC-0015 chooses a
+  `StdRng` per VM (D250 B4).

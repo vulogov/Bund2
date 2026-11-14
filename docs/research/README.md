@@ -10,6 +10,7 @@ Expected contents, in order:
     03-metaprogramming-oop-debugger.md
     04-consolidated-architecture.md
     05-rfc-roadmap.md
+    06-biomathematics-and-genetics.md
     ERRATA.md
 
 When an RFC contradicts one of these, record the supersession in `ERRATA.md`

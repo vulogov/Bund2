@@ -17129,3 +17129,64 @@ has now asked for the words. What is open is their shape.
 - Status: **RESOLVED** by the repository owner, 2026-11-12: "R1: A", then
   R2–R10 "All recommended". R1 A, R2 A, R3 C, R4 B, R5 A, R6 A and i, R7 A
   and i, R8 A, R9 C, R10 A.
+
+## D250 — RFC-0015's rulings, B1–B16: biomathematics and genetics as a stdlib family of Bund2's own
+
+**Raised 2026-11-14** by RFC-0015 (`docs/rfc/RFC-0015-biomathematics.md`),
+drafted on the owner's "drafting this as RFC-0015", after the research
+note `docs/research/06-biomathematics-and-genetics.md` on the owner's
+"extension of the standard library mathematical functions that will make
+Bund suitable for biomathematics and genetics computational tasks".
+Restated for the RFC's revision 2, the same day, which answers
+`docs/rfc/reviews/RFC-0015-review-2026-11-14.md` and adds B15 and B16;
+B16 follows the owner's "review integration possibility of new
+mathematical functionality with logic programming".
+
+- **What exists:** scalar `math.*` words, which refuse an INTEGER and
+  answer NaN out of domain; `stat.count`, six means and a spread over one
+  series reader with four forms (D175, D213); three named, unseeded
+  distributions behind `generator`; a MATRIX whose arithmetic is
+  element-wise and silent on a shape mismatch (D57); `+` on LISTs as
+  concatenation; RFC-0013's bridges, which run a lambda on a scratch
+  stack by `Vm::scoped_call_from`. The RFC's Current behaviour cites each.
+- **What is linked already:** `statrs` 0.18.0, `nalgebra` 0.33.3 (through
+  `augurs-ets`), `rand` 0.8.7 and `rand_distr` 0.4.3 (through `algos` and
+  `augurs-ets`), so no phase adds a crate. `argmin` 0.10.0 is linked but
+  not usable: its Gauss–Newton needs an `argmin-math` backend the lock
+  does not compile (RFC-0015, "What is linked"; ERRATA).
+- **What "additive" means here:** every existing word, value, flag and
+  golden behaves as before; conform moves by exactly zero; new names
+  appear in `bund2 words`; the `Vm` trait gains one defaulted method.
+- Blocks: RFC-0015
+- Depends on: D72, D14, D18, D21, D24, D28, D36, D37, D38, D39, D52, D57,
+  D111, D171, D175, D213, D215; D226 (L2, L11, L13), D243 and D249 as
+  precedents
+- Status: **RESOLVED** by the repository owner, 2026-11-14: "all as
+  recommended". B1–B6 and B8–B16 are **A**; B7 is **C**, a tree as a MAP
+  of flat LISTs with `phylo.graph` converting. The rulings were given after
+  the owner was shown every option with its recommendation and reason,
+  against RFC-0015's revision 2. Ruling these does not accept the RFC;
+  that is the owner's separate step. *(Was: OPEN. The RFC is written
+  against each recommended option and marks each dependent passage
+  **[B*n*]**; none is adopted until ruled.)*
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **B1** | Which build has the family | **A** the default build. **B** a feature, off by default (D28). **C** Phase 1 default, Phases 2–4 a feature | **A**: no crate is added |
+| **B2** | The distributions' shape | **A** a distribution MAP and generic words (about 25 names). **B** a word per family and function (about 90) | **A** |
+| **B3** | Numeric vectors | **A** LISTs of FLOATs, read by `get_data`. **B** a packed FLOAT vector type | **A** |
+| **B4** | Seeded randomness | **A** a generator per VM, through a defaulted `Vm::rng`, and `rng.seed`. **B** a generator per thread. **C** one process-wide seed | **A** |
+| **B5** | Names | **A** RFC-0015 S1's prefixes (`math.`, `stat.`, `vec.`, `linalg.`, `dist.`, `rng.`, `bio.`, `popgen.`, `phylo.`, `ode.`, `sim.`, `fit.`). **B** everything under `bio.` | **A** |
+| **B6** | Models for dynamics | **A** a LAMBDA only. **B** a LAMBDA, or a MAP of rates and stoichiometry | **A** |
+| **B7** | A phylogenetic tree | **A** a GRAPH (RFC-0012), whose names `graph.*` Title-cases. **B** nested LISTs. **C** a MAP of flat LISTs, with `phylo.graph` converting | **C** |
+| **B8** | Integrators and the least-squares solver | **A** Bund2's own: RK4, Dormand–Prince, Levenberg–Marquardt. **B** a pinned crate | **A** |
+| **B9** | Alignment | **A** Bund2's own. **B** `rust-bio` behind a feature | **A** |
+| **B10** | Forms | **A** four for one-series words, plain and `.` for other consumers, none for producers and lambda-callers. **B** plain only | **A** |
+| **B11** | Test tolerance and reference values | **A** stated values, R 4.4.1 fixtures and hand-worked answers, at the RFC's tolerances. **B** Bund2's own earlier output | **A** |
+| **B12** | Domain errors | **A** refuse (E101, E114), never NaN or ±∞ from finite operands. **B** IEEE: NaN and ±∞, as the reference's `math.*` words | **A** |
+| **B13** | Genotype input, and F_ST | **A** two-character genotype STRINGs and counts; Hudson's F_ST. **B** Weir & Cockerham's as well, by option | **A** |
+| **B14** | What acceptance covers | **A** every phase, in order, each gated by its criteria. **B** Phase 1 only | **A** |
+| **B15** | INTEGER operands to the new `math.*` words | **A** convert to FLOAT. **B** refuse, as the reference's unary `math.*` words do | **A** |
+| **B16** | Logic programming | **A** bridges only, plus an example rule base. **B** float goals and aggregates in `kb.*`, by an RFC-0013 amendment. **C** fact-emitting words | **A** |
+
+The reasoning for each is in the RFC, under the section the marker names.
