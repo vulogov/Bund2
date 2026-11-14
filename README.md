@@ -5,19 +5,19 @@ dynamically typed, metaprogramming, with a tiered execution model.
 
 Bund syntax and logic are preserved 100%.
 
-## Latest release: 0.54.0
+## Latest release: 0.55.0
 
-The release that connects Bund to SMYSL (RFC-0014). A Bund program can form
-a SMYSL library, research it, query it and reason over it with the logic
-engine, and, in a build with a model provider, have a model extract units
-from a document or a text and answer a question from what a library holds.
-The words are off by default: `--features smysl`, or `smysl-ollama` and the
-other mapper features for the model steps.
+The release in which a Bund program starts VMs itself (D249). Three words,
+`vm.spawn`, `vm.join` and `vm.done?`, run a LAMBDA or a STRING on a VM of
+its own thread and hand back its final stack; the VMs talk over the local
+bus, as VMs started by a Rust host do. The words are in every build and
+additive: a program's own word of the same name still wins, and
+`bund2_async::host::Host` keeps its API.
 
 conform 143/159, CEILING 143/159; IMPLEMENTED 597/602, COVERAGE 577/602.
 
-The notes are in `docs/release_notes/0.54.0.md`; the examples are in
-`bund_examples/`.
+The notes are in `docs/release_notes/0.55.0.md`; the examples are in
+`bund_examples/`, `threads_demo` and `threads_demo_inner` among them.
 
 ## Layout
 
