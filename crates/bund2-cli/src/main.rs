@@ -274,6 +274,10 @@ fn run_cli() -> ExitCode {
     if args.first().map(String::as_str) == Some("words") {
         let mut i = Interp::new();
         bund2_stdlib::register_all(&mut i.registry);
+        // D249's words are the runtime's, not the vocabulary's, and a program
+        // can call them, so they are listed; the reference has none, so no
+        // join against its registry moves.
+        bund2_runtime::vms::register(&mut i.registry, &bund2_runtime::HostOptions::default());
         for name in i.registry.word_names() {
             bund2_api::sayln!("{name}");
         }

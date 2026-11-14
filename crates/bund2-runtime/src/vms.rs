@@ -303,8 +303,9 @@ fn spawn_for(opts: &HostOptions) -> NativeFn {
     }
 }
 
-/// Register the three words, for a VM built with `opts`.
-pub(crate) fn register(r: &mut Registry, opts: &HostOptions) {
+/// Register the three words, for a VM built with `opts`. Public so
+/// `bund2 words` lists them, as D249 says it does.
+pub fn register(r: &mut Registry, opts: &HostOptions) {
     r.register_native(
         "vm.spawn",
         spawn_for(opts),

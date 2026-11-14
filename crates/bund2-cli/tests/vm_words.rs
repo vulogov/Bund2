@@ -36,9 +36,18 @@ fn program(name: &str, src: &str) -> PathBuf {
     path
 }
 
-/// R1 A: the default build has all three. `bund2 words` does not list them:
-/// it lists the standard library's registry, the join key `xtask coverage`
-/// needs, and these are registered by the runtime, as `test.panic` is.
+/// R1 A: every build lists them. The runtime registers them, not the
+/// standard library, so `bund2 words` adds them itself.
+#[test]
+fn the_vm_words_are_listed() {
+    let r = bund2(&["words"]);
+    assert_eq!(r.code, Some(0), "{}", r.err);
+    for word in ["vm.spawn", "vm.join", "vm.done?"] {
+        assert!(r.out.split_whitespace().any(|w| w == word), "{word}");
+    }
+}
+
+/// R1 A: and the default build runs all three.
 #[test]
 fn the_default_build_has_the_vm_words() {
     let p = program(
