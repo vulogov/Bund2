@@ -79,10 +79,8 @@ unknown-registry = "deny"
 unknown-git = "deny"
 # `algos`: pinned by revision in `bund2-stdlib`, the revision the oracle
 # links (D38).
-# `smysl`: the `smysl` feature's eight crates, pinned by revision in
-# `bund2-stdlib` (RFC-0014 §S1). Allowed by D244's R2 ruling, not by D38:
-# SMYSL has no oracle. It leaves when SMYSL publishes 1.14 to crates.io (U6).
+# SMYSL's crates come from crates.io since 1.15.0 (D244 R2, U6), so its
+# git entry is gone.
 allow-git = [
   "https://github.com/Brad-Edwards/algos.git",
-  "https://github.com/vulogov/smysl",
 ]

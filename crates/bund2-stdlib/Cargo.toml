@@ -124,29 +124,29 @@ hyphenation = { version = "0.8", features = ["embed_en-us"] }
 # grok would make the toolchain-free fallback itself unbuildable. See D40.
 grok = { version = "2.0", optional = true }
 # **Optional, and off by default — RFC-0014 §S1, D244 R2.** The SMYSL
-# corpora words (`smysl.*`) link eight of SMYSL's crates, pinned to the
-# revision RFC-0014 was grounded against, from git until SMYSL publishes
-# 1.14 to crates.io (U6). Each takes no default feature; `smysl-text` adds
+# corpora words (`smysl.*`) link eight of SMYSL's crates, from crates.io
+# at exactly 1.15.0 (U6 landed; D244 R2 moved them off git at 4f5ecb9,
+# 1.14.0, in a commit of its own). Each takes no default feature; `smysl-text` adds
 # the two readers R12 rules, `txt/1` and `md/1`. Not linked: `smysl-ingest`
 # and `smysl-provider` (Phase 2, R1), `detect`, `stem`, `store-redb` and
 # `substrate-redb`, `smysl-check`'s `text`, and every other reader. The
 # feature builds with no C compiler (R18, criterion 3). A change of
-# revision is a commit of its own, and re-runs the RFC's SMYSL criteria.
-smysl-core    = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
-smysl-graph   = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
-smysl-check   = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
-smysl-query   = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
-smysl-retrieve = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
-smysl-pack    = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
-smysl-text    = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, features = ["reader-txt", "reader-md"], optional = true }
-smysl-measure = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
+# version is a commit of its own, and re-runs the RFC's SMYSL criteria.
+smysl-core    = { version = "=1.15.0", default-features = false, optional = true }
+smysl-graph   = { version = "=1.15.0", default-features = false, optional = true }
+smysl-check   = { version = "=1.15.0", default-features = false, optional = true }
+smysl-query   = { version = "=1.15.0", default-features = false, optional = true }
+smysl-retrieve = { version = "=1.15.0", default-features = false, optional = true }
+smysl-pack    = { version = "=1.15.0", default-features = false, optional = true }
+smysl-text    = { version = "=1.15.0", default-features = false, features = ["reader-txt", "reader-md"], optional = true }
+smysl-measure = { version = "=1.15.0", default-features = false, optional = true }
 # RFC-0014 Phase 2 (§P2, D248 R36): the model steps, behind `smysl-model`.
 # `smysl-ingest`'s `model` compiles `Ingestor` and `answer`, its `text` the
 # text run, which adds `smysl-text` and `smysl-pack`, already linked above.
 # `smysl-provider` is named only so a registry can be built; it is the crate
 # `model` brings in. Neither links an HTTP client until a mapper is chosen.
-smysl-ingest   = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, features = ["model", "text"], optional = true }
-smysl-provider = { git = "https://github.com/vulogov/smysl", rev = "4f5ecb9", default-features = false, optional = true }
+smysl-ingest   = { version = "=1.15.0", default-features = false, features = ["model", "text"], optional = true }
+smysl-provider = { version = "=1.15.0", default-features = false, optional = true }
 # The NFC SMYSL normalises unit text with (`smysl-core/src/types/mod.rs:274-281`):
 # `smysl.prove` normalises a rendering before fitting its gist, so SMYSL's
 # own normalisation cannot lengthen it past the bound (RFC-0014 §S7).

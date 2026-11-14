@@ -4967,3 +4967,25 @@ unchanged; clippy clean under smysl-model with both probes, smysl-model
 and smysl-ollama; fmt, cite and lint clean. The probe's narrowed rule has
 no scripted test, since `bund2-script` is judged by `ollama`'s rule; the
 runs above against DeepSeek and Gemini check it.
+
+**SMYSL 1.15.0 from crates.io (2026-11-14).** U6 landed: SMYSL published
+1.15.0, and the ten crates (§S1's eight, and §P2's `smysl-ingest` and
+`smysl-provider`) move from git at `4f5ecb9` (1.14.0) to crates.io at
+`=1.15.0`, as D244 R2 ruled, in a commit of their own; `deny.toml` drops
+SMYSL's `allow-git` entry. Citations into SMYSL elsewhere in this RFC stay
+at `4f5ecb9`, the revision they were read at. 1.15.0 also answers U19: its
+Anthropic mapper speaks API version `2026-10-21` and sends no `temperature`
+(`smysl-provider/src/map/anthropic.rs:26,168`, v1.15.0). The SMYSL criteria
+re-run: library tests 719 (smysl), 721 (smysl, smysl-panic-probe) and 770
+(smysl-model, smysl-model-probe, smysl-panic-probe), the last unchanged;
+the CLI's `smysl_demo` and `smysl_logic_demo`; clippy clean under each CI
+feature set and over `bund2-cli` with every mapper; `cargo deny check`
+clean with and without `smysl`, `smysl-model` and `smysl-anthropic`.
+Against Anthropic, `bund_examples/smysl_model/demo.bund` without `offline`,
+every task routed to `claude-opus-5-5` and the key read by `api_key_cmd`
+alone, ran whole: both documents staged clean and were committed (3 units
+and 2), the text's one window was extracted with none degraded and 6 units
+written, and its journalled re-run made no model call. The answer staged
+`SMY-E022` three times, gists of 31, 34 and 42 tokens where the default
+profile allows 30, so it was not clean and the demo did not commit it, as
+with `claude-haiku-4-5` on 2026-11-10; `SMY-E033` capped it at `inferred`.

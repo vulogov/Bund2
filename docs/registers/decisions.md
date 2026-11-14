@@ -16708,6 +16708,17 @@ unchanged. A `pulldown-cmark` bump and `fxhash`'s removal are to be asked
 of SMYSL beside U1–U9, and a SMYSL revision that has them is a re-pin, a
 commit of its own (§S1).
 
+*Note 2026-11-14, R2 carried out,* on the owner's "switch to use officially
+published crate": SMYSL published 1.15.0 (U6), and the ten SMYSL crates,
+Phase 2's two among them, move from git at `4f5ecb9` to crates.io at
+`=1.15.0`, a commit of its own that re-runs RFC-0014's SMYSL criteria (the
+RFC's Phase 2 implementation record lists them). `deny.toml`'s `allow-git`
+entry for SMYSL is removed. The three advisories above are still ignored
+with their reasons; `cargo deny check` passes with `smysl`, `smysl-model`
+and `smysl-anthropic`. 1.15.0 also resolves U19, the `temperature` the
+Anthropic mapper always sent: verified live through Bund against
+`claude-opus-5-5`, the key by `api_key_cmd`.
+
 ## D245 — RFC-0014's revision 8 points, R22–R25: SMYSL's unlocked writers, `retracts`, extension kinds, and R20's test
 
 **Raised 2026-11-02** by RFC-0014's revision 8
