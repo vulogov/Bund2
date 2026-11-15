@@ -12,6 +12,9 @@ publish                = false
 bund2-ir.workspace = true
 bund2-value.workspace = true
 bund2-api.workspace = true
+# The VM's own generator behind `Vm::rng`, seeded from the operating system
+# on first use (RFC-0015 §S8). The version `bund2-api` names.
+rand = "=0.8.7"
 
 [dev-dependencies]
 bund2-ir = { workspace = true, features = ["unchecked"] }

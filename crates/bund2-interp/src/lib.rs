@@ -469,6 +469,10 @@ pub struct Interp {
     /// evaluations, no compiled body is on the stack when it does, and the
     /// next compiled entry would have to pass through here.
     tier_for: Option<bund2_api::RegistryIdentity>,
+    /// **This VM's own generator** — RFC-0015 §S8, D250 B4. Made on first use
+    /// and seeded from the operating system then, so a program that never
+    /// draws never asks for entropy; `rng.seed` replaces it.
+    rng: Option<rand::rngs::StdRng>,
 }
 
 impl Default for Interp {
@@ -495,6 +499,7 @@ impl Interp {
             tier_off: false,
             declined: declined::Declined::default(),
             tier_for: None,
+            rng: None,
             tier_entry: None,
             tier_shadow: None,
             frames: Vec::new(),
@@ -3396,6 +3401,14 @@ impl Vm for Interp {
 
     fn exit_requested(&self) -> Option<i32> {
         self.exit_code
+    }
+
+    fn rng(&mut self) -> Option<&mut rand::rngs::StdRng> {
+        use rand::SeedableRng;
+        Some(
+            self.rng
+                .get_or_insert_with(rand::rngs::StdRng::from_entropy),
+        )
     }
 
     /// See [`bund2_api::Vm::inline_site`] for the contract. This applies

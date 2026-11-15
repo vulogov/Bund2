@@ -120,6 +120,8 @@ pub mod encoding;
 // Logic programming, a family of Bund2's own (RFC-0013, D226); the crate's
 // first subdirectory.
 pub mod kb;
+// Biomathematics and genetics, a family of Bund2's own (RFC-0015, D250).
+pub mod biomath;
 
 /// Run a line of Bund source in `vm`, value by value, as `bund.eval` does
 /// (`reference/Bund/src/stdlib/helpers/eval.rs:7-37`).

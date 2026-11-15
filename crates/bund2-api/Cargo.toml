@@ -10,6 +10,10 @@ publish                = false
 
 [dependencies]
 bund2-value.workspace = true
+# `Vm::rng` answers a VM's own `StdRng` (RFC-0015 §S8, D250 B4). rand 0.8 is
+# the version statrs samples with, already in the build; `std_rng` alone, so
+# this crate takes no entropy source of its own.
+rand = { version = "=0.8.7", default-features = false, features = ["std_rng"] }
 
 [lints]
 workspace = true

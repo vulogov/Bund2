@@ -209,8 +209,10 @@ easy_reader = "=0.5.2"
 # `math.securerandom.int`; fakeit, passwords and lipsum make the
 # `string.random.*` strings; statrs defines the `generator` distributions and
 # sequences. `rand` 0.8 is the one lipsum and statrs sample with, as the
-# reference's `thread_rng` is. statrs drops its default `nalgebra`, which no
-# generator uses.
+# reference's `thread_rng` is. statrs takes its `nalgebra` feature for
+# RFC-0015's multivariate distributions (§S7); it was dropped while no
+# generator used it, and it adds no crate, since the nalgebra 0.33 it names
+# is the one augurs-ets links.
 uuid = { version = "=1.25.0", features = ["v4", "fast-rng"] }
 ulid = "=1.2.1"
 rand_mt = "=4.2.2"
@@ -221,7 +223,13 @@ fakeit = "=1.4.1"
 passwords = "=3.1.18"
 lipsum = "=0.9.1"
 rand = "=0.8.7"
-statrs = { version = "=0.18.0", default-features = false, features = ["rand"] }
+statrs = { version = "=0.18.0", default-features = false, features = ["rand", "nalgebra"] }
+# RFC-0015's linear algebra (§S9) and least squares (§S16), and its O(1)
+# binomial sampler (§S7, §S13). Both were compiled already, nalgebra through
+# augurs-ets and rand_distr through algos and augurs-ets; direct now, pinned
+# to the versions the lock held (D38), so the lock gains no package.
+nalgebra = "=0.33.3"
+rand_distr = "=0.4.3"
 # The statistics means (D213) are `rstats`' own, pinned to the reference's
 # 2.1.15 so each answer and refusal is the crate's to the bit; `hmad` rests on
 # its `medians` dependency, which a hand copy would have to reproduce.

@@ -557,6 +557,14 @@ The multivariate families answer `dist.pdf` (with a LIST for x),
   owes nothing; a `Vm` that answers `None` gets a thread-local `StdRng`
   instead. `rand_core` 0.6 is in the lock under `rand` 0.8, so
   `bund2-api` gains a dependency and the build no crate.
+
+  *Note 2026-11-14, M1:* built as `Vm::rng(&mut self) ->
+  Option<&mut rand::rngs::StdRng>`, the concrete type rather than
+  `dyn RngCore`. `rng.seed` replaces the generator, and a `dyn RngCore`
+  cannot be reseeded through. So `bund2-api` depends on `rand` 0.8.7,
+  with only its `std_rng` feature, rather than on `rand_core`; both were
+  in the lock, and the lock still gains no package. B4's ruling, a
+  generator per VM through a defaulted `Vm::rng`, is unchanged.
 - **Why not per thread.** D249 and `Host` give each VM a thread of its
   own (`crates/bund2-runtime/src/vms.rs`, the module doc), but an
   embedder may build several `Interp`s on one thread, as the stdlib's own
@@ -960,6 +968,12 @@ The matrix literal was run and is a MATRIX. Its characteristic equation is
 | M11 | S15 | 4 |
 | M12 | S16 | 4 |
 | M13 | `bund_examples/biomath/`: the worked examples, and S18's rule base | all |
+
+**Progress.** M1 landed 2026-11-14: `crates/bund2-stdlib/src/biomath/`
+with `refuse` (S11's E101–E115, each text tested) and `rng`
+(`with_rng`, `reseed`, over `Vm::rng`); `statrs`'s `nalgebra` feature;
+`nalgebra` =0.33.3 and `rand_distr` =0.4.3 direct; no word registered
+yet, so `bund2 words`, `PROMOTABLE.txt` and `docs/arity.md` are unchanged.
 
 Each milestone ends with conform and coverage unchanged (D72), clippy
 clean, `cargo deny check` clean, and `PROMOTABLE.txt`, `bund2 effects`

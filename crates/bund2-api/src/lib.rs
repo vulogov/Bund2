@@ -894,6 +894,24 @@ pub trait Vm {
     /// The code a word asked to exit with, if one has.
     fn exit_requested(&self) -> Option<i32>;
 
+    // --- the seeded generator (RFC-0015 §S8, D250 B4) ----------------------
+    /// **This VM's own random generator**, for RFC-0015's drawing words and
+    /// `rng.seed`.
+    ///
+    /// One per VM rather than one per thread: an embedder may build several
+    /// `Interp`s on one thread, and a generator they shared would let
+    /// `rng.seed` in one change the other's draws, so a seeded run would not
+    /// repeat. `rng.seed` replaces the generator, which is why this answers
+    /// the concrete `StdRng` and not a `dyn RngCore`, which cannot be
+    /// reseeded.
+    ///
+    /// **Defaulted to `None`**, so a test double owes nothing. A `Vm` that
+    /// answers `None` is given a generator per thread by the words instead,
+    /// which is correct for one VM on its thread and shared by several.
+    fn rng(&mut self) -> Option<&mut rand::rngs::StdRng> {
+        None
+    }
+
     // --- the compiled tier's cells (RFC-0005 §S6) ----------------------------
     /// **The cells compiled code reads**, if this `Vm` keeps any.
     ///
