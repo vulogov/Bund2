@@ -29,7 +29,11 @@
 //!
 //! - [`infer`]: the `stat.test.` words, `stat.padjust.*` and `stat.lm`.
 //!
-//! The rest arrive with M6 onwards: `linalg.` (§S9),
+//! M6 adds §S9:
+//!
+//! - [`linalg`]: the `linalg.` words, over `nalgebra`.
+//!
+//! The rest arrive with M7 onwards:
 //! `bio.` (§S10, §S12), `popgen.` (§S13), `phylo.` (§S14), `ode.` and `sim.`
 //! (§S15) and `fit.` (§S16).
 //!
@@ -40,6 +44,7 @@
 pub mod describe;
 pub mod dist;
 pub mod infer;
+pub mod linalg;
 pub(crate) mod operand;
 pub mod refuse;
 pub mod rng;
@@ -53,6 +58,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     describe::register(r);
     dist::register(r);
     infer::register(r);
+    linalg::register(r);
     rng::register(r);
 }
 

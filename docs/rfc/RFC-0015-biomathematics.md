@@ -735,6 +735,28 @@ generically has complex subdominant eigenvalues (worked example 5 has
 is right. The vector is found by inverse iteration on A − λI, capped at
 100 steps (E110).
 
+*Note 2026-11-15, M6:* built with these choices.
+
+- **Operands.** A MATRIX is read as `stat.test.chisq.table` reads one
+  (§S6): a cell that will not convert to FLOAT, or a ragged row, is E103;
+  a NaN or ±∞ cell is E101, as are an empty MATRIX and an operand that is
+  not a MATRIX. Every shape `nalgebra` would assert is checked first, E102.
+- **Singularity.** `linalg.inv` and `linalg.solve` are E106 when the LU
+  factorisation meets an exactly zero pivot, as `[ [ 1 2 ] [ 2 4 ] ]`
+  does; a nearly singular matrix answers its large inverse, and E114 if a
+  cell overflows. `linalg.det` of a singular matrix answers 0.
+- **Order and tolerance.** `linalg.eigenvalues` answers in the order
+  `linalg.eigenvalues.complex` does, descending modulus, then descending
+  real and imaginary part. ‖A‖ is the Frobenius norm.
+- **`linalg.dominant`.** Two eigenvalues share the largest modulus when
+  their moduli differ by at most 10⁻¹²·max(‖A‖, |λ|); the swap matrix
+  `[ [ 0 1 ] [ 1 0 ] ]` is E108 so. The inverse iteration's shift is
+  λ + 10⁻¹⁰·max(‖A‖, 1), so A − σI is never exactly singular, and it stops
+  when an iterate moves by at most 10⁻¹⁴. A dominant eigenvector summing to
+  0 cannot be scaled to sum 1, and is E101.
+- **Forms.** `linalg.identity` consumes its n, so it has a `.` form too;
+  every word of §S9 does.
+
 ### S10. Sequences (Phase 2)
 
 | Word | Effect | Answer |
@@ -1137,6 +1159,14 @@ their forms. `PROMOTABLE.txt` gains the five tests of two series the
 palette reaches, and their forms; `stat.test.binom` and
 its form join the unvaried-operand audit's list, their first operand being
 a count.
+
+M6 landed 2026-11-15: `biomath::linalg`, §S9's twelve words and their `.`
+forms, with criteria 2, 3 (E101, E102, E103, E106, E107, E108, E114), 5, 6
+and 12, and the choices §S9's M6 note records. Worked example 5 answers
+λ = 1.013103401237989 and the stable distribution to within 10⁻¹², against
+`fixtures/linalg.py`, which also holds the 3×3 fixtures' exact answers. `PROMOTABLE.txt` gains
+`linalg.identity` and its form; the other eleven take a MATRIX of numbers,
+which the palette does not hold, so are listed as not reached.
 
 Each milestone ends with conform and coverage unchanged (D72), clippy
 clean, `cargo deny check` clean, and `PROMOTABLE.txt`, `bund2 effects`
