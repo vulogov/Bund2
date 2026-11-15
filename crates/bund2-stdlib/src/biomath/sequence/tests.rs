@@ -73,7 +73,7 @@ fn every_word_is_registered_with_its_dot_form() {
         .registry
         .word_names()
         .into_iter()
-        .filter(|n| n.starts_with("bio."))
+        .filter(|n| n.starts_with("bio.") && !n.starts_with("bio.align"))
         .count();
     assert_eq!(ours, 2 * WORDS.len());
 }

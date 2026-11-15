@@ -37,14 +37,19 @@
 //!
 //! - [`sequence`]: the `bio.` sequence words, and NCBI's genetic codes.
 //!
-//! The rest arrive with M8 onwards:
-//! `bio.align` (§S12), `popgen.` (§S13), `phylo.` (§S14), `ode.` and `sim.`
-//! (§S15) and `fit.` (§S16).
+//! M8 adds §S12:
+//!
+//! - [`align`]: `bio.align` and `bio.align.score`, Gotoh's affine-gap
+//!   alignment, global, semiglobal and local.
+//!
+//! The rest arrive with M9 onwards: `popgen.` (§S13), `phylo.` (§S14),
+//! `ode.` and `sim.` (§S15) and `fit.` (§S16).
 //!
 //! **What M1 links.** `nalgebra` and `rand_distr` become direct dependencies
 //! at the versions the lock already held, and `statrs` gains its `nalgebra`
 //! feature, for the multivariate families (§S7). The lock gains no package.
 
+pub mod align;
 pub mod describe;
 pub mod dist;
 pub mod infer;
@@ -65,6 +70,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     infer::register(r);
     linalg::register(r);
     sequence::register(r);
+    align::register(r);
     rng::register(r);
 }
 

@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 491 promotable of 500 reached, of 671 fixed-effect natives; 9 reached natives
+# 491 promotable of 500 reached, of 675 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -520,6 +520,10 @@ vec.sub.
 #
 # Fixed-effect natives the palette never brought to `Ok`:
 # not reached: at.
+# not reached: bio.align
+# not reached: bio.align.
+# not reached: bio.align.score
+# not reached: bio.align.score.
 # not reached: bio.consensus
 # not reached: bio.consensus.
 # not reached: bio.pwm

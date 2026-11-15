@@ -838,7 +838,14 @@ mod honesty_tests {
         // `bio.pwm.scan`'s first operand is s, the sequence it scans, read
         // as nucleotides and refused with E109 at any other character
         // (§S10); its form's is too.
-        const UNVARIED: [&str; 29] = [
+        // `bio.align`'s and `bio.align.score`'s first operand is a, a
+        // sequence read against the matrix, E101 unless a STRING (§S12);
+        // their forms' is too.
+        const UNVARIED: [&str; 33] = [
+            "bio.align",
+            "bio.align.",
+            "bio.align.score",
+            "bio.align.score.",
             "bio.pwm.scan",
             "bio.pwm.scan.",
             "dist.hypergeometric",

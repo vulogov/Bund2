@@ -879,6 +879,37 @@ operand is E101.
 `bio.align.score` answers the score alone, in O(min(n, m)) memory, under
 the same cap on n·m, which here bounds time rather than memory.
 
+*Note 2026-11-15, M8:* built with these choices.
+
+- **`opts`** must hold all four keys; a missing one is E101 naming it, as
+  are an unknown mode or matrix name and a gap cost that is not a positive
+  number. No key has a default.
+- **The matrices.** `blosum62` is NCBI's `blast/matrices/BLOSUM62`,
+  committed beside the fixtures and compared cell by cell; it reads its 24
+  symbols, `B`, `Z`, `X` and `*` among them, and any other character is
+  E109 naming `blosum62`. `dna` reads A, C, G and T, E109 naming `dna`
+  otherwise. Both fold case. A program's own MAP is read verbatim, case
+  and all: a key that is not two characters, or a value that is not a
+  finite number, is E101; `"AC"` and `"CA"` that differ are E101; a pair
+  the two sequences meet and the MAP lacks is E101, before the alignment
+  runs.
+- **The answer.** `start` and `end` are each a LIST of two INTEGERs, `a`'s
+  then `b`'s. In `global` and `semiglobal` mode the gapped strings hold
+  both sequences whole, free end gaps included, so `start` is `[ 0 0 ]`
+  and `end` the lengths; in `local` mode they hold the aligned stretch.
+  `identity` counts columns of two equal characters, case folded where the
+  matrix folds it, over every column; an empty alignment, which `local`
+  answers when no pair scores above 0, has identity 0. `score` is a FLOAT.
+  Empty sequences are aligned, not refused.
+- **Ties.** Within a cell a pair is preferred to a gap in `b`, and that to
+  a gap in `a`; a local alignment extends rather than restarts on a tie
+  with 0; among equal ends the first in row order is taken. Another tool
+  may answer a different alignment of the same score.
+- **Memory.** The traceback is one byte a cell, not the 12 this section
+  estimates, since scores are kept three rows at a time; so 10⁸ cells is
+  about 100 MB. A failed reservation is a plain run-time error naming the
+  bytes asked for.
+
 ### S13. Population genetics (Phase 3) [B13]
 
 **Inputs.**
@@ -1222,6 +1253,15 @@ palette's operands do not reach `bio.valid?`, `bio.translate`,
 reached. `bio.pwm.scan` and its form join the unvaried-operand audit's
 list, their first operand being the sequence scanned.
 
+M8 landed 2026-11-15: `biomath::align`, §S12's `bio.align` and
+`bio.align.score` and their `.` forms, with criteria 2, 3 (E101, E109,
+E111), 6 and 15, and the choices §S12's M8 note records. Every fixture
+score is answered exactly by both words, and each alignment rescored is its
+score. The cap refuses 10⁴ against 10⁴ + 1 before anything sized by n·m is
+allocated. `PROMOTABLE.txt` lists both words and their forms as not
+reached, since the palette holds no `opts` MAP; all four join the
+unvaried-operand audit's list, their first operand being a sequence.
+
 Each milestone ends with conform and coverage unchanged (D72), clippy
 clean, `cargo deny check` clean, and `PROMOTABLE.txt`, `bund2 effects`
 and `docs/arity.md` regenerated.
@@ -1313,6 +1353,14 @@ pages give (`fixtures/infer.py`, mpmath and exact rationals), on R's
 precision, are checked beside it; they agree to every printed digit. The
 criterion names `cor.test`, but §S6 has no correlation test word: the
 estimate `cor.test` reports is `stat.cor.*`'s, which M3 checked.
+M8's criterion 15 fixture is Biopython 1.88's `PairwiseAligner`, since
+EMBOSS is not installed here either: `fixtures/align.py`, with its output
+`align.txt`, 48 scores over four protein and four DNA pairs, two gap
+settings and the three modes. Its gap of length L costs open + (L − 1)·extend,
+EMBOSS's convention, which a global score in the fixture confirms by hand
+(TTTTACGTACGTAAAA against ACGTACGT, 40 − 2·11.5 = 17). The test compares
+each score, and checks the alignment answered by rescoring it, since an
+equally good alignment may differ from the one EMBOSS prints.
 M4's criterion 10 fixture is mpmath's for the same reason:
 `fixtures/dist.py`, with its output `dist.txt`, which the test runs
 program by program.
