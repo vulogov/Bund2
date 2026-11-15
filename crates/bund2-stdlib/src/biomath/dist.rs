@@ -140,7 +140,7 @@ impl Param {
 
 /// A distribution, read from its MAP and checked.
 #[derive(Clone, Debug, PartialEq)]
-enum Family {
+pub(crate) enum Family {
     Normal { mean: f64, sd: f64 },
     LogNormal { meanlog: f64, sdlog: f64 },
     Uniform { min: f64, max: f64 },
@@ -460,7 +460,7 @@ impl Family {
     }
 
     /// ln f(x): −∞ outside the support, +∞ at a density's pole.
-    fn lpdf(&self, x: f64) -> f64 {
+    pub(crate) fn lpdf(&self, x: f64) -> f64 {
         const NEG: f64 = f64::NEG_INFINITY;
         let ln_2pi_half = 0.5 * (2.0 * std::f64::consts::PI).ln();
         // A discrete family's mass is 0 off the integers.
@@ -583,7 +583,7 @@ impl Family {
     }
 
     /// (P(X ≤ x), P(X > x)).
-    fn tails(&self, word: &str, x: f64) -> Result<(f64, f64), Error> {
+    pub(crate) fn tails(&self, word: &str, x: f64) -> Result<(f64, f64), Error> {
         let beta = |x: f64, a: f64, b: f64| {
             beta_both(x, a, b)
                 .map_err(|cap| eti(word, "the incomplete beta's continued fraction", cap))

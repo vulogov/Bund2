@@ -524,6 +524,38 @@ states the convention wherever R's default differs or is a choice:
   `r2` and `df`. `X` is a MATRIX of predictors without the intercept,
   which the word adds.
 
+*Note 2026-11-15, M5:* built with these choices.
+
+- **The answer.** A test's MAP holds `statistic`, `p`, `df` (a FLOAT,
+  for the t and χ² tests only) and `method`, R's name for the test (R's
+  `" Two Sample t-test"` without its leading space).
+- **Where R has no statistic.** Fisher's test answers the count in the
+  table's first cell, the hypergeometric variable it conditions on; R
+  reports the conditional MLE of the odds ratio, which is infinite at the
+  support's ends (B12). The binomial test answers k.
+- **Bounds (D39).** Fisher's test sums its support, and refuses with E111
+  past 10⁸ tables. The binomial test counts the outcomes as probable as k
+  or less by a binary search, since the mass is monotone on the far side
+  of the mean, so it is O(log n) where R's `sum` is O(n).
+- **Refusals.** Each sample of a t test needs two values and a sample of
+  a rank test one (E101); a series with no spread is E101 (`a constant
+  series`). χ²'s observed counts must be non-negative and its expected
+  values positive, a table at least 2×2 with no row or column summing to 0
+  (E101). Fisher's cells must be whole numbers (E101) in a 2×2 table
+  (E102). `stat.test.binom`'s k and n are non-negative INTEGERs with
+  k ≤ n, p in [0, 1] (E101). A correction refuses a p outside [0, 1]
+  (E101) and answers an empty LIST for an empty one.
+- **`stat.lm`.** A rank-deficient X is E106, where R drops the aliased
+  columns; n no greater than the number of coefficients is E101, as are a
+  constant y and a perfect fit, whose t would be infinite. `df` is a
+  FLOAT.
+- **The KS p** is the Kolmogorov distribution's upper tail summed to
+  f64's precision, by the alternating series above 1 and the Jacobi theta
+  form below it.
+- **Forms.** `stat.test.t1` is a series and a scalar, so opaque in its
+  plain and `.` forms; the corrections are words of one series, so take
+  the four forms; the rest have a fixed effect and a `.` form.
+
 ### S7. Distributions (Phase 1) [B2]
 
 **Constructors.** Each takes the family's parameters, deepest first, and
@@ -1098,6 +1130,14 @@ hold, are listed as not reached. `dist.hypergeometric`
 and its form join the unvaried-operand audit's list, their first operand
 being a count.
 
+M5 landed 2026-11-15: `biomath::infer`, §S6's ten tests, three
+corrections and `stat.lm`, with criteria 2, 3 (E101, E102, E103, E106,
+E115), 5, 6 and 9, and the choices §S6's M5 note records: 34 names with
+their forms. `PROMOTABLE.txt` gains the five tests of two series the
+palette reaches, and their forms; `stat.test.binom` and
+its form join the unvaried-operand audit's list, their first operand being
+a count.
+
 Each milestone ends with conform and coverage unchanged (D72), clippy
 clean, `cargo deny check` clean, and `PROMOTABLE.txt`, `bund2 effects`
 and `docs/arity.md` regenerated.
@@ -1182,6 +1222,13 @@ criterion 7's fixture for `math.betainc`, `math.gammainc` and
 `special.txt`, which the test reads. mpmath is an arbitrary-precision
 reference, so the fixture is stricter than R's double-precision answers,
 not looser. Later milestones that name R use it where it is available.
+M5's criterion 9 fixture is computed from the definitions R's help
+pages give (`fixtures/infer.py`, mpmath and exact rationals), on R's
+`sleep` data and the examples of `?chisq.test`, `?fisher.test` and
+`?binom.test`. R's printed answers for those examples, at R's printed
+precision, are checked beside it; they agree to every printed digit. The
+criterion names `cor.test`, but §S6 has no correlation test word: the
+estimate `cor.test` reports is `stat.cor.*`'s, which M3 checked.
 M4's criterion 10 fixture is mpmath's for the same reason:
 `fixtures/dist.py`, with its output `dist.txt`, which the test runs
 program by program.

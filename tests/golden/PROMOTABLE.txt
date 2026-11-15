@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 461 promotable of 470 reached, of 599 fixed-effect natives; 9 reached natives
+# 471 promotable of 480 reached, of 619 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -352,6 +352,16 @@ stat.cor.spearman
 stat.cor.spearman.
 stat.cov
 stat.cov.
+stat.test.chisq
+stat.test.chisq.
+stat.test.ks2
+stat.test.ks2.
+stat.test.mannwhitney
+stat.test.mannwhitney.
+stat.test.t2
+stat.test.t2.
+stat.test.welch
+stat.test.welch.
 string.camel
 string.camel.
 string.deunicode
@@ -605,6 +615,16 @@ vec.sub.
 # not reached: set.
 # not reached: set.,
 # not reached: sqlite
+# not reached: stat.lm
+# not reached: stat.lm.
+# not reached: stat.test.binom
+# not reached: stat.test.binom.
+# not reached: stat.test.chisq.table
+# not reached: stat.test.chisq.table.
+# not reached: stat.test.fisher
+# not reached: stat.test.fisher.
+# not reached: stat.test.paired
+# not reached: stat.test.paired.
 # not reached: string.expressionmatch
 # not reached: string.expressionmatch.
 # not reached: tag.

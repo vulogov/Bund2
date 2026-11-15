@@ -832,8 +832,10 @@ mod honesty_tests {
         // refuses unless it lies in [0, 1] (RFC-0015 §S4); its form's is too.
         // `dist.hypergeometric`'s first operand is N, a count its check
         // refuses unless it is a non-negative INTEGER (RFC-0015 §S7); its
-        // form's is too.
-        const UNVARIED: [&str; 25] = [
+        // form's is too. `stat.test.binom`'s first operand is k, a count its
+        // check refuses unless it is a non-negative INTEGER (§S6); its form's
+        // is too.
+        const UNVARIED: [&str; 27] = [
             "dist.hypergeometric",
             "dist.hypergeometric.",
             "get,",
@@ -857,6 +859,8 @@ mod honesty_tests {
             "set,",
             "set.",
             "set.,",
+            "stat.test.binom",
+            "stat.test.binom.",
             "tag",
             "tag.",
         ];

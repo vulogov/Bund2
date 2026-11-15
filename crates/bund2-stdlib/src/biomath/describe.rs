@@ -25,12 +25,12 @@ use super::operand::{
     at_least, domain, finite, four_forms, list, same_length, scalar_forms, two, two_forms,
 };
 
-fn mean(xs: &[f64]) -> f64 {
+pub(crate) fn mean(xs: &[f64]) -> f64 {
     xs.iter().sum::<f64>() / xs.len() as f64
 }
 
 /// The sample variance, n − 1, two passes. The caller has checked n ≥ 2.
-fn variance(xs: &[f64]) -> f64 {
+pub(crate) fn variance(xs: &[f64]) -> f64 {
     let m = mean(xs);
     xs.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / (xs.len() - 1) as f64
 }
@@ -166,7 +166,7 @@ fn pearson(word: &str, a: &[f64], b: &[f64]) -> Result<f64, Error> {
 }
 
 /// Ranks from 1, ties given their average.
-fn ranks(xs: &[f64]) -> Vec<f64> {
+pub(crate) fn ranks(xs: &[f64]) -> Vec<f64> {
     let mut order: Vec<usize> = (0..xs.len()).collect();
     order.sort_by(|&i, &j| xs[i].total_cmp(&xs[j]));
     let mut r = vec![0.0; xs.len()];

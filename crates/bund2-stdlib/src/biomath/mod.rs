@@ -25,7 +25,11 @@
 //! - [`dist`]: the distributions, as MAPs, and the words that ask them;
 //! - [`rng`]: `rng.seed` and `rng.uniform`.
 //!
-//! The rest arrive with M5 onwards: §S6's tests (M5), `linalg.` (§S9),
+//! M5 adds the rest of §S6:
+//!
+//! - [`infer`]: the `stat.test.` words, `stat.padjust.*` and `stat.lm`.
+//!
+//! The rest arrive with M6 onwards: `linalg.` (§S9),
 //! `bio.` (§S10, §S12), `popgen.` (§S13), `phylo.` (§S14), `ode.` and `sim.`
 //! (§S15) and `fit.` (§S16).
 //!
@@ -35,6 +39,7 @@
 
 pub mod describe;
 pub mod dist;
+pub mod infer;
 pub(crate) mod operand;
 pub mod refuse;
 pub mod rng;
@@ -47,6 +52,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     vector::register(r);
     describe::register(r);
     dist::register(r);
+    infer::register(r);
     rng::register(r);
 }
 
