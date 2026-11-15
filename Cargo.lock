@@ -673,6 +673,7 @@ dependencies = [
  "iset",
  "jsonpath-rust",
  "leon",
+ "libm",
  "lipsum",
  "local-ip-address",
  "markov-chain",

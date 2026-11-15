@@ -230,6 +230,11 @@ statrs = { version = "=0.18.0", default-features = false, features = ["rand", "n
 # to the versions the lock held (D38), so the lock gains no package.
 nalgebra = "=0.33.3"
 rand_distr = "=0.4.3"
+# RFC-0015 §S4's math.erf and math.erfc: fdlibm's, to within an ulp, where
+# statrs 0.18's are off by about 1e-10 (erf 0.5 = 0.52049987776 against
+# 0.52049987781). Compiled already through humansize; direct now, pinned to
+# the lock's version (D38), so the lock gains no package.
+libm = "=0.2.16"
 # The statistics means (D213) are `rstats`' own, pinned to the reference's
 # 2.1.15 so each answer and refusal is the crate's to the bit; `hmad` rests on
 # its `medians` dependency, which a hand copy would have to reproduce.

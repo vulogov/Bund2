@@ -11,8 +11,12 @@
 //! - [`rng`]: the generator a drawing word draws from, the VM's own through
 //!   [`bund2_api::Vm::rng`] (§S8, D250 B4), and `rng.seed`'s reseeding.
 //!
-//! The words arrive with M2 onwards: `math.` special functions (§S4), `vec.`
-//! (§S5), `stat.` (§S6), `dist.` and `rng.` (§S7, §S8), `linalg.` (§S9),
+//! M2 adds the first words:
+//!
+//! - [`special`]: §S4's sixteen `math.` special functions.
+//!
+//! The rest arrive with M3 onwards: `vec.` (§S5), `stat.` (§S6), `dist.` and
+//! `rng.` (§S7, §S8), `linalg.` (§S9),
 //! `bio.` (§S10, §S12), `popgen.` (§S13), `phylo.` (§S14), `ode.` and `sim.`
 //! (§S15) and `fit.` (§S16).
 //!
@@ -22,3 +26,9 @@
 
 pub mod refuse;
 pub mod rng;
+pub mod special;
+
+/// Register the family's words.
+pub fn register(r: &mut bund2_api::Registry) {
+    special::register(r);
+}

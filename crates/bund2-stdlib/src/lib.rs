@@ -218,6 +218,7 @@ pub fn register_all_with(r: &mut bund2_api::Registry, opts: &host::HostOptions) 
     library::register(r);
     library_string::register(r);
     kb::register(r);
+    biomath::register(r);
     #[cfg(feature = "smysl")]
     smysl::register(r, opts);
     // After `singles`, which registers `bund.eval-file`, and before
@@ -827,7 +828,9 @@ mod honesty_tests {
         // (RFC-0013 §S10): a variable's name, not a stack's. `kb.askable`'s
         // and `kb.table`'s third operand is the KB they name a predicate in
         // (§S9), and their forms' is the functor: none is a stack's name.
-        const UNVARIED: [&str; 21] = [
+        // `math.betainc`'s first operand is x, a number its domain check
+        // refuses unless it lies in [0, 1] (RFC-0015 §S4); its form's is too.
+        const UNVARIED: [&str; 23] = [
             "get,",
             "graph.maxflow",
             "graph.maxflow.",
@@ -838,6 +841,8 @@ mod honesty_tests {
             "kb.table",
             "kb.table.",
             "kb.word",
+            "math.betainc",
+            "math.betainc.",
             "save.model",
             "seq.asc",
             "seq.asc.",

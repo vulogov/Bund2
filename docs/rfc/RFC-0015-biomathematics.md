@@ -430,6 +430,36 @@ unlike the reference's unary `math.*` words.
 refuses an INTEGER that `4 math.lgamma` takes. The alternative,
 **B15 B**, makes the new words match the old in both respects.
 
+*Note 2026-11-14, M2:* three "Computed by" entries changed when built,
+each because the named routine broke a rule of the house or B11's
+tolerance. B12's dispositions and every answer are unchanged.
+
+- **`math.erf`, `math.erfc`** are `libm`'s (fdlibm's, within an ulp).
+  `statrs` 0.18's are off by about 1e-10: `erf(0.5)` answers
+  0.52049987776 where the value is 0.52049987781, past B11's 1e-12 for a
+  closed form. `libm` 0.2.16 was compiled already, through `humansize`,
+  and is now direct, pinned; the lock gains no package. **M4 must check
+  the same for S7:** `statrs`'s normal cdf goes through its `erfc`.
+- **`math.betainc`, `math.gammainc`** are Bund2's own, the algorithms
+  `checked_beta_reg` and `checked_gamma_lr` use (Numerical Recipes'
+  continued fraction, and series below x = a + 1), with an iteration cap
+  and **E110** at it: 100,000 terms for the beta, 1,000,000 for the
+  gamma. `checked_gamma_lr`'s series is an unbounded `loop` that never
+  ends once `a + k` stops changing in f64 (a ≳ 10¹⁶), which D39 forbids;
+  `checked_beta_reg` stops after 140 terms and answers what it has,
+  converged or not. So E110 joins S4's dispositions, for a and b far past
+  the fixture's (`1e17 1e17 math.gammainc`).
+- **`math.gamma`** answers exp(ln Γ) where `statrs`'s `gamma` overflows
+  its intermediate power, from x ≈ 170, below where Γ itself overflows
+  (171.62).
+
+Two dispositions the table leaves implicit: ψ's poles are Γ's, E101; and a
+NaN the arithmetic makes from operands that passed the checks, which only
+an intermediate overflow can cause (`math.lbeta` at 10³⁰⁸ 10³⁰⁸), is
+E114, so that no word answers NaN [B12]. A non-number operand is E101
+naming the value, and `math.choose`, `math.lchoose` and `math.lfactorial`
+refuse a FLOAT, as the table's "INTEGER operands" says.
+
 ### S5. Element-wise vectors (Phase 1)
 
 | Word | Effect | Answer |
@@ -974,6 +1004,13 @@ with `refuse` (S11's E101–E115, each text tested) and `rng`
 (`with_rng`, `reseed`, over `Vm::rng`); `statrs`'s `nalgebra` feature;
 `nalgebra` =0.33.3 and `rand_distr` =0.4.3 direct; no word registered
 yet, so `bund2 words`, `PROMOTABLE.txt` and `docs/arity.md` are unchanged.
+M2 landed 2026-11-14: `biomath::special`, S4's sixteen words, each with
+its `.` form, and their criteria 2, 3 (E101, E110, E114), 5, 6 and 7, with
+the changes S4's M2 note records. `PROMOTABLE.txt` lists fourteen words
+and their forms, and names `math.betainc` and `math.erfinv`, which the
+palette's operands do not reach, as not reached. `docs/arity.md` is
+generated from the reference's registry, so the family never enters it;
+it is unchanged.
 
 Each milestone ends with conform and coverage unchanged (D72), clippy
 clean, `cargo deny check` clean, and `PROMOTABLE.txt`, `bund2 effects`
@@ -1051,6 +1088,14 @@ stated **[B11]**: relative error 1e-12 for closed forms, 1e-8 for series
 and iterative answers, and 1e-6 for integrators, unless a criterion says
 otherwise. "R" means R 4.4.1; each fixture computed with R is committed
 with the R script that made it and the script's output.
+
+*Note 2026-11-14, M2:* R is not installed where M2 was built, so
+criterion 7's fixture for `math.betainc`, `math.gammainc` and
+`1000 500 math.choose` is mpmath 1.3.0's at 50 digits, committed as
+`crates/bund2-stdlib/src/biomath/fixtures/special.py` with its output
+`special.txt`, which the test reads. mpmath is an arbitrary-precision
+reference, so the fixture is stricter than R's double-precision answers,
+not looser. Later milestones that name R use it where it is available.
 
 ### Every phase
 

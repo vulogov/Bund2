@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 386 promotable of 395 reached, of 494 fixed-effect natives; 9 reached natives
+# 414 promotable of 423 reached, of 526 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -191,28 +191,56 @@ math.asin
 math.asin.
 math.atan
 math.atan.
+math.beta
+math.beta.
 math.cbrt
 math.cbrt.
 math.ceil
 math.ceil.
+math.choose
+math.choose.
 math.cos
 math.cos.
 math.cosecant
 math.cosecant.
 math.cosh
 math.cosh.
+math.digamma
+math.digamma.
+math.erf
+math.erf.
+math.erfc
+math.erfc.
 math.exp
 math.exp.
+math.expm1
+math.expm1.
 math.factorial
 math.factorial.
 math.floor
 math.floor.
 math.fract
 math.fract.
+math.gamma
+math.gamma.
+math.gammainc
+math.gammainc.
+math.lbeta
+math.lbeta.
+math.lchoose
+math.lchoose.
+math.lfactorial
+math.lfactorial.
+math.lgamma
+math.lgamma.
 math.ln
 math.ln.
 math.log10
 math.log10.
+math.log1p
+math.log1p.
+math.log2
+math.log2.
 math.nroot
 math.nroot.
 math.perimeter
@@ -494,6 +522,10 @@ var-
 # not reached: kb.word
 # not reached: lambda=
 # not reached: lambda=.
+# not reached: math.betainc
+# not reached: math.betainc.
+# not reached: math.erfinv
+# not reached: math.erfinv.
 # not reached: raise
 # not reached: return_to
 # not reached: set,
@@ -520,11 +552,15 @@ var-
 # feature-gated: string.grok.
 # feature-gated: smysl
 # feature-gated: smysl.agent
+# feature-gated: smysl.answer
 # feature-gated: smysl.append
 # feature-gated: smysl.check
+# feature-gated: smysl.commit
 # feature-gated: smysl.create
 # feature-gated: smysl.dossier
 # feature-gated: smysl.get
+# feature-gated: smysl.ingest
+# feature-gated: smysl.ingest.text
 # feature-gated: smysl.kb
 # feature-gated: smysl.label
 # feature-gated: smysl.measure
