@@ -15,8 +15,12 @@
 //!
 //! - [`special`]: §S4's sixteen `math.` special functions.
 //!
-//! The rest arrive with M3 onwards: `vec.` (§S5), `stat.` (§S6), `dist.` and
-//! `rng.` (§S7, §S8), `linalg.` (§S9),
+//! M3 adds §S5 and §S6's descriptive words, over [`operand`]'s readers:
+//!
+//! - [`vector`]: the `vec.` words;
+//! - [`describe`]: `stat.var` to `stat.cor.kendall`.
+//!
+//! The rest arrive with M4 onwards: §S6's tests (M5), `dist.` and `rng.` (§S7, §S8), `linalg.` (§S9),
 //! `bio.` (§S10, §S12), `popgen.` (§S13), `phylo.` (§S14), `ode.` and `sim.`
 //! (§S15) and `fit.` (§S16).
 //!
@@ -24,11 +28,19 @@
 //! at the versions the lock already held, and `statrs` gains its `nalgebra`
 //! feature, for the multivariate families (§S7). The lock gains no package.
 
+pub mod describe;
+pub(crate) mod operand;
 pub mod refuse;
 pub mod rng;
 pub mod special;
+pub mod vector;
 
 /// Register the family's words.
 pub fn register(r: &mut bund2_api::Registry) {
     special::register(r);
+    vector::register(r);
+    describe::register(r);
 }
+
+#[cfg(test)]
+mod testkit;

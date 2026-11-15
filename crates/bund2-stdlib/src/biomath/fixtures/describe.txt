@@ -1,0 +1,39 @@
+vec.add A B [1.5 1.0 5.0 12.0]
+vec.sub A B [0.5 3.0 1.0 -4.0]
+vec.mul A B [0.5 -2.0 6.0 32.0]
+vec.div A B [2.0 -2.0 1.5 0.5]
+vec.scale A 2.5 [2.5 5.0 7.5 10.0]
+vec.dot A B 36.5
+vec.sum A 10.0
+vec.prod A 24.0
+vec.cumsum A [1.0 3.0 6.0 10.0]
+vec.cumprod A [1.0 2.0 6.0 24.0]
+vec.diff A [1.0 1.0 1.0]
+vec.logsumexp A 4.4401896985611953
+vec.normalize.sum A [0.1 0.2 0.3 0.4]
+vec.sum B 9.5
+vec.prod B -8.0
+vec.cumsum B [0.5 -0.5 1.5 9.5]
+vec.cumprod B [0.5 -0.5 -1.0 -8.0]
+vec.diff B [-1.5 3.0 6.0]
+vec.logsumexp B 8.0031502790071861
+vec.normalize.sum B [0.052631578947368421 -0.10526315789473684 0.21052631578947368 0.84210526315789474]
+vec.logsumexp BIG 1000.6931471805599
+stat.var X 4.5714285714285714
+stat.sd X 2.1380899352993951
+stat.se X 0.75592894601845445
+stat.median X 4.5
+stat.mode X 4.0
+stat.skewness X 0.65625
+stat.kurtosis X -0.21875
+stat.zscore X [-1.403121520040228 -0.46770717334674267 -0.46770717334674267 -0.46770717334674267 0.0 0.0 0.93541434669348535 1.8708286933869707]
+stat.quantile X 0 2.0
+stat.quantile X 0.1 3.4
+stat.quantile X 0.25 4.0
+stat.quantile X 0.5 4.5
+stat.quantile X 0.9 7.6
+stat.quantile X 1 9.0
+stat.cov X Y 4.4285714285714286
+stat.cor.pearson X Y 0.84559432466447048
+stat.cor.spearman X Y 0.88385150905242536
+stat.cor.kendall X Y 0.77151674981045955

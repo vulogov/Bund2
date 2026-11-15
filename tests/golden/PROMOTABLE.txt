@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 414 promotable of 423 reached, of 526 fixed-effect natives; 9 reached natives
+# 432 promotable of 441 reached, of 544 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -315,6 +315,14 @@ spinner.text.yellow
 stack_exists
 stacks_left
 stacks_right
+stat.cor.kendall
+stat.cor.kendall.
+stat.cor.pearson
+stat.cor.pearson.
+stat.cor.spearman
+stat.cor.spearman.
+stat.cov
+stat.cov.
 string.camel
 string.camel.
 string.deunicode
@@ -429,6 +437,16 @@ unregister.class
 valuemap
 var
 var-
+vec.add
+vec.add.
+vec.div
+vec.div.
+vec.dot
+vec.dot.
+vec.mul
+vec.mul.
+vec.sub
+vec.sub.
 #
 # Reached, but seen reading beyond their operands (D55), so never crossed:
 # observes: debug.display_stack — `debug.display_stack` reads the whole current stack

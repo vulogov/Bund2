@@ -1011,6 +1011,24 @@ and their forms, and names `math.betainc` and `math.erfinv`, which the
 palette's operands do not reach, as not reached. `docs/arity.md` is
 generated from the reference's registry, so the family never enters it;
 it is unchanged.
+M3 landed 2026-11-14: `biomath::vector` (S5's thirteen `vec.` words) and
+`biomath::describe` (S6's thirteen descriptive words), over
+`biomath::operand`'s readers, with criteria 2, 3 (E101, E102, E103,
+E114, E115), 5, 8 and 9's descriptive half. Each word has the forms S3
+gives it: four for a word of one series, plain and `.` for the rest, 82
+names in all. `PROMOTABLE.txt` gains the nine two-series words and their
+`.` forms; the rest read a series that may be a drain, so are opaque and
+never audited (S17). Their expected values are `fixtures/describe.py`'s, exact
+rationals and mpmath, beside hand-worked values in the tests' comments;
+S6's tests (M5) are where R's are needed. As M3 builds them:
+
+- a one-series word's reader is `get_data`, so a cell that will not
+  convert keeps the house text, `<WORD> returned: …`; a two-series word
+  reads its LISTs itself, and such a cell is E103;
+- a NaN or ±∞ element is E101 naming its position, 1-based as `at`
+  counts, and a too-short or constant series is E101 naming it;
+- `stat.cor.kendall` compares every pair, n(n − 1)/2 comparisons, which a
+  program's series bounds (D39).
 
 Each milestone ends with conform and coverage unchanged (D72), clippy
 clean, `cargo deny check` clean, and `PROMOTABLE.txt`, `bund2 effects`

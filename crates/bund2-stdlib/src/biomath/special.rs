@@ -38,10 +38,8 @@ use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
 use bund2_value::BundValue;
 use statrs::function::{beta as sbeta, erf as serf, factorial as sfact, gamma as sgamma};
 
+use super::operand::{WIDTH, domain, finite, operands, real};
 use super::refuse::Refusal;
-
-/// How wide an operand's text is in a refusal.
-const WIDTH: usize = 40;
 
 /// The most terms `math.betainc`'s continued fraction takes. It needs about
 /// √max(a, b) of them, so this reaches a and b of 10⁹.
@@ -57,63 +55,11 @@ const FPMIN: f64 = f64::MIN_POSITIVE / f64::EPSILON;
 /// When a term no longer moves the answer.
 const EPS: f64 = 1e-15;
 
-/// Pull `n` operands, deepest first, or refuse as the house does.
-fn operands(vm: &mut dyn Vm, word: &str, n: usize) -> Result<Vec<BundValue>, Error> {
-    if vm.depth() < n {
-        return Err(Error(format!("Stack is too shallow for inline {word}")));
-    }
-    let mut out = Vec::with_capacity(n);
-    for _ in 0..n {
-        let Some(v) = vm.pull() else {
-            return Err(Error::internal(format!(
-                "{word}: the stack was deep enough and gave nothing"
-            )));
-        };
-        out.push(v);
-    }
-    out.reverse();
-    Ok(out)
-}
-
-fn domain(word: &str, operand: &str, value: String) -> Error {
-    Refusal::Domain {
-        operand: operand.into(),
-        function: word.into(),
-        value,
-    }
-    .error(word)
-}
-
-/// A FLOAT or INTEGER operand, finite, as f64 (B15).
-fn real(word: &str, operand: &str, v: &BundValue) -> Result<f64, Error> {
-    let x = match v.unboxed() {
-        BundValue::Float(x, _) => *x,
-        BundValue::Int(i, _) => *i as f64,
-        _ => return Err(domain(word, operand, v.summary(WIDTH))),
-    };
-    if !x.is_finite() {
-        return Err(domain(word, operand, v.summary(WIDTH)));
-    }
-    Ok(x)
-}
-
 /// A non-negative INTEGER operand.
 fn whole(word: &str, operand: &str, v: &BundValue) -> Result<u64, Error> {
     match v.unboxed() {
         BundValue::Int(i, _) if *i >= 0 => Ok(i.unsigned_abs()),
         _ => Err(domain(word, operand, v.summary(WIDTH))),
-    }
-}
-
-/// The answer, or E114 when it is not a finite FLOAT.
-fn finite(word: &str, y: f64, expression: impl FnOnce() -> String) -> Result<f64, Error> {
-    if y.is_finite() {
-        Ok(y)
-    } else {
-        Err(Refusal::Overflow {
-            expression: expression(),
-        }
-        .error(word))
     }
 }
 
