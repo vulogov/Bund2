@@ -1062,6 +1062,37 @@ At Tier 0 each call into a model is interpretation per step. B6 asks
 whether a model may also be given as data, a MAP of rates and
 stoichiometry with no lambda.
 
+*Note 2026-11-15, M11:* built with these choices.
+
+- **The bridge.** A model runs through `kb::bridge::ask`, the function
+  RFC-0013's `ask` lambda runs through, so no new function joins the
+  re-entering or stack-switching audits. `ask` pushes one value and runs a
+  body; a two-argument model's body is its second argument followed by the
+  lambda's items, so the lambda starts with `t y`. A LIST in a body is a
+  literal, so `y` is pushed, not run.
+- **What a model must leave:** a LIST of finite numbers as long as `y` (for
+  `sim.gillespie`, non-negative and one a reaction), an INTEGER converting;
+  E112 names what it left, or `nothing`. `f` and `propensities` that are not
+  LAMBDAs are E101.
+- **`ode.rk4`** takes the steps of h from t0, the last shortened to land on
+  t1 exactly; h is a positive number, and t1 below t0 integrates backwards.
+  More than 10⁶ steps is E111 before any is taken.
+- **`ode.rk45`.** Each `opts` key is optional and a positive number; an
+  unknown key is E101. `h0` defaults to |t1 − t0|/100 and `hmax` to
+  |t1 − t0|. The error norm is the root mean square of
+  err/(atol + rtol·max(|y|, |y′|)); a step is accepted at a norm of at most
+  1, and the next is scaled by 0.9·norm^(−1/5) between 0.2 and 5 times,
+  never above `hmax`. The answer holds every accepted step, the last
+  landing on t1. A span over `hmax` that needs more than 10⁶ steps is E111
+  before any is taken; the step-count cap is E111 and the step floor
+  E110, as §S15 says. A state that overflows is E114.
+- **`sim.gillespie`.** `stoich` is read as `linalg.` reads a MATRIX, with
+  as many columns as `x0` has species (E102). Each event draws two
+  uniforms from the VM's generator, the waiting time as −ln(1 − U)/a₀. The
+  run stops when the next event would pass tmax, or when every propensity
+  is 0; the answer's last point is then the state at tmax, so it always
+  ends at tmax. tmax below 0 is E101.
+
 ### S16. Fitting (Phase 4) [B8]
 
 `fit.nls` (`f x y p0 -- MAP`) fits by Levenberg–Marquardt, Bund2's own.
@@ -1353,6 +1384,16 @@ writes and reads back. `phylo.graph` refuses `seq1` beside `Seq1`, and
 `PROMOTABLE.txt` lists the six words and their forms as not reached, since
 each takes an alignment, a MATRIX with names, a tree or a Newick string the
 palette does not hold.
+
+M11 landed 2026-11-15: `biomath::dynamics`, §S15's `ode.rk4`, `ode.rk45` and
+`sim.gillespie`, opaque and with no `.` form, with criteria 2, 3 (E101,
+E102, E110, E111, E112, E114), 6, 18 and 19, and the choices §S15's M11 note
+records. Both integrators follow logistic growth's closed form to 10⁻⁶;
+Lotka–Volterra's first integral drifts by under 10⁻⁶ over ten periods
+under RK45; a model's extra values leave the caller's stack unchanged.
+A linear birth–death process's mean at t = 1 over 1000 seeded replicates
+is within 3 SE of 10·e^0.5. No `PROMOTABLE.txt` line is added, since
+opaque words are not audited (§S17).
 
 Each milestone ends with conform and coverage unchanged (D72), clippy
 clean, `cargo deny check` clean, and `PROMOTABLE.txt`, `bund2 effects`

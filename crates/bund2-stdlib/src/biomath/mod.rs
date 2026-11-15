@@ -52,8 +52,12 @@
 //! - [`phylo`]: flat trees, distances, UPGMA and neighbour joining, Newick
 //!   both ways, and a tree as a GRAPH.
 //!
-//! The rest arrive with M11 onwards: `ode.` and `sim.` (§S15) and `fit.`
-//! (§S16).
+//! M11 adds §S15:
+//!
+//! - [`dynamics`]: `ode.rk4`, `ode.rk45` and `sim.gillespie`, whose models
+//!   are lambdas run as RFC-0013's bridges run theirs.
+//!
+//! M12 adds `fit.` (§S16).
 //!
 //! **What M1 links.** `nalgebra` and `rand_distr` become direct dependencies
 //! at the versions the lock already held, and `statrs` gains its `nalgebra`
@@ -62,6 +66,7 @@
 pub mod align;
 pub mod describe;
 pub mod dist;
+pub mod dynamics;
 pub mod infer;
 pub mod linalg;
 pub(crate) mod operand;
@@ -85,6 +90,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     align::register(r);
     popgen::register(r);
     phylo::register(r);
+    dynamics::register(r);
     rng::register(r);
 }
 
