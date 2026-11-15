@@ -47,8 +47,13 @@
 //! - [`popgen`]: the `popgen.` words, Hardy–Weinberg's exact test to
 //!   Wright–Fisher trajectories.
 //!
-//! The rest arrive with M10 onwards: `phylo.` (§S14), `ode.` and `sim.`
-//! (§S15) and `fit.` (§S16).
+//! M10 adds §S14:
+//!
+//! - [`phylo`]: flat trees, distances, UPGMA and neighbour joining, Newick
+//!   both ways, and a tree as a GRAPH.
+//!
+//! The rest arrive with M11 onwards: `ode.` and `sim.` (§S15) and `fit.`
+//! (§S16).
 //!
 //! **What M1 links.** `nalgebra` and `rand_distr` become direct dependencies
 //! at the versions the lock already held, and `statrs` gains its `nalgebra`
@@ -60,6 +65,7 @@ pub mod dist;
 pub mod infer;
 pub mod linalg;
 pub(crate) mod operand;
+pub mod phylo;
 pub mod popgen;
 pub mod refuse;
 pub mod rng;
@@ -78,6 +84,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     sequence::register(r);
     align::register(r);
     popgen::register(r);
+    phylo::register(r);
     rng::register(r);
 }
 

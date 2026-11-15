@@ -991,6 +991,41 @@ sampler the work is the number of generations, whatever N is.
   tree two of whose names Title-case alike (E101), so no node is merged
   silently.
 
+*Note 2026-11-15, M10:* built with these choices.
+
+- **A tree operand** is checked whole: three LISTs of one length (E102),
+  STRING names, INTEGER parents from −1 to n − 1 and never the node itself,
+  finite lengths, exactly one root and no cycle (E101). Every walk over it
+  is a loop over indices.
+- **`phylo.dist`** compares each pair over the sites where both hold A, C,
+  G, T or U (as T), upper or lower case, so a gap or an ambiguous code
+  drops a site from that pair only; any other character is E109. `p` is
+  the fraction of those sites that differ; JC69 is −¾ ln(1 − 4p/3) and K2P
+  −½ ln(1 − 2P − Q) − ¼ ln(1 − 2Q), with P the transitions and Q the
+  transversions. A pair sharing no site is E101, as is a saturated one.
+  The answer is a MATRIX of FLOATs. Sequences² × sites over 10¹⁰ is E111.
+- **`phylo.upgma` and `phylo.nj`** take a square (E102), symmetric (E107)
+  MATRIX with a zero diagonal and no negative cell (E101), one STRING name
+  a row (E102), from 2 taxa to 2000 (E101, E111; both are O(n³)). The tree
+  lists the leaves first, in the matrix's order, then each join as it is
+  made; inner nodes are unnamed. Ties go to the first pair in the active
+  list, a new cluster joining its end, so UPGMA writes criterion 17's
+  `((a:2.5,b:2.5):2.08333,(c:3.75,(d:1.5,e:1.5):2.25):0.83333);` with its
+  lengths to their full precision. NJ's last two nodes are joined with
+  the later, its last join, as root, so the root of the five-taxon tree
+  has three children; a negative branch length is kept as computed.
+- **Newick.** Lengths are written in the shortest form that reads back
+  exactly, so a tree round-trips. A name holding a blank or any of
+  `()[]':;,` is quoted, `'` doubled; `_` is kept as written, not read as a
+  blank. The root's length is written only when it is not 0. The reader
+  skips whitespace and `[...]` comments between tokens, takes a missing
+  length as 0, and E113 counts its position from 1.
+- **`phylo.graph`** names an unnamed node `node<i>`, its index, before the
+  Title-case check, and writes each branch as an edge both ways weighted by
+  its length as a FLOAT, so `graph.paths` answers distances along the
+  tree. `graph.path` truncates weights to integers (`graph.rs`, `build`),
+  so it is the wrong word for fractional branch lengths.
+
 ### S15. Dynamics (Phase 4) [B6] [B8]
 
 `ode.rk4` (`f y0 t0 t1 h -- MAP`) and `ode.rk45` (`f y0 t0 t1 opts --
@@ -1307,6 +1342,17 @@ the palette does not reach, and are listed as not reached. `popgen.hwe`,
 `popgen.fst`, `popgen.ld`, `popgen.wf` and `popgen.wf.selection` and their
 forms join the unvaried-operand audit's list, their first operand being a
 count.
+
+M10 landed 2026-11-15: `biomath::phylo`, §S14's six words and their `.`
+forms, with criteria 2, 3 (E101, E102, E107, E109, E111, E113), 6 and 17,
+and the choices §S14's M10 note records. On the five-taxon matrix NJ gives
+a 2, b 3, c 4, d 2, e 1 and inner branches 3 and 2, and UPGMA criterion
+17's Newick string to its five decimals. A Newick string 10⁵ deep parses,
+writes and reads back. `phylo.graph` refuses `seq1` beside `Seq1`, and
+`graph.paths` runs over a tree with distinct mixed-case names.
+`PROMOTABLE.txt` lists the six words and their forms as not reached, since
+each takes an alignment, a MATRIX with names, a tree or a Newick string the
+palette does not hold.
 
 Each milestone ends with conform and coverage unchanged (D72), clippy
 clean, `cargo deny check` clean, and `PROMOTABLE.txt`, `bund2 effects`
