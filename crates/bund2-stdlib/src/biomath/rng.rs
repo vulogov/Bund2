@@ -15,9 +15,12 @@
 
 use std::cell::Cell;
 
-use bund2_api::Vm;
-use rand::SeedableRng;
+use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
+use bund2_value::BundValue;
 use rand::rngs::StdRng;
+use rand::{Rng as _, SeedableRng};
+
+use super::operand::{WIDTH, domain, operands};
 
 thread_local! {
     /// The generator for a `Vm` that keeps none of its own.
@@ -53,6 +56,47 @@ pub fn reseed(vm: &mut dyn Vm, n: i64) {
         None => FALLBACK.with(|c| c.set(Some(g))),
     }
 }
+
+/// `rng.seed` (`n --`): reseed the calling VM's generator (§S8).
+fn rng_seed(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "rng.seed";
+    let v = operands(vm, W, 1)?;
+    match v[0].unboxed() {
+        BundValue::Int(n, _) => {
+            reseed(vm, *n);
+            Ok(())
+        }
+        _ => Err(domain(W, "n", v[0].summary(WIDTH))),
+    }
+}
+
+/// `rng.uniform` (`-- x`): one draw in [0, 1) from the VM's generator.
+fn rng_uniform(vm: &mut dyn Vm) -> Result<(), Error> {
+    let x: f64 = with_rng(vm, |g| g.r#gen());
+    vm.push(BundValue::float(x));
+    Ok(())
+}
+
+/// Register §S8's words. `rng.seed` has its `.` form, taking n from the
+/// workbench; `rng.uniform` is a producer, so has none (§S3, D24).
+pub fn register(r: &mut Registry) {
+    r.register_native(
+        "rng.seed",
+        rng_seed,
+        StackEffect::fixed(1, 0),
+        WordKind::Sync,
+    );
+    crate::wb::bench!(r, "rng.seed", rng_seed, 1, 0);
+    r.register_native(
+        "rng.uniform",
+        rng_uniform,
+        StackEffect::fixed(0, 1),
+        WordKind::Sync,
+    );
+}
+
+/// §S8's words.
+pub const WORDS: [&str; 2] = ["rng.seed", "rng.uniform"];
 
 #[cfg(test)]
 mod tests {

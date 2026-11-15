@@ -20,7 +20,12 @@
 //! - [`vector`]: the `vec.` words;
 //! - [`describe`]: `stat.var` to `stat.cor.kendall`.
 //!
-//! The rest arrive with M4 onwards: §S6's tests (M5), `dist.` and `rng.` (§S7, §S8), `linalg.` (§S9),
+//! M4 adds §S7 and §S8's words:
+//!
+//! - [`dist`]: the distributions, as MAPs, and the words that ask them;
+//! - [`rng`]: `rng.seed` and `rng.uniform`.
+//!
+//! The rest arrive with M5 onwards: §S6's tests (M5), `linalg.` (§S9),
 //! `bio.` (§S10, §S12), `popgen.` (§S13), `phylo.` (§S14), `ode.` and `sim.`
 //! (§S15) and `fit.` (§S16).
 //!
@@ -29,6 +34,7 @@
 //! feature, for the multivariate families (§S7). The lock gains no package.
 
 pub mod describe;
+pub mod dist;
 pub(crate) mod operand;
 pub mod refuse;
 pub mod rng;
@@ -40,6 +46,8 @@ pub fn register(r: &mut bund2_api::Registry) {
     special::register(r);
     vector::register(r);
     describe::register(r);
+    dist::register(r);
+    rng::register(r);
 }
 
 #[cfg(test)]

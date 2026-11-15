@@ -830,7 +830,12 @@ mod honesty_tests {
         // (§S9), and their forms' is the functor: none is a stack's name.
         // `math.betainc`'s first operand is x, a number its domain check
         // refuses unless it lies in [0, 1] (RFC-0015 §S4); its form's is too.
-        const UNVARIED: [&str; 23] = [
+        // `dist.hypergeometric`'s first operand is N, a count its check
+        // refuses unless it is a non-negative INTEGER (RFC-0015 §S7); its
+        // form's is too.
+        const UNVARIED: [&str; 25] = [
+            "dist.hypergeometric",
+            "dist.hypergeometric.",
             "get,",
             "graph.maxflow",
             "graph.maxflow.",

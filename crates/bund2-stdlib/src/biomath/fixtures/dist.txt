@@ -1,0 +1,179 @@
+-1.5 1.0 2.0 dist.normal dist.pdf 9.1324542694510952e-2
+-1.5 1.0 2.0 dist.normal dist.cdf 1.0564977366685526e-1
+-1.5 1.0 2.0 dist.normal dist.sf 8.9435022633314474e-1
+0.5 1.0 2.0 dist.normal dist.pdf 1.933340584014246e-1
+0.5 1.0 2.0 dist.normal dist.cdf 4.0129367431707628e-1
+0.5 1.0 2.0 dist.normal dist.sf 5.9870632568292372e-1
+4.0 1.0 2.0 dist.normal dist.pdf 6.4758797832945864e-2
+4.0 1.0 2.0 dist.normal dist.cdf 9.3319279873114193e-1
+4.0 1.0 2.0 dist.normal dist.sf 6.6807201268858066e-2
+0.001 1.0 2.0 dist.normal dist.quantile -5.1804646123356271
+0.5 1.0 2.0 dist.normal dist.quantile 1.0
+0.999 1.0 2.0 dist.normal dist.quantile 7.1804646123356266
+0.5 0.5 0.75 dist.lognormal dist.pdf 3.0013236790590826e-1
+0.5 0.5 0.75 dist.lognormal dist.cdf 5.5820215922533231e-2
+0.5 0.5 0.75 dist.lognormal dist.sf 9.4417978407746677e-1
+1.5 0.5 0.75 dist.lognormal dist.pdf 3.5180950396935727e-1
+1.5 0.5 0.75 dist.lognormal dist.cdf 4.4984754928501464e-1
+1.5 0.5 0.75 dist.lognormal dist.sf 5.5015245071498536e-1
+5.0 0.5 0.75 dist.lognormal dist.pdf 3.5622227503154238e-2
+5.0 0.5 0.75 dist.lognormal dist.cdf 9.3046331809422998e-1
+5.0 0.5 0.75 dist.lognormal dist.sf 6.9536681905770019e-2
+0.001 0.5 0.75 dist.lognormal dist.quantile 1.6240302418065827e-1
+0.5 0.5 0.75 dist.lognormal dist.quantile 1.6487212707001281
+0.999 0.5 0.75 dist.lognormal dist.quantile 1.6737876909454647e+1
+-0.5 -1.0 3.0 dist.uniform dist.pdf 2.5e-1
+-0.5 -1.0 3.0 dist.uniform dist.cdf 1.25e-1
+-0.5 -1.0 3.0 dist.uniform dist.sf 8.75e-1
+1.0 -1.0 3.0 dist.uniform dist.pdf 2.5e-1
+1.0 -1.0 3.0 dist.uniform dist.cdf 5.0e-1
+1.0 -1.0 3.0 dist.uniform dist.sf 5.0e-1
+2.5 -1.0 3.0 dist.uniform dist.pdf 2.5e-1
+2.5 -1.0 3.0 dist.uniform dist.cdf 8.75e-1
+2.5 -1.0 3.0 dist.uniform dist.sf 1.25e-1
+0.001 -1.0 3.0 dist.uniform dist.quantile -9.96e-1
+0.5 -1.0 3.0 dist.uniform dist.quantile 1.0
+0.999 -1.0 3.0 dist.uniform dist.quantile 2.996
+0.1 1.5 dist.exponential dist.pdf 1.2910619646375867
+0.1 1.5 dist.exponential dist.cdf 1.392920235749422e-1
+0.1 1.5 dist.exponential dist.sf 8.607079764250578e-1
+1.0 1.5 dist.exponential dist.pdf 3.3469524022264474e-1
+1.0 1.5 dist.exponential dist.cdf 7.7686983985157017e-1
+1.0 1.5 dist.exponential dist.sf 2.2313016014842983e-1
+3.0 1.5 dist.exponential dist.pdf 1.666349480736346e-2
+3.0 1.5 dist.exponential dist.cdf 9.8889100346175769e-1
+3.0 1.5 dist.exponential dist.sf 1.1108996538242306e-2
+0.001 1.5 dist.exponential dist.quantile 6.6700022238902235e-4
+0.5 1.5 dist.exponential dist.quantile 4.6209812037329687e-1
+0.999 1.5 dist.exponential dist.quantile 4.6051701859880908
+0.3 2.5 1.5 dist.gamma dist.pdf 2.171907440521872e-1
+0.3 2.5 1.5 dist.gamma dist.cdf 2.9778361590214442e-2
+0.3 2.5 1.5 dist.gamma dist.sf 9.7022163840978556e-1
+1.5 2.5 1.5 dist.gamma dist.pdf 4.0138972612974913e-1
+1.5 2.5 1.5 dist.gamma dist.cdf 5.2011656188670058e-1
+1.5 2.5 1.5 dist.gamma dist.sf 4.7988343811329942e-1
+4.0 2.5 1.5 dist.gamma dist.pdf 4.110693000132312e-2
+4.0 2.5 1.5 dist.gamma dist.cdf 9.6521221949375815e-1
+4.0 2.5 1.5 dist.gamma dist.sf 3.478778050624185e-2
+0.001 2.5 1.5 dist.gamma dist.quantile 7.0070867543073055e-2
+0.5 2.5 1.5 dist.gamma dist.quantile 1.4504867303651758
+0.999 2.5 1.5 dist.gamma dist.quantile 6.8383352174776255
+0.1 2.0 3.5 dist.beta dist.pdf 1.210282717487943
+0.1 2.0 3.5 dist.beta dist.cdf 6.6353332223586851e-2
+0.1 2.0 3.5 dist.beta dist.sf 9.3364666777641315e-1
+0.35 2.0 3.5 dist.beta dist.pdf 1.8777250241341957
+0.35 2.0 3.5 dist.beta dist.cdf 5.0736329865685611e-1
+0.35 2.0 3.5 dist.beta dist.sf 4.9263670134314389e-1
+0.8 2.0 3.5 dist.beta dist.pdf 2.2539565213197869e-1
+0.8 2.0 3.5 dist.beta dist.cdf 9.8640470669680129e-1
+0.8 2.0 3.5 dist.beta dist.sf 1.3595293303198711e-2
+0.001 2.0 3.5 dist.beta dist.quantile 1.137639579513418e-2
+0.5 2.0 3.5 dist.beta dist.quantile 3.4608605024787026e-1
+0.999 2.0 3.5 dist.beta dist.quantile 9.0764193715084619e-1
+0.5 4.5 dist.chisq dist.pdf 6.0756157319004988e-2
+0.5 4.5 dist.chisq dist.cdf 1.4604056903401181e-2
+0.5 4.5 dist.chisq dist.sf 9.8539594309659882e-1
+3.0 4.5 dist.chisq dist.pdf 1.6345991117210333e-1
+3.0 4.5 dist.chisq dist.cdf 3.6723054820997542e-1
+3.0 4.5 dist.chisq dist.sf 6.3276945179002458e-1
+12.0 4.5 dist.chisq dist.pdf 1.0272143532863278e-2
+12.0 4.5 dist.chisq dist.cdf 9.750150078030594e-1
+12.0 4.5 dist.chisq dist.sf 2.4984992196940603e-2
+0.001 4.5 dist.chisq dist.quantile 1.4385041609010082e-1
+0.5 4.5 dist.chisq dist.quantile 3.8537537676844727
+0.999 4.5 dist.chisq dist.quantile 1.9506365470833748e+1
+-2.5 5.5 dist.t dist.pdf 3.2346694032642818e-2
+-2.5 5.5 dist.t dist.cdf 2.5060042934610823e-2
+-2.5 5.5 dist.t dist.sf 9.7493995706538918e-1
+0.5 5.5 dist.t dist.pdf 3.3001408183481438e-1
+0.5 5.5 dist.t dist.cdf 6.8177982564229345e-1
+0.5 5.5 dist.t dist.sf 3.1822017435770655e-1
+3.0 5.5 dist.t dist.pdf 1.6330781185272333e-2
+3.0 5.5 dist.t dist.cdf 9.8663825966907704e-1
+3.0 5.5 dist.t dist.sf 1.3361740330922957e-2
+0.001 5.5 dist.t dist.quantile -5.5047148671609821
+0.5 5.5 dist.t dist.quantile 0.0
+0.999 5.5 dist.t dist.quantile 5.5047148671609811
+0.2 4.0 7.5 dist.f dist.pdf 5.6579038423604665e-1
+0.2 4.0 7.5 dist.f dist.cdf 6.9026664254406777e-2
+0.2 4.0 7.5 dist.f dist.sf 9.3097333574559322e-1
+1.0 4.0 7.5 dist.f dist.pdf 4.3382244301469481e-1
+1.0 4.0 7.5 dist.f dist.cdf 5.3611442277639213e-1
+1.0 4.0 7.5 dist.f dist.sf 4.6388557722360787e-1
+4.0 4.0 7.5 dist.f dist.pdf 2.849340696043494e-2
+4.0 4.0 7.5 dist.f dist.cdf 9.5095509841393556e-1
+4.0 4.0 7.5 dist.f dist.sf 4.904490158606444e-2
+0.001 4.0 7.5 dist.f dist.quantile 2.0281415553727816e-2
+0.5 4.0 7.5 dist.f dist.quantile 9.2000883053336349e-1
+0.999 4.0 7.5 dist.f dist.quantile 1.5632416162999929e+1
+2 20 0.3 dist.binomial dist.pdf 2.7845872524268684e-2
+2 20 0.3 dist.binomial dist.cdf 3.5483132298468692e-2
+2 20 0.3 dist.binomial dist.sf 9.6451686770153131e-1
+6 20 0.3 dist.binomial dist.pdf 1.9163898275344258e-1
+6 20 0.3 dist.binomial dist.cdf 6.0800981220092401e-1
+6 20 0.3 dist.binomial dist.sf 3.9199018779907599e-1
+11 20 0.3 dist.binomial dist.pdf 1.2006654896137025e-2
+11 20 0.3 dist.binomial dist.cdf 9.9486183846487859e-1
+11 20 0.3 dist.binomial dist.sf 5.1381615351214061e-3
+0.001 20 0.3 dist.binomial dist.quantile 1.0
+0.5 20 0.3 dist.binomial dist.quantile 6.0
+0.999 20 0.3 dist.binomial dist.quantile 1.3e+1
+0 4.2 dist.poisson dist.pdf 1.4995576820477704e-2
+0 4.2 dist.poisson dist.cdf 1.4995576820477704e-2
+0 4.2 dist.poisson dist.sf 9.850044231795223e-1
+4 4.2 dist.poisson dist.pdf 1.9442365170822165e-1
+4 4.2 dist.poisson dist.cdf 5.8982702131057777e-1
+4 4.2 dist.poisson dist.sf 4.1017297868942223e-1
+9 4.2 dist.poisson dist.pdf 1.680520275905185e-2
+9 4.2 dist.poisson dist.cdf 9.8887301180102759e-1
+9 4.2 dist.poisson dist.sf 1.1126988198972414e-2
+0.001 4.2 dist.poisson dist.quantile 0.0
+0.5 4.2 dist.poisson dist.quantile 4.0
+0.999 4.2 dist.poisson dist.quantile 1.2e+1
+0 3.5 0.4 dist.negbinomial dist.pdf 4.0477154050155263e-2
+0 3.5 0.4 dist.negbinomial dist.cdf 4.0477154050155263e-2
+0 3.5 0.4 dist.negbinomial dist.sf 9.5952284594984474e-1
+4 3.5 0.4 dist.negbinomial dist.pdf 1.2307230478277394e-1
+4 3.5 0.4 dist.negbinomial dist.cdf 4.8953221897585459e-1
+4 3.5 0.4 dist.negbinomial dist.sf 5.1046778102414541e-1
+12 3.5 0.4 dist.negbinomial dist.pdf 1.853306854483843e-2
+12 3.5 0.4 dist.negbinomial dist.cdf 9.5658430494989105e-1
+12 3.5 0.4 dist.negbinomial dist.sf 4.3415695050108946e-2
+0.001 3.5 0.4 dist.negbinomial dist.quantile 0.0
+0.5 3.5 0.4 dist.negbinomial dist.quantile 5.0
+0.999 3.5 0.4 dist.negbinomial dist.quantile 2.2e+1
+0 50 12 10 dist.hypergeometric dist.pdf 4.6020342145777386e-2
+0 50 12 10 dist.hypergeometric dist.cdf 4.6020342145777386e-2
+0 50 12 10 dist.hypergeometric dist.sf 9.5397965785422261e-1
+2 50 12 10 dist.hypergeometric dist.pdf 3.1420785327116974e-1
+2 50 12 10 dist.hypergeometric dist.cdf 5.5065719739947424e-1
+2 50 12 10 dist.hypergeometric dist.sf 4.4934280260052576e-1
+5 50 12 10 dist.hypergeometric dist.pdf 3.8700087499674865e-2
+5 50 12 10 dist.hypergeometric dist.cdf 9.9267516107383607e-1
+5 50 12 10 dist.hypergeometric dist.sf 7.3248389261639319e-3
+0.001 50 12 10 dist.hypergeometric dist.quantile 0.0
+0.5 50 12 10 dist.hypergeometric dist.quantile 2.0
+0.999 50 12 10 dist.hypergeometric dist.quantile 6.0
+0 0.2 dist.geometric dist.pdf 2.0000000000000001e-1
+0 0.2 dist.geometric dist.cdf 2.0000000000000001e-1
+0 0.2 dist.geometric dist.sf 7.9999999999999999e-1
+3 0.2 dist.geometric dist.pdf 1.024e-1
+3 0.2 dist.geometric dist.cdf 5.9040000000000002e-1
+3 0.2 dist.geometric dist.sf 4.0959999999999998e-1
+10 0.2 dist.geometric dist.pdf 2.1474836479999998e-2
+10 0.2 dist.geometric dist.cdf 9.1410065408000001e-1
+10 0.2 dist.geometric dist.sf 8.5899345919999987e-2
+0.001 0.2 dist.geometric dist.quantile 0.0
+0.5 0.2 dist.geometric dist.quantile 3.0
+0.999 0.2 dist.geometric dist.quantile 3.0e+1
+0 0.3 dist.bernoulli dist.pdf 7.0000000000000001e-1
+0 0.3 dist.bernoulli dist.cdf 7.0000000000000001e-1
+0 0.3 dist.bernoulli dist.sf 2.9999999999999999e-1
+1 0.3 dist.bernoulli dist.pdf 2.9999999999999999e-1
+1 0.3 dist.bernoulli dist.cdf 1.0
+1 0.3 dist.bernoulli dist.sf 0.0
+0.001 0.3 dist.bernoulli dist.quantile 0.0
+0.5 0.3 dist.bernoulli dist.quantile 0.0
+0.999 0.3 dist.bernoulli dist.quantile 1.0
+multinomial 6 [0.2 0.3 0.5] at [1 2 3] 1.35e-1
+dirichlet [2.0 3.0 4.0] at [0.2 0.3 0.5] 7.5599999999999999

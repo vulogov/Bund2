@@ -96,17 +96,27 @@ pub(crate) fn lgamma(x: f64) -> f64 {
 /// I_x(a, b) for a, b > 0 and x in [0, 1], or the number of terms it ran out
 /// at. Numerical Recipes' `betai`, the algorithm `statrs` uses.
 pub(crate) fn beta_reg(x: f64, a: f64, b: f64) -> Result<f64, u64> {
+    beta_both(x, a, b).map(|(lower, _)| lower)
+}
+
+/// I_x(a, b) and its complement 1 − I_x(a, b) = I_{1−x}(b, a), each as
+/// accurate as the side the continued fraction is run on allows: the one it
+/// computes directly is the smaller near either tail, so a distribution's
+/// upper tail (§S7) is not 1 less something close to 1.
+pub(crate) fn beta_both(x: f64, a: f64, b: f64) -> Result<(f64, f64), u64> {
     if x == 0.0 {
-        return Ok(0.0);
+        return Ok((0.0, 1.0));
     }
     if x == 1.0 {
-        return Ok(1.0);
+        return Ok((1.0, 0.0));
     }
     let front = (lgamma(a + b) - lgamma(a) - lgamma(b) + a * x.ln() + b * (-x).ln_1p()).exp();
     if x < (a + 1.0) / (a + b + 2.0) {
-        Ok(front * beta_cf(x, a, b)? / a)
+        let lower = (front * beta_cf(x, a, b)? / a).min(1.0);
+        Ok((lower, 1.0 - lower))
     } else {
-        Ok(1.0 - front * beta_cf(1.0 - x, b, a)? / b)
+        let upper = (front * beta_cf(1.0 - x, b, a)? / b).min(1.0);
+        Ok((1.0 - upper, upper))
     }
 }
 
@@ -136,12 +146,17 @@ fn beta_cf(x: f64, a: f64, b: f64) -> Result<f64, u64> {
     Err(BETA_CAP)
 }
 
-/// P(a, x) for a > 0 and x ≥ 0, or the number of terms it ran out at. The
-/// series below x = a + 1, the continued fraction for Q above it: Numerical
-/// Recipes' `gser` and `gcf`, as `statrs` splits them.
+/// P(a, x) for a > 0 and x ≥ 0, or the number of terms it ran out at.
 pub(crate) fn gamma_lr(x: f64, a: f64) -> Result<f64, u64> {
+    gamma_both(x, a).map(|(lower, _)| lower)
+}
+
+/// P(a, x) and Q(a, x) = 1 − P(a, x). The series below x = a + 1, which
+/// gives P directly, and the continued fraction above it, which gives Q:
+/// Numerical Recipes' `gser` and `gcf`, as `statrs` splits them.
+pub(crate) fn gamma_both(x: f64, a: f64) -> Result<(f64, f64), u64> {
     if x == 0.0 {
-        return Ok(0.0);
+        return Ok((0.0, 1.0));
     }
     let front = (a * x.ln() - x - lgamma(a)).exp();
     if x < a + 1.0 {
@@ -153,7 +168,8 @@ pub(crate) fn gamma_lr(x: f64, a: f64) -> Result<f64, u64> {
             del *= x / ap;
             sum += del;
             if del.abs() < sum.abs() * EPS {
-                return Ok((sum * front).min(1.0));
+                let lower = (sum * front).min(1.0);
+                return Ok((lower, 1.0 - lower));
             }
         }
         Err(GAMMA_CAP)
@@ -172,7 +188,8 @@ pub(crate) fn gamma_lr(x: f64, a: f64) -> Result<f64, u64> {
             let del = d * c;
             h *= del;
             if (del - 1.0).abs() <= EPS {
-                return Ok((1.0 - front * h).max(0.0));
+                let upper = (front * h).clamp(0.0, 1.0);
+                return Ok((1.0 - upper, upper));
             }
         }
         Err(GAMMA_CAP)
@@ -192,7 +209,7 @@ fn choose_exact(n: u64, k: u64) -> Option<u128> {
     Some(c)
 }
 
-fn eti(word: &str, method: &str, cap: u64) -> Error {
+pub(crate) fn eti(word: &str, method: &str, cap: u64) -> Error {
     Refusal::NoConvergence {
         method: method.into(),
         cap,

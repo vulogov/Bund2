@@ -578,6 +578,59 @@ The multivariate families answer `dist.pdf` (with a LIST for x),
 `dist.sample` and `dist.sample*`. They refuse `dist.cdf`, `dist.sf`,
 `dist.quantile`, `dist.mean` and `dist.var` with E105.
 
+*Note 2026-11-15, M4:* built with these changes and choices.
+
+- **Keys.** A distribution MAP's keys are R's argument names: `mean` and
+  `sd`, `meanlog` and `sdlog`, `min` and `max`, `rate`, `shape` and
+  `rate`, `shape1` and `shape2`, `df`, `df1` and `df2`, `size` and
+  `prob`, `lambda`, `prob`, `alpha`. The hypergeometric's are this
+  section's own `N`, `K` and `n`, since R's `m`, `n` and `k` name
+  different things. A MAP built by hand that lacks a key, or holds the
+  wrong kind of value under one, is E104 with Bund2's text (`sd is
+  missing`); one that names no family is E101 on the operand `d`.
+- **Computed by.** The densities, tails, quantiles and moments are Bund2's
+  own, over §S4's `lgamma`, its incomplete beta and gamma (each now
+  answering the pair P and 1 − P, the one its series or continued fraction
+  gives directly computed as such) and `libm`'s `erfc`. `statrs`'s cdfs go
+  through the `beta_reg`, `gamma_lr` and `erfc` that §S4's note of
+  2026-11-14 replaced. `statrs` checks every family's parameters, and its
+  message is E104's text, as above; it draws for the continuous families,
+  the Poisson, the geometric and the Bernoulli.
+- **Quantiles.** No `statrs` `inverse_cdf` is called, so the polish starts
+  from Bund2's own first guess (Wilson–Hilferty for the gamma and χ²,
+  normal approximations otherwise) rather than from `statrs`'s answer. It
+  takes Newton steps until a step no longer moves x, and refuses with E110
+  only if |cdf(x) − p| > 10⁻¹² after 100 steps. A discrete quantile takes R's
+  fuzz, the smallest x with cdf(x) ≥ p·(1 − 64ε). A quantile at an
+  unbounded end of the support (the normal's at 0 or 1, say) is E114.
+- **Sampling.** The hypergeometric draws with `rand_distr`'s
+  `Hypergeometric`, since `statrs`'s draws one unit at a time, O(n) per
+  draw (D39). The multinomial draws a chain of `rand_distr` binomials,
+  O(cells) where `statrs`'s is O(size). The negative binomial is drawn here
+  as its gamma–Poisson mixture so that the Poisson's mean can be capped.
+  The Dirichlet is drawn here too: `statrs` 0.18's Dirichlet sampler
+  returns its gamma draws without dividing by their sum. The geometric is
+  `statrs`'s draw less 1, as above.
+- **Further refusals.** A negative binomial with `prob` 0 is E104 (`p is 0,
+  outside R's (0, 1]`): `statrs` accepts [0, 1], but at 0 there is no
+  distribution. A Poisson draw at a mean above 2⁵³ is E111, since its draw
+  could not be held exactly. A hypergeometric tail that would sum more
+  than 10⁸ terms is E111.
+- **Kinds.** The counts (the binomial's and multinomial's `size`, the
+  hypergeometric's `N`, `K` and `n`) are non-negative INTEGERs, E101
+  otherwise, as `math.choose`'s are. Every answer is a FLOAT, a discrete
+  family's draws and quantiles included, since a series is a LIST of FLOATs
+  (§S2). A multivariate `dist.sample` answers a LIST, and its
+  `dist.sample*` a LIST of LISTs.
+- **Moments.** E105 is answered only where the moment does not exist: the
+  t's mean for ν ≤ 1 and variance for ν ≤ 2, the F's mean for d₂ ≤ 2 and
+  variance for d₂ ≤ 4. The text names the deciding parameter (`t with df
+  = 2 has no variance`).
+- **The multivariate densities.** A multinomial count whose cells do not
+  sum to `size` has mass 0, where R's `dmultinom` stops with an error; a
+  Dirichlet point off the simplex has density 0. `statrs` requires
+  `min < max` of a uniform, where R accepts `min = max`.
+
 ### S8. Seeded randomness (Phase 1) [B4]
 
 - **One generator per VM.** A new method on the `Vm` trait,
@@ -1030,6 +1083,21 @@ S6's tests (M5) are where R's are needed. As M3 builds them:
 - `stat.cor.kendall` compares every pair, n(n − 1)/2 comparisons, which a
   program's series bounds (D39).
 
+M4 landed 2026-11-15: `biomath::dist` (§S7's seventeen constructors and
+nine generic words) and `biomath::rng`'s `rng.seed` and `rng.uniform`
+(§S8), with criteria 2, 3 (E101, E102, E104, E105, E110, E111, E114), 5, 6,
+10 and 11, with the changes §S7's M4 note records. Each word has its `.`
+form but `rng.uniform`, a producer: 55 names. Every fixture point agrees
+with mpmath to within 2e-13. Criterion 11's `vm.spawn` bullet is a test of
+the binary (`crates/bund2-cli/tests/biomath_rng.rs`), since the runtime
+registers `vm.spawn`. `PROMOTABLE.txt` gains thirteen constructors, their
+`.` forms, `rng.seed`, its form and `rng.uniform`. The other four
+constructors (the Bernoulli, binomial, geometric and negative binomial)
+and the generic words, which take a distribution MAP the palette does not
+hold, are listed as not reached. `dist.hypergeometric`
+and its form join the unvaried-operand audit's list, their first operand
+being a count.
+
 Each milestone ends with conform and coverage unchanged (D72), clippy
 clean, `cargo deny check` clean, and `PROMOTABLE.txt`, `bund2 effects`
 and `docs/arity.md` regenerated.
@@ -1114,6 +1182,9 @@ criterion 7's fixture for `math.betainc`, `math.gammainc` and
 `special.txt`, which the test reads. mpmath is an arbitrary-precision
 reference, so the fixture is stricter than R's double-precision answers,
 not looser. Later milestones that name R use it where it is available.
+M4's criterion 10 fixture is mpmath's for the same reason:
+`fixtures/dist.py`, with its output `dist.txt`, which the test runs
+program by program.
 
 ### Every phase
 
