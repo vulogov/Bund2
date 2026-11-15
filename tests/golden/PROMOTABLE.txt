@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 491 promotable of 500 reached, of 675 fixed-effect natives; 9 reached natives
+# 495 promotable of 504 reached, of 695 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -321,6 +321,10 @@ or
 or.
 pair
 pair.
+popgen.hwe
+popgen.hwe.
+popgen.ld
+popgen.ld.
 print
 print.
 println
@@ -665,6 +669,22 @@ vec.sub.
 # not reached: math.betainc.
 # not reached: math.erfinv
 # not reached: math.erfinv.
+# not reached: popgen.freq
+# not reached: popgen.freq.
+# not reached: popgen.fst
+# not reached: popgen.fst.
+# not reached: popgen.het
+# not reached: popgen.het.
+# not reached: popgen.pi
+# not reached: popgen.pi.
+# not reached: popgen.tajima
+# not reached: popgen.tajima.
+# not reached: popgen.theta.w
+# not reached: popgen.theta.w.
+# not reached: popgen.wf
+# not reached: popgen.wf.
+# not reached: popgen.wf.selection
+# not reached: popgen.wf.selection.
 # not reached: raise
 # not reached: return_to
 # not reached: set,

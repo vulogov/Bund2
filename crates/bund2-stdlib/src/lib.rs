@@ -841,7 +841,11 @@ mod honesty_tests {
         // `bio.align`'s and `bio.align.score`'s first operand is a, a
         // sequence read against the matrix, E101 unless a STRING (§S12);
         // their forms' is too.
-        const UNVARIED: [&str; 33] = [
+        // `popgen.hwe`'s first operand is nAA, `popgen.fst`'s n1 and
+        // `popgen.ld`'s nAB, counts their checks refuse unless non-negative
+        // INTEGERs; `popgen.wf`'s and `popgen.wf.selection`'s is N, a count
+        // refused unless from 1 to 10¹² (§S13). Their forms' are too.
+        const UNVARIED: [&str; 43] = [
             "bio.align",
             "bio.align.",
             "bio.align.score",
@@ -862,6 +866,16 @@ mod honesty_tests {
             "kb.word",
             "math.betainc",
             "math.betainc.",
+            "popgen.fst",
+            "popgen.fst.",
+            "popgen.hwe",
+            "popgen.hwe.",
+            "popgen.ld",
+            "popgen.ld.",
+            "popgen.wf",
+            "popgen.wf.",
+            "popgen.wf.selection",
+            "popgen.wf.selection.",
             "save.model",
             "seq.asc",
             "seq.asc.",

@@ -935,6 +935,38 @@ the same cap on n·m, which here bounds time rather than memory.
 `popgen.wf*` cap N at 10¹² and `generations` at 10⁷ (E111). With an O(1)
 sampler the work is the number of generations, whatever N is.
 
+*Note 2026-11-15, M9:* built with these choices.
+
+- **Alleles are read verbatim**, so `"Ag"` holds two alleles, `A` and `g`.
+  A genotype that is not a two-character STRING, and an empty LIST, are
+  E101. `popgen.freq` answers a MAP from each allele, a one-character
+  STRING, to its frequency among the copies. `popgen.het`'s `observed` is
+  the fraction of genotypes whose two characters differ.
+- **`popgen.hwe`.** No individuals, and a monomorphic sample, whose
+  expected counts include 0 and whose χ² is undefined, are E101. The exact
+  test is the appendix's recurrence from the midpoint, in f64; a table
+  counts as no more probable than the observed one when its probability is
+  at most the observed one's times 1 + 10⁻¹², so tables equal in exact
+  arithmetic are not split by rounding. It walks every heterozygote count,
+  so a sample over 10⁸ individuals is E111 (D39).
+- **`popgen.fst`.** nᵢ below 2, where nᵢ − 1 divides, and kᵢ above nᵢ are
+  E101. The estimate may be negative, as Bhatia's is.
+- **`popgen.ld`.** D' is signed, D over the D_max of D's sign, so
+  repulsion answers a negative D'. No haplotypes, and a monomorphic locus,
+  where D' and r² divide by 0, are E101.
+- **Diversity.** A site is read as A, C, G, T, U (as T), upper or lower
+  case; a gap or an ambiguous IUPAC code anywhere in the column skips it,
+  and any other character is E109. A site with three or four bases counts
+  once in S. `popgen.pi` is per sequence, not per site: the mean pairwise
+  difference over the sites read. `popgen.pi` and `popgen.theta.w` need two
+  sequences and `popgen.tajima` four, since Tajima's e₁ and e₂ are 0 below
+  four; no segregating site is E101 for `popgen.tajima`.
+- **Wright–Fisher.** N is from 1 to 10¹², p from 0 to 1, and `generations`
+  from 0. Fitnesses are 1 + s, 1 + hs and 1 for AA, Aa and aa, so
+  p′ = p(1 + s(p + hq)) / (1 + s(p² + 2hpq)), which is p itself when
+  s = 0: `popgen.wf.selection` with s = 0 then draws exactly as `popgen.wf`
+  does. s below −1, and an h making 1 + hs negative, are E101.
+
 ### S14. Phylogenetics (Phase 3) [B7]
 
 - **A tree [B7]** is a MAP of three LISTs of equal length, one entry a
@@ -1262,6 +1294,20 @@ allocated. `PROMOTABLE.txt` lists both words and their forms as not
 reached, since the palette holds no `opts` MAP; all four join the
 unvaried-operand audit's list, their first operand being a sequence.
 
+M9 landed 2026-11-15: `biomath::popgen`, §S13's ten words and their `.`
+forms, with criteria 2, 3 (E101, E102, E109, E111), 6 and 16, and the
+choices §S13's M9 note records. `298 489 213 popgen.hwe` answers the
+criterion's χ², p.chisq and p.exact, and `14 57 50` its p.exact, within
+5·10⁻¹²; π, θ_W and Tajima's D on the six-sequence fixture match the exact
+fractions worked in the test's comment. Over 1000 seeded replicates the
+mean final frequency is within 3 SE of p, and s = 0 matches `popgen.wf`
+draw for draw. `PROMOTABLE.txt` gains `popgen.hwe`, `popgen.ld` and their
+forms; the other eight take a LIST of genotypes or sequences, or operands
+the palette does not reach, and are listed as not reached. `popgen.hwe`,
+`popgen.fst`, `popgen.ld`, `popgen.wf` and `popgen.wf.selection` and their
+forms join the unvaried-operand audit's list, their first operand being a
+count.
+
 Each milestone ends with conform and coverage unchanged (D72), clippy
 clean, `cargo deny check` clean, and `PROMOTABLE.txt`, `bund2 effects`
 and `docs/arity.md` regenerated.
@@ -1361,6 +1407,10 @@ EMBOSS's convention, which a global score in the fixture confirms by hand
 (TTTTACGTACGTAAAA against ACGTACGT, 40 − 2·11.5 = 17). The test compares
 each score, and checks the alignment answered by rescoring it, since an
 equally good alignment may differ from the one EMBOSS prints.
+M9's criterion 16 fixture is `fixtures/popgen.py`, the appendix's
+algorithm and the χ² test at mpmath's 50 digits, with its output
+`popgen.txt`; it reproduces the four values the criterion states to every
+digit given.
 M4's criterion 10 fixture is mpmath's for the same reason:
 `fixtures/dist.py`, with its output `dist.txt`, which the test runs
 program by program.

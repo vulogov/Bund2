@@ -82,7 +82,7 @@ fn t_p(word: &str, t: f64, df: f64) -> Result<f64, Error> {
 }
 
 /// The upper tail of a χ² statistic.
-fn chisq_p(word: &str, x: f64, df: f64) -> Result<f64, Error> {
+pub(crate) fn chisq_p(word: &str, x: f64, df: f64) -> Result<f64, Error> {
     Ok(Family::ChiSq { df }.tails(word, x)?.1)
 }
 

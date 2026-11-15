@@ -42,8 +42,13 @@
 //! - [`align`]: `bio.align` and `bio.align.score`, Gotoh's affine-gap
 //!   alignment, global, semiglobal and local.
 //!
-//! The rest arrive with M9 onwards: `popgen.` (§S13), `phylo.` (§S14),
-//! `ode.` and `sim.` (§S15) and `fit.` (§S16).
+//! M9 adds §S13:
+//!
+//! - [`popgen`]: the `popgen.` words, Hardy–Weinberg's exact test to
+//!   Wright–Fisher trajectories.
+//!
+//! The rest arrive with M10 onwards: `phylo.` (§S14), `ode.` and `sim.`
+//! (§S15) and `fit.` (§S16).
 //!
 //! **What M1 links.** `nalgebra` and `rand_distr` become direct dependencies
 //! at the versions the lock already held, and `statrs` gains its `nalgebra`
@@ -55,6 +60,7 @@ pub mod dist;
 pub mod infer;
 pub mod linalg;
 pub(crate) mod operand;
+pub mod popgen;
 pub mod refuse;
 pub mod rng;
 pub mod sequence;
@@ -71,6 +77,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     linalg::register(r);
     sequence::register(r);
     align::register(r);
+    popgen::register(r);
     rng::register(r);
 }
 
