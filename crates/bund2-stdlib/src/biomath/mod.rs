@@ -33,8 +33,12 @@
 //!
 //! - [`linalg`]: the `linalg.` words, over `nalgebra`.
 //!
-//! The rest arrive with M7 onwards:
-//! `bio.` (§S10, §S12), `popgen.` (§S13), `phylo.` (§S14), `ode.` and `sim.`
+//! M7 adds §S10:
+//!
+//! - [`sequence`]: the `bio.` sequence words, and NCBI's genetic codes.
+//!
+//! The rest arrive with M8 onwards:
+//! `bio.align` (§S12), `popgen.` (§S13), `phylo.` (§S14), `ode.` and `sim.`
 //! (§S15) and `fit.` (§S16).
 //!
 //! **What M1 links.** `nalgebra` and `rand_distr` become direct dependencies
@@ -48,6 +52,7 @@ pub mod linalg;
 pub(crate) mod operand;
 pub mod refuse;
 pub mod rng;
+pub mod sequence;
 pub mod special;
 pub mod vector;
 
@@ -59,6 +64,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     dist::register(r);
     infer::register(r);
     linalg::register(r);
+    sequence::register(r);
     rng::register(r);
 }
 

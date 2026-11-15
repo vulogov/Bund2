@@ -779,6 +779,48 @@ NCBI's `gc.prt`, which is committed as a fixture with its release named in
 its header. `bio.translate` answers every table that file lists; any
 other number is E101. Criterion 13 compares all 64 codons of each.
 
+*Note 2026-11-15, M7:* built with these choices.
+
+- **The tables.** `crates/bund2-stdlib/src/biomath/fixtures/gc.prt` is
+  NCBI's file at Version 4.6, as its header names it, fetched from
+  `ftp.ncbi.nih.gov/entrez/misc/data/gc.prt` on 2026-11-15. It lists 27
+  tables, ids 1 to 6, 9 to 16 and 21 to 33. Only the `ncbieaa` rows are
+  transcribed; no word of §S10 reads the start-codon rows.
+- **Operands.** A sequence that is not a STRING is E101, as are an
+  alphabet name other than the four, a table id the file does not list,
+  and a LIST for `bio.consensus` or `bio.pwm` that is empty or holds
+  something other than STRINGs. A position in E109 counts from 1, as the
+  family's other refusals do; coordinates in an answer count from 0.
+- **Which characters each word reads.** `bio.complement` and
+  `bio.revcomp` read the fifteen IUPAC codes and nothing else, so U and
+  `-` are E109. `bio.translate`, `bio.orfs`, `bio.gc` and `bio.pwm.scan`
+  read the IUPAC codes and U, which reads as T, so RNA translates as DNA
+  does; E109 names the alphabet `iupac`. An ambiguous code is never
+  resolved: its codon is `X`, even where every resolution would agree, it
+  is not a base to `bio.gc`, and a window holding one is not scored.
+  `bio.pwm` reads A, C, G and T, E109 naming `dna`. `bio.transcribe`,
+  `bio.backtranscribe`, `bio.kmers`, `bio.count`, `bio.hamming` and
+  `bio.consensus` read any character; the transcriptions change T and U
+  and keep every other character.
+- **Case.** The words that rewrite a sequence keep each character's case.
+  The words that count, `bio.kmers`, `bio.count` and `bio.consensus`, fold
+  to upper case first, so a soft-masked stretch counts with the rest.
+  `bio.translate` answers upper case. `bio.hamming` compares characters
+  case and all, as `string.distance.hamming` does; an empty STRING is
+  valid in every alphabet.
+- **`bio.orfs`.** An ORF starts at the first ATG after the previous stop
+  in its frame, so an ATG inside an ORF does not start another. `end`
+  includes the stop codon, so the span translates to `protein` followed by
+  `*`; `min` counts the codons of `protein`, ATG included, and is a
+  non-negative INTEGER. An ATG with no stop after it in frame is not an
+  ORF. The answer is ordered by `start`, then `end`, then strand.
+- **`bio.consensus`.** A gap is `-`. Gaps are not counted in a column
+  unless every symbol in it is a gap, so a column with one base and
+  three gaps is that base.
+- **`bio.pwm.scan`.** `pwm` must have four rows, A C G T, E101 otherwise;
+  its cells are read as `linalg.` reads a MATRIX (E103, E101). A `pwm`
+  wider than `s` answers an empty LIST.
+
 ### S11. Refusals (all phases)
 
 Codes are this RFC's own, E101 to E115, rendered as RFC-0013's are:
@@ -1167,6 +1209,18 @@ and 12, and the choices §S9's M6 note records. Worked example 5 answers
 `fixtures/linalg.py`, which also holds the 3×3 fixtures' exact answers. `PROMOTABLE.txt` gains
 `linalg.identity` and its form; the other eleven take a MATRIX of numbers,
 which the palette does not hold, so are listed as not reached.
+
+M7 landed 2026-11-15: `biomath::sequence`, §S10's fourteen words and their
+`.` forms, with criteria 2, 3 (E101, E102, E103, E109), 6, 13 and 14, and
+the choices §S10's M7 note records. `bio.translate` answers all 27 tables
+of the committed `gc.prt`, Version 4.6, and criterion 14 compares each
+table's 64 codons, spelled from the file's own base rows, with its
+`ncbieaa` row. Worked example 2 answers `TCAGCGGCCCATTACAATGGCCAT` and
+`MAIVMGR*`. `PROMOTABLE.txt` gains nine words and their forms; the
+palette's operands do not reach `bio.valid?`, `bio.translate`,
+`bio.consensus`, `bio.pwm` or `bio.pwm.scan`, so they are listed as not
+reached. `bio.pwm.scan` and its form join the unvaried-operand audit's
+list, their first operand being the sequence scanned.
 
 Each milestone ends with conform and coverage unchanged (D72), clippy
 clean, `cargo deny check` clean, and `PROMOTABLE.txt`, `bund2 effects`

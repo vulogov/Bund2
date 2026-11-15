@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 473 promotable of 482 reached, of 643 fixed-effect natives; 9 reached natives
+# 491 promotable of 500 reached, of 671 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -69,6 +69,24 @@ args.parse
 at
 attribute
 attribute.
+bio.backtranscribe
+bio.backtranscribe.
+bio.complement
+bio.complement.
+bio.count
+bio.count.
+bio.gc
+bio.gc.
+bio.hamming
+bio.hamming.
+bio.kmers
+bio.kmers.
+bio.orfs
+bio.orfs.
+bio.revcomp
+bio.revcomp.
+bio.transcribe
+bio.transcribe.
 bus.data
 bus.data.current
 car
@@ -502,6 +520,16 @@ vec.sub.
 #
 # Fixed-effect natives the palette never brought to `Ok`:
 # not reached: at.
+# not reached: bio.consensus
+# not reached: bio.consensus.
+# not reached: bio.pwm
+# not reached: bio.pwm.
+# not reached: bio.pwm.scan
+# not reached: bio.pwm.scan.
+# not reached: bio.translate
+# not reached: bio.translate.
+# not reached: bio.valid?
+# not reached: bio.valid?.
 # not reached: concat_with_space
 # not reached: concat_with_space.
 # not reached: csv

@@ -835,7 +835,12 @@ mod honesty_tests {
         // form's is too. `stat.test.binom`'s first operand is k, a count its
         // check refuses unless it is a non-negative INTEGER (§S6); its form's
         // is too.
-        const UNVARIED: [&str; 27] = [
+        // `bio.pwm.scan`'s first operand is s, the sequence it scans, read
+        // as nucleotides and refused with E109 at any other character
+        // (§S10); its form's is too.
+        const UNVARIED: [&str; 29] = [
+            "bio.pwm.scan",
+            "bio.pwm.scan.",
             "dist.hypergeometric",
             "dist.hypergeometric.",
             "get,",
