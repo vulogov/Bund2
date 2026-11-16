@@ -17210,7 +17210,9 @@ The reasoning for each is in the RFC, under the section the marker names.
   B10, B11, B12, B15)
 - Status: **RESOLVED**. Ruled by the repository owner, 2026-11-16: "all
   as recommended"; A2 re-ruled C and A9 raised and ruled A the same day
-  (the amendment below). *(Was: OPEN; then RESOLVED except A9.)* A1–A8 are each **A**. The rulings were given after the
+  (the amendment below); A7's wording confirmed, A9 re-ruled C in its k,
+  A3 confirmed on a corrected premise and C's exact branch widened, all
+  the same day (the later amendments below). *(Was: OPEN; then RESOLVED except A9.)* A1–A8 are each **A**. The rulings were given after the
   owner was shown every option with its recommendation and reason. Ruling
   these does not accept the RFC; that is the owner's separate step.
   *(Was: OPEN. RFC-0016 is written against each recommended option and
@@ -17263,6 +17265,11 @@ The floor is never too narrow but is up to 4 steps too wide at 99%; rounding is 
 The estimate (the Hodges–Lehmann median), the order-statistic interval and the cap of 10⁷ on n·m stand as ruled under A. A9's ruling of A above is superseded in its k and kept as the record.
 
 *Also noted the same day, for the review's N11:* this entry's heading names A1–A8 and was written before A9 was raised; the entry covers A1–A9. Its "What 'additive' means" bullet, "RFC-0015's test answers gain keys and lose none", is superseded by A2's re-ruling as C: RFC-0015's test answers do not change at all.
+
+*Amended 2026-11-16, after RFC-0016's third review (B1, S1)*, by the repository owner, "both as recommended":
+
+- **A3 confirmed on a corrected premise.** The ruling was explained by saying a program meets NODATA on `"upper" get` for an absent key. It does not: `get` on a MAP without the key is an error, `GET returns error: Key not found: upper` (`reference/rust_dynamic/src/get.rs:10-12`; probed). A program tests `"upper" ?key` first. With that consequence, A3 stays **A**: the key is left out. ±∞ is against B12, and NONE would mean "infinite" here and "missing" under D252.
+- **A9's C widened.** The exact k now applies when the pooled sample has no ties and C(n + m, n) < 2¹²⁸, in place of n, m < 50. The floor's interval was below conf for a small sample against one of 50 or more: at n = 2, m = 52 and 90% it covers 0.8994. Under the wider condition every n ≤ 5 up to the 10⁷ cap on n·m is exact, and a balanced n = m up to 65. Outside it, sampled at n from 67 to 100 and m from n to 5n at 80–99%, one- and two-sided, the floor is at most 1 above the exact k in 10 of 128 cases, its coverage short of conf by at most 2.1·10⁻⁴ (scratch `widen.py`). The ruling stays **C**, with this condition.
 
 ## D252 — Research 07's C1 and C2: a table's representation and the missing-value marker
 
