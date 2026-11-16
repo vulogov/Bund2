@@ -17190,3 +17190,85 @@ mathematical functionality with logic programming".
 | **B16** | Logic programming | **A** bridges only, plus an example rule base. **B** float goals and aggregates in `kb.*`, by an RFC-0013 amendment. **C** fact-emitting words | **A** |
 
 The reasoning for each is in the RFC, under the section the marker names.
+
+## D251 — RFC-0016's rulings, A1–A8: intervals, effect sizes, correlation tests, rounding and sampling
+
+**Raised 2026-11-16** by RFC-0016
+(`docs/rfc/RFC-0016-statistical-inference.md`), drafted on the owner's
+"RFC for Phase A", after `docs/research/07-statistical-research.md`.
+
+- **What exists:** RFC-0015's tests, each answering `statistic`, `p`,
+  `df` and `method`, two-sided; `stat.cor.*` answering a coefficient
+  only; three corrections; the reference's `math.round` (one operand,
+  half away from zero) and `format` (a template with no precision); the
+  VM's seeded generator with `rng.uniform` and `dist.sample`.
+- **What "additive" means here:** no word's operands or effect change;
+  RFC-0015's test answers gain keys and lose none; conform and coverage
+  move by zero (D72).
+- Blocks: RFC-0016
+- Depends on: D72, D21, D24, D36, D37, D38, D39, D111; D250 (B3, B4, B5,
+  B10, B11, B12, B15)
+- Status: **OPEN**. RFC-0016 is written against each recommended option
+  and marks each dependent passage **[A*n*]**; none is adopted until
+  ruled.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **A1** | Names for rounding and formatting | **A** `math.round.places`, `math.signif`, `string.fixed`, `string.sci`. **B** one `math.format` taking a mode | **A** |
+| **A2** | Where intervals go | **A** keys on the plain tests, at 95% two-sided, plus `.opts` variants. **B** separate `stat.ci.*` words. **C** `.opts` variants only | **A** |
+| **A3** | An infinite interval end | **A** leave the key out. **B** ±∞, against B12. **C** NODATA in a two-element LIST | **A** |
+| **A4** | Default confidence level | **A** 0.95. **B** none, `conf` required | **A** |
+| **A5** | Spearman's p | **A** the t approximation (R's `exact = FALSE`). **B** AS 89's exact p for n < 1290 without ties | **A** |
+| **A6** | Ties in rounding to places | **A** the exact binary value, ties to even. **B** half away from zero, as `math.round` | **A** |
+| **A7** | Reference values | **A** mpmath fixtures from the definitions, plus R's printed help-page outputs. **B** install R and commit its output | **A** |
+| **A8** | Which build | **A** the default build, adding no crate. **B** a feature | **A** |
+
+The reasoning for each is in the RFC, under the section the marker names.
+
+## D252 — Research 07's C1 and C2: a table's representation and the missing-value marker
+
+**Raised 2026-11-16** by `docs/research/07-statistical-research.md`
+(§5, C1 and C2), on the owner's "C1 and C2: options and
+recommendations". The options were shown with these findings:
+
+- **A MAP sorts its keys.** `BundValue::map` takes a `BTreeMap`
+  (`crates/bund2-value/src/lib.rs`, `map`), so `dict "b" 1 set "a" 2 set`
+  prints `{ a=2 :: b=1 :: }` and a MAP of columns loses their order.
+- **`csv` drops a missing cell.** An empty field is null, and a null cell
+  is left out of its row, as the reference skips polars values it has no
+  arm for (`crates/bund2-stdlib/src/data.rs`, the module doc and `cell`).
+  A column with gaps arrives shorter, and its rows no longer align.
+- **NODATA ends a drained series** (`crates/bund2-stdlib/src/series.rs`,
+  the module doc and `get_data`), and `+` will not append one to a LIST.
+- **NaN passes through the reference's series words**
+  (`1.0 float.NaN 3.0 stat.mean` answers NaN) and is refused by RFC-0015's
+  (B12).
+- **NONE** (tag 0, `BundValue::none`) exists and no word produces it.
+
+- Blocks: research 07's Phase B (frames, factors, missing values) and
+  every later phase that reads a frame
+- Depends on: D72, D51, D250 (B3, B12)
+- Status: **RESOLVED** by the repository owner, 2026-11-16, ruling both as
+  recommended: "C1, recommend a MAP with reserved keys: an ordered columns
+  list, data, and levels for factors. C2, recommend the unused NONE value
+  as "missing": paired with a per-word na option defaulting to refuse."
+
+| | Question | Options | Ruled |
+|---|---|---|---|
+| **C1** | A table's representation | **A** a MAP of equal-length LISTs by convention. **B** a MAP with reserved keys: `columns` (an ordered LIST of names), `data` (name → LIST) and `levels` (name → LIST of a factor's levels). **C** a CLASS instance. **D** a new value type | **B** |
+| **C2** | The missing-value marker | **A** NaN. **B** NODATA inside a LIST. **C** NONE, made and tested by words of its own, with a per-word `na` option, `"refuse"` by default or `"omit"`. **D** a mask beside each column | **C** |
+
+What the rulings fix, for the RFC that specifies Phase B to build on:
+
+- **A frame is a plain MAP** and stays one, so `json`, the wire format and
+  `vm.spawn` carry it unchanged. Each `frame.` word checks its shape on
+  entry and refuses a malformed one with an S11-style refusal naming what
+  is wrong.
+- **NONE means missing only to words that say so.** RFC-0015's and
+  RFC-0016's words keep refusing anything that is not a finite number
+  (B12 stands). A word that accepts NONE takes the `na` option; under
+  `"omit"` it drops incomplete cases and reports how many it dropped.
+- **`csv` is unchanged** (D51). A frame reader of Bund2's own puts NONE
+  where a cell is empty, so rows stay aligned.
+- **Names** of the NONE words, the frame words and the reader are the
+  Phase B RFC's to propose.
