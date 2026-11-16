@@ -17244,6 +17244,26 @@ the record.
 |---|---|---|---|
 | **A9** | `stat.test.mannwhitney.opts`'s estimate and interval | **A** the Hodges–Lehmann median of the n·m differences, and the distribution-free interval of their order statistics, [D₍ₖ₎, D₍ₙₘ₊₁₋ₖ₎] with k = ⌊nm/2 − z·√(nm(n + m + 1)/12)⌋ (Hollander and Wolfe); k < 1 is E101; n·m capped at 10⁷ (E111). **B** R's asymptotic estimate and interval, roots of the normal approximation found by inversion | **A**: defined exactly, so a fixture checks it by sorting; B's statistic is a step function with no unique root, and its definition rests on R's source, which is not here (Q62) |
 
+*Amended 2026-11-16, after RFC-0016's second review (S7):* **A7's wording confirmed** by the repository owner, "confirm the new wording". Option A now reads: mpmath fixtures from the definitions, plus R's printed output where a source is committed; where none is, the fixture alone is the check. The ruling stays **A**; the wording above is kept as the record.
+
+*Amended 2026-11-16, after RFC-0016's second review (S1):* **A9 re-ruled C** by the repository owner, "C". A9's option A floors the normal approximation for k, which the review found degenerate on criterion 6's case (k = 1, the whole range of the differences). Measured against the exact k, the largest k whose interval covers at least conf under the null distribution of U, over every pair of sizes 2 ≤ n ≤ m ≤ 20 (mpmath scratch `kcmp.py`):
+
+| conf | floor equals exact | round equals exact | round too narrow |
+|---|---|---|---|
+| 0.90 | 107 of 186 | 169 of 186 | 17 |
+| 0.95 | 43 of 182 | 143 of 182 | 0 |
+| 0.99 | 0 of 165 | 1 of 165 | 0 |
+
+The floor is never too narrow but is up to 4 steps too wide at 99%; rounding is too narrow, below conf, in 17 cases at 90%.
+
+| | Question | Options | Ruled |
+|---|---|---|---|
+| **A9** | `stat.test.mannwhitney.opts`'s k | **A** ⌊nm/2 − z·√(nm(n + m + 1)/12)⌋ always. **B** that value rounded to nearest. **C** the exact k from the null distribution of U when the pooled sample has no ties and n, m < 50; A's floor otherwise | **C**: exact where it can be, never below conf, never wider than needed; A's floor where the exact distribution does not apply, conservative |
+
+The estimate (the Hodges–Lehmann median), the order-statistic interval and the cap of 10⁷ on n·m stand as ruled under A. A9's ruling of A above is superseded in its k and kept as the record.
+
+*Also noted the same day, for the review's N11:* this entry's heading names A1–A8 and was written before A9 was raised; the entry covers A1–A9. Its "What 'additive' means" bullet, "RFC-0015's test answers gain keys and lose none", is superseded by A2's re-ruling as C: RFC-0015's test answers do not change at all.
+
 ## D252 — Research 07's C1 and C2: a table's representation and the missing-value marker
 
 **Raised 2026-11-16** by `docs/research/07-statistical-research.md`

@@ -230,3 +230,18 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   "no new crate" holds by another route. The research's §3.4 ChaCha
   generator value is refined, not contradicted: RFC-0015 chooses a
   `StdRng` per VM (D250 B4).
+
+- `07-statistical-research.md:133-140,216` -> RFC-0016 departs from §3.4
+  and from §4's Phase A row, recorded here on 2026-11-16 (RFC-0016's
+  second review, S6). §3.4 says "Every test answers its interval and
+  estimate … adding keys breaks no program that reads `p`", and Phase A
+  puts "intervals, estimates and alternatives on RFC-0015's tests". After
+  the first review's B1, D251's A2 was re-ruled C: RFC-0015's tests answer
+  exactly what they answered, and estimates, intervals and alternatives
+  come only from new `<test>.opts` words. Adding keys would have broken
+  more than §3.4 counted: the plain words would gain refusals (a quantile's
+  polish, a bisection, the Hodges–Lehmann cap), costs (O(n·m) for
+  Mann–Whitney, up to 792 support sums for Fisher), and a changed printed
+  key order, since a MAP's keys sort. In the same section, "Spearman's and
+  Kendall's exact and asymptotic p" is narrowed by D251 A5: Spearman's p
+  is the t approximation only; Kendall's keeps both.

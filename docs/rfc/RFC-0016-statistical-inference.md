@@ -1,12 +1,16 @@
 # RFC-0016: Statistical inference — intervals, effect sizes, correlation tests, rounding and resampling primitives
 
-- Status: **Draft**, revision 2 (2026-11-16), on the owner's "RFC for
+- Status: **Draft**, revision 3 (2026-11-16), on the owner's "RFC for
   Phase A", after `docs/research/07-statistical-research.md`. Revision 2
-  answers `docs/rfc/reviews/RFC-0016-review-2026-11-16.md`; §Revision 2
-  maps each finding to the change it made. Its owner questions are D251's
-  A1–A9, **RESOLVED 2026-11-16**: A1 and A3–A8 as recommended (**A**), A2
-  re-ruled **C** after the review's B1, and A9, raised for its B2, ruled
-  **A**. Every passage that rests on one is marked **[A*n*]**.
+  answers `docs/rfc/reviews/RFC-0016-review-2026-11-16.md` and revision 3
+  answers `docs/rfc/reviews/RFC-0016-review-2026-11-16-2.md`; §Revision 2
+  and §Revision 3 map each finding to the change it made. Its owner
+  questions are D251's A1–A9, **RESOLVED 2026-11-16**: A1 and A3–A8 as
+  recommended (**A**), A2 re-ruled **C** after the first review's B1, A9,
+  raised for its B2, ruled **A** and then re-ruled **C** in its k after
+  the second review's S1, and A7's wording confirmed after that review's
+  S7 (D251's amendments). Every passage that rests on one is marked
+  **[A*n*]**.
 - Depends on: RFC-0015 (the `biomath` family: its operand readers, S3's
   forms, S8's generator, S11's refusals), RFC-0004 (effects)
 - Decisions consumed: D251 (A1–A9), D252 (context only), D21, D24, D36,
@@ -26,8 +30,8 @@ estimates, confidence intervals and effect sizes, tests one-sided
 hypotheses, and prints its numbers to a stated precision. This RFC adds,
 as words of Bund2's own beside RFC-0015's family:
 
-- estimates, confidence intervals and one-sided alternatives for eight of
-  RFC-0015's tests, through new `.opts` variants **[A2]**;
+- estimates and confidence intervals for seven of RFC-0015's tests, and
+  one-sided alternatives for eight, through new `.opts` variants **[A2]**;
 - correlation tests;
 - the Hochberg, Hommel and Benjamini–Yekutieli corrections;
 - effect sizes for two samples and for 2×2 and r×c tables;
@@ -165,7 +169,11 @@ with rustc 1.95.0, by the author and the review). No crate is added.
 - **Options MAPs.** Keys are STRINGs; an unknown key, a key the word does
   not take, or a value of the wrong type or range is E101 naming the key,
   as `ode.rk45`'s options are (RFC-0015 §S15's M11 note). D252's future
-  `na` key would be an addition to these MAPs.
+  `na` key would be an addition to these MAPs. B15's INTEGER conversion
+  does not apply to an option: `conf` is a FLOAT, and no INTEGER lies in
+  (0, 1) in any case.
+- **Quantiles.** Every quantile this RFC uses, the normal's z included, is
+  `dist.rs`'s `Family::quantile`, and so can be E110 as any polish can.
 
 ### S2. Estimates, intervals and alternatives [A2] [A3] [A4] [A9]
 
@@ -190,7 +198,22 @@ and no interval.
 `t1`'s μ₀ and `binom`'s p stay operands, as in the plain words. An empty
 `dict` asks for the defaults.
 
-**The answer** is the plain word's MAP, with these keys added:
+**The answer** has the plain word's keys, `statistic`, `p`, `df` where
+the plain word gives it, and `method`, with these differences:
+
+- **`statistic` and `p`** are for the chosen `alternative` and `mu`: the
+  t of the shifted hypothesis, W of a − μ against b, and for `ks2.opts`
+  one-sided, D⁺ or D⁻ (the alternatives table below). With the defaults,
+  two-sided and `mu` 0, they are the plain word's, bit for bit.
+- **`method`** is the plain word's string (`infer.rs`, each test), except
+  for two words: `fisher.opts`'s is "Fisher's Exact Test for Count Data;
+  conditional maximum likelihood estimate of the odds ratio", and
+  `mannwhitney.opts`'s is given under "Intervals" below. So the seven
+  others answer "One Sample t-test", "Two Sample t-test", "Welch Two Sample
+  t-test", "Paired t-test", "Exact binomial test" and "Asymptotic
+  two-sample Kolmogorov-Smirnov test".
+
+And these keys are added:
 
 | Word | `estimate` | Interval (`lower`, `upper`) | Also |
 |---|---|---|---|
@@ -235,7 +258,9 @@ that a program ported from R means the same thing.
   exp(−2·nm/(n + m)·D²) [UNGROUNDED as R's; Q62].
 
 **Intervals.** At level conf, two-sided with α = 1 − conf split evenly,
-one-sided with α on one end.
+one-sided with α on one end. A one-sided interval keeps the end that
+bounds H₁'s side: [lower, ∞) for "greater", (−∞, upper] for "less", the
+infinite end left out **[A3]**.
 - **t:** estimate ± t₁₋α/₂ · se on the test's df.
 - **Clopper–Pearson:** lower = B⁻¹(α/2; k, n − k + 1), upper =
   B⁻¹(1 − α/2; k + 1, n − k). At k = 0 the lower end is 0, and at k = n
@@ -245,29 +270,52 @@ one-sided with α on one end.
   hypergeometric at odds ratio ψ. The lower end solves P(X ≥ x; ψ) = α/2,
   the upper P(X ≤ x; ψ) = α/2. Each is found on log ψ: bracketed by
   doubling from [−1, 1], at most 64 doublings, then bisected to 10⁻¹⁰
-  relative in ψ, at most 200 steps; either cap is E110. At x the
-  support's minimum, ψ̂ = 0 and the lower end 0 are answered; at its
-  maximum, ψ̂ and the upper end are infinite and are left out **[A3]**.
+  relative in ψ, at most 200 steps; either cap is E110. The noncentral
+  masses are evaluated in log space, the largest log-mass subtracted
+  before exponentiating, as `stat_test_fisher` does for the central case
+  (`infer.rs`), so no ψ along the bracket overflows. At x the support's
+  minimum, ψ̂ = 0 and the lower end 0 are answered; at its maximum, ψ̂ and
+  the upper end are infinite and are left out **[A3]**.
 - **Mann–Whitney [A9]:** with D₍₁₎ ≤ … ≤ D₍ₙₘ₎ the sorted differences
-  aᵢ − bⱼ, the estimate is their median, and the interval is
-  [D₍ₖ₎, D₍ₙₘ₊₁₋ₖ₎] with k = ⌊nm/2 − z₁₋α/₂·√(nm(n + m + 1)/12)⌋
-  (Hollander and Wolfe's distribution-free interval); one-sided, z₁₋α and
-  one end. k < 1 is E101 (`a and b`: too few for the level). This is
-  Bund2's own definition, not R's asymptotic `uniroot` answer, and the
-  `method` says so: "Wilcoxon rank sum test with continuity correction;
-  Hodges–Lehmann estimate, order-statistic interval".
+  aᵢ − bⱼ (n = |a|, m = |b|), the estimate is their median, the mean of
+  D₍ₙₘ/₂₎ and D₍ₙₘ/₂₊₁₎ when nm is even, and the two-sided interval is
+  [D₍ₖ₎, D₍ₙₘ₊₁₋ₖ₎]. Its k is:
+  - **exact** when the pooled n + m values have no ties and n, m < 50:
+    the largest k with P(U ≤ k − 1) ≤ α/2, U the count of pairs with
+    aᵢ > bⱼ under H₀, whose distribution is counted by the recurrence
+    c(n, m, u) = c(n − 1, m, u − m) + c(n, m − 1, u), c(0, m, 0) =
+    c(n, 0, 0) = 1. The counts are exact in `u128`, since C(98, 49) <
+    2¹²⁸, and the ratio to C(n + m, n) is compared in f64. The interval
+    then covers at least conf, and k + 1 would not.
+  - **by the normal approximation** otherwise: k = ⌊nm/2 −
+    z₁₋α/₂·√(nm(n + m + 1)/12)⌋. The floor is Bund2's choice and is
+    conservative: over every 2 ≤ n ≤ m ≤ 20 it is never above the exact
+    k, and up to 4 below it at 99% (D251's amendment). The √ has no tie
+    term, unlike the test's σ (`infer.rs`, `mannwhitney`): the interval is
+    defined over the differences, not the ranks.
+
+  One-sided, α replaces α/2 and the one end above is kept. k < 1 is E101
+  (`a and b`: too few for the level). The p is the plain word's normal
+  approximation in both cases. This is Bund2's own definition, not R's,
+  and the `method` says so: "Wilcoxon rank sum test with continuity
+  correction; Hodges–Lehmann estimate, order-statistic interval".
 
 **Infinite ends [A3].** A one-sided t or Mann–Whitney interval's far end
 is infinite and is left out; so are Fisher's at the support's maximum.
-Clopper–Pearson's far end is 0 or 1 and Fisher's lower end 0, which are
-finite and answered. A program asks `"upper" get` and meets NODATA, as
+Clopper–Pearson's far end is 0 or 1, Fisher's lower end 0, and a
+one-sided Pearson interval's far end −1 or 1 (S3), which are finite and
+answered. A program asks `"upper" get` and meets NODATA, as
 for any absent key.
 
 **Work (D39).** `mannwhitney.opts` forms n·m differences; n·m above 10⁷
-is E111 before allocating (80 MB of f64 at the cap). `fisher.opts` sums
-the support once per bisection step, so its work is at most 264 times
-the plain word's, whose support is already capped at 10⁸ (`infer.rs`,
-`SUPPORT_CAP`). A quantile's polish can be E110, as `dist.quantile`'s is.
+is E111 before allocating (80 MB of f64 at the cap), and the refusal is
+the whole word's, so above the cap a one-sided p has no word either
+(§Alternatives). Its exact k counts at most 49·49·2402 terms.
+`fisher.opts` finds up to three roots, ψ̂ and the two ends, each by at
+most 64 doublings and 200 bisection steps, each step one sum over the
+support: at most 792 times the plain word's work (264 per root), whose
+support is already capped at 10⁸ (`infer.rs`, `SUPPORT_CAP`). A
+quantile's polish can be E110, as `dist.quantile`'s is.
 
 **Forms.** Each `.opts` word has a plain and a `.` form; the `.` form
 takes the options MAP from the workbench. `stat.test.t1.opts` reads its
@@ -288,32 +336,71 @@ fixed effects.
   [UNGROUNDED as `cor.test`'s; Q62].
 - **Spearman:** ρ, the statistic S = (n³ − n)(1 − ρ)/6, and the p of the
   t approximation on n − 2 df **[A5]**.
-- **Kendall:** τ-b, as `stat.cor.kendall`. With no ties and n < 50, the
-  exact p of T, the count of concordant pairs, by the recurrence for the
-  number of permutations with a given number of inversions; otherwise the
-  normal approximation with the tie-corrected variance. `statistic` is T
-  or z accordingly [UNGROUNDED as R's; Q62]. Its pair loop is
-  `stat.cor.kendall`'s, n(n − 1)/2 comparisons, bounded by the program's
-  series (RFC-0015's M3 note).
+- **Kendall:** τ-b, as `stat.cor.kendall`.
+  - **Exact, with no ties in either series and n < 50:** `statistic` is
+    T, the count of concordant pairs. Under H₀, T has the distribution of
+    the number of non-inversions of a uniform permutation of n, counted by
+    the recurrence I(n, t) = Σ_{j=0}^{n−1} I(n − 1, t − j), I(1, 0) = 1,
+    over n!. "greater" is P(T ≥ t), "less" P(T ≤ t), and two-sided is
+    min(1, 2·P(T ≥ t)) when t > n(n − 1)/4, else min(1, 2·P(T ≤ t)).
+  - **Otherwise, the normal approximation:** `statistic` is z = S/√v with
+    S = n_c − n_d and, for tie groups of sizes tᵢ in a and uⱼ in b,
+    v = (v₀ − v_t − v_u)/18 + v₁/(2n(n − 1)) + v₂/(9n(n − 1)(n − 2)),
+    where v₀ = n(n − 1)(2n + 5), v_t = Σ tᵢ(tᵢ − 1)(2tᵢ + 5), v_u = Σ
+    uⱼ(uⱼ − 1)(2uⱼ + 5), v₁ = Σ tᵢ(tᵢ − 1) · Σ uⱼ(uⱼ − 1), and v₂ =
+    Σ tᵢ(tᵢ − 1)(tᵢ − 2) · Σ uⱼ(uⱼ − 1)(uⱼ − 2). No continuity correction.
+    p is the normal tail, doubled for two-sided.
 
-At |r| = 1 the t is infinite: `statistic` is left out and p is 0 (or 1
-for the opposite one-sided alternative). Fewer than three pairs, or a
-constant series, is E101.
+  These definitions are Bund2's; that R's `cor.test` computes the same is
+  [UNGROUNDED; Q62]. Its pair loop is `stat.cor.kendall`'s, n(n − 1)/2
+  comparisons, bounded by the program's series (RFC-0015's M3 note).
+
+**At |r| = 1** Pearson's t is infinite: `statistic` is left out, p is 0
+(or 1 for the opposite one-sided alternative), and the Fisher-z interval
+is [r, r], tanh(±∞) = ±1 at both ends, answered. Spearman's S is finite
+at |ρ| = 1 (0 or (n³ − n)/3) and is kept; its t, and so its p, follows
+Pearson's rule. A one-sided Pearson interval's far end is −1 or 1, finite
+and answered. Fewer than three pairs, or a constant series, is E101.
+
+**Effects.** As RFC-0015 §S3's two-series words: each test is `a b --
+MAP`, fixed, consuming 2, with a plain and a `.` form, the `.` form taking
+b from the workbench; each `.opts` is `a b opts -- MAP`, consuming 3, its
+`.` form taking the options MAP from the workbench.
 
 ### S4. Further corrections
 
 `stat.padjust.hochberg`, `stat.padjust.hommel` and `stat.padjust.by`
-(`p-list -- p-list`), in RFC-0015's four forms, answering in input order
-as R's `p.adjust` does with those methods [UNGROUNDED; Q62]. A p outside
-[0, 1] is E101; an empty LIST answers an empty LIST. Hommel's method is
-O(n²) in the number of p-values: above 10⁴ p-values (10⁸ steps) it is
-E111 before it starts (D39).
+(`p-list -- p-list`), in RFC-0015's four forms, opaque by RFC-0015 §S3's
+one-series rule, as its three corrections are. With p₍₁₎ ≤ … ≤ p₍ₙ₎ the
+sorted p-values, each adjusted value is computed in sorted order and
+answered in input order:
+
+- **Hochberg:** p̃₍ᵢ₎ = min_{j ≥ i} min(1, (n − j + 1)·p₍ⱼ₎).
+- **Benjamini–Yekutieli:** with c = Σ_{k=1}^{n} 1/k, p̃₍ᵢ₎ =
+  min_{j ≥ i} min(1, c·n·p₍ⱼ₎/j): Benjamini–Hochberg's values times c,
+  capped at 1.
+- **Hommel:** p̃ᵢ is the largest Simes p over every subset containing i,
+  min(1, max_{I ∋ i} min_{j} |I|·p₍ⱼ₎^I/j), the closed-testing procedure
+  over Simes' tests. It is computed without enumerating subsets:
+  1. q = a = min_{i} n·p₍ᵢ₎/i, in every position;
+  2. for m from n − 1 down to 2: let q₁ = min_{i=2}^{m} m·p₍ₙ₋ₘ₊ᵢ₎/i;
+     set qᵢ = min(m·p₍ᵢ₎, q₁) for i ≤ n − m + 1 and qᵢ = q₍ₙ₋ₘ₊₁₎ for
+     i > n − m + 1; then aᵢ = max(aᵢ, qᵢ);
+  3. p̃₍ᵢ₎ = min(1, max(aᵢ, p₍ᵢ₎)).
+
+  The steps agree with the subset definition to the last bit on 300
+  random cases of n ≤ 9 (mpmath scratch `hommel.py`, by the author); the
+  fixture checks them against the subset definition for its 20 p-values.
+
+That R's `p.adjust` gives the same is [UNGROUNDED; Q62]. A p outside
+[0, 1] is E101; an empty LIST answers an empty LIST. Hommel's steps are
+O(n²): above 10⁴ p-values (10⁸ steps) it is E111 before it starts (D39).
 
 ### S5. Effect sizes
 
 | Word | Operands | Answers |
 |---|---|---|
-| `stat.effect.cohend` | a b | `d`, (mean(a) − mean(b))/s_pooled; `g`, J·d with J = exp(lgamma(df/2) − lgamma((df − 1)/2))/√(df/2), df = n_a + n_b − 2 |
+| `stat.effect.cohend` | a b | `d`, (mean(a) − mean(b))/s_pooled; `g`, J·d with J = Γ(df/2)/(Γ((df − 1)/2)·√(df/2)), df = n_a + n_b − 2 |
 | `stat.effect.oddsratio` | 2×2 MATRIX [[a b] [c d]] | `estimate` ad/(bc), `log`, `se` √(1/a + 1/b + 1/c + 1/d) (Woolf), `lower`, `upper`, `conf` 0.95 |
 | `stat.effect.riskratio` | 2×2 MATRIX, rows exposed then unexposed, first column the event | `estimate` (a/(a + b))/(c/(c + d)), `log`, `se` √(1/a − 1/(a + b) + 1/c − 1/(c + d)) (Katz), `lower`, `upper`, `conf` 0.95 |
 | `stat.effect.cramerv` | r×c MATRIX | V = √(χ²/(n·(min(r, c) − 1))), without Yates' correction |
@@ -325,6 +412,14 @@ E111 before it starts (D39).
   `cramerv` has `stat.test.chisq.table`'s refusals (a table at least
   2×2, no row or column summing to 0, cells non-negative) and so
   min(r, c) ≥ 2; a zero *cell* is legitimate there.
+- **J** is computed as exp(lgamma(df/2) − lgamma((df − 1)/2))/√(df/2)
+  for df ≤ 200, and above that by the series Γ(z + ½)/Γ(z) =
+  √z·(1 − 1/(8z) + 1/(128z²) + 5/(1024z³) − 21/(32768z⁴)) with
+  z = (df − 1)/2, divided by √(df/2). The lgamma difference cancels as df
+  grows (1.2e-10 relative at df 4·10⁵), the series does not (below 1e-14
+  from df 398 up; 5e-12 at df 100), measured against mpmath (scratch, by
+  the author and the review's N6).
+- **The ratios' intervals** are exp(`log` ∓ z₁₋α/₂·`se`) at conf 0.95.
 - **Two odds ratios.** `stat.effect.oddsratio`'s is the sample ratio;
   `stat.test.fisher.opts`'s `estimate` is the conditional MLE. They differ
   on the same table, and each word's `method` names which it is.
@@ -332,7 +427,8 @@ E111 before it starts (D39).
   `statrs` lacks (research 07, §2): research 07's Phase E. η² and ω² wait
   for ANOVA (its Phase C).
 - **Forms.** Each has a plain and a `.` form; `cohend.` takes b from the
-  workbench, the others their one operand. Fixed effects.
+  workbench, the others their one operand. Fixed effects: `cohend`
+  consumes 2, the others 1.
 
 ### S6. Rounding and formatting [A1] [A6]
 
@@ -345,8 +441,11 @@ E111 before it starts (D39).
 
 - **n** is an INTEGER: [0, 17] for `math.round.places` and
   `string.fixed`, [1, 17] for `math.signif`, [0, 16] for `string.sci`.
-  Seventeen significant digits name every f64 exactly, so a larger n
-  changes nothing. A FLOAT n, or one out of range, is E101.
+  For `math.signif` and `string.sci`'s mantissa, seventeen significant
+  digits name every f64 exactly, so a larger n changes nothing. For
+  decimal places the cap of 17 is a choice, not a consequence: `{:.17}` of
+  1.5e-18 is 0.0 and `{:.18}` is 1e-18. It bounds the strings' length and
+  can be raised. A FLOAT n, or one out of range, is E101.
 - **x** is a number, an INTEGER converting to FLOAT **[B15]** (the
   reference's `math.round` refuses one), or a LIST of numbers, answered
   element-wise as a LIST. The LIST is read as a LIST only, not by
@@ -366,7 +465,8 @@ E111 before it starts (D39).
 - **Negative zero** is normalised: `-0.4 0 math.round.places` is 0.0 and
   `-0.001 2 string.fixed` is `"0.00"`, not `-0.00`.
 - **`string.sci`'s exponent** is written as Rust writes it, `1.23e4`,
-  `1.0e-7`, and not as C's and R's `sprintf` write it, `1.23e+04`. With
+  `1.0e-7`, and not as C's and R's `sprintf` write it, `1.23e+04`
+  [UNGROUNDED as C's and R's; Q62]. With
   n ≥ 1 Bund's reader reads the string back as the number (§Current
   behaviour); with n = 0, Rust's `1e4` does not read back, which the word
   does not change.
@@ -385,13 +485,22 @@ E111 before it starts (D39).
 - **Draws** come from the VM's generator (`with_rng`), so reseeding with
   the same `rng.seed` repeats them within one Bund2 version, as RFC-0015
   §S8 says of every drawing word.
-- **Algorithms**, which fix the streams: Fisher–Yates from the last
-  element down, one uniform integer draw per position; `rng.choice` the
-  first k steps of the same over a copy; `rng.choice.replace` one uniform
-  index per draw; `rng.choice.weighted` one uniform in [0, Σw) per draw,
-  located in the cumulative weights by binary search.
-- **The list** may hold any values; they are moved, not converted. A
-  non-LIST is E101. `weights` is a LIST as long as `list` (E102) of
+- **Algorithms**, which fix the streams, over `rand` 0.8's `StdRng`:
+  - `rng.shuffle`: Fisher–Yates over a copy, for i from n − 1 down to 1,
+    j = `gen_range(0..=i)` on `u64`, then swap i and j: n − 1 draws, none
+    for position 0.
+  - `rng.choice`: the first k steps of the same, answering the element
+    that lands at each i in turn; at k = n the last element takes no draw.
+  - `rng.choice.replace`: `gen_range(0..n)` on `u64` per draw.
+  - `rng.choice.weighted`: u = Σw·`gen::<f64>()` per draw, answering the
+    first i whose cumulative weight cumᵢ = w₁ + … + wᵢ is strictly above u,
+    found by binary search; a zero-weight element is never drawn, since
+    its cumᵢ equals its predecessor's. If rounding leaves no cumᵢ above u,
+    the last element with a positive weight is answered.
+- **The list** may hold any values; they are moved, not converted, NONE
+  included: D252's refusal of NONE applies to numeric operands. A
+  non-LIST is E101, deliberately, as for `ode.rk45`'s non-MAP options:
+  its template names the operand as outside the word's domain. `weights` is a LIST as long as `list` (E102) of
   numbers (E103) that are finite and non-negative (E101) with a positive
   sum (E101). k is a non-negative INTEGER (E101); k above the length for
   `rng.choice` is E101; k above 10⁸ is E111 before allocating.
@@ -428,7 +537,7 @@ consumes two.
 | `math.round` and `math.round.` (`float_math.rs:57-58,127,176`): one operand, half away from zero, an INTEGER refused | **Preserved exactly.** `math.round.places` is a new name with its own tie rule **[A6]** and converts an INTEGER **[B15]** |
 | `format` and `format.` (`format.rs:9-68,72-132`) | **Preserved exactly.** `string.fixed` and `string.sci` are new names |
 | RFC-0015's ten test words: operands, effects, forms, answers, refusals and cost | **Preserved exactly [A2]** |
-| `stat.test.mannwhitney`'s p at W = n·m/2 | **Changed before this RFC, as a Bund2 bug fix** (RFC-0015 §S6's note of 2026-11-16): p is 1 there, as R's and the committed fixture's formula give |
+| `stat.test.mannwhitney`'s p at W = n·m/2 | **Changed before this RFC, as a Bund2 bug fix** (RFC-0015 §S6's note of 2026-11-16): p is 1 there, as the committed fixture's formula gives (and R's [UNGROUNDED; Q62]) |
 | `stat.cor.*` and RFC-0015's corrections | **Preserved exactly.** The tests and corrections here are new names |
 | The VM's generator and every seeded stream of RFC-0015's words | **Preserved exactly:** the new words draw only when called |
 | RFC-0015's criterion-2 tests, which count names by prefix (`infer/tests.rs`, `describe/tests.rs`, `dist/tests.rs`) | **Amended deliberately:** each milestone adds its names to the module's `WORDS` (new modules' names to an excluded prefix or the counting test's list), so RFC-0015 criterion 2's "nothing else is added" is extended by this RFC's criterion 1 |
@@ -441,7 +550,7 @@ consumes two.
 - **Interval keys on the plain test words** (A2's option A, the first
   draft). Rejected after the review's B1: the plain words would gain new
   refusals (E110 from a polish or a bisection, E111 from the Hodges–Lehmann
-  cap), new costs (O(n·m) for Mann–Whitney, up to 264 support sums for
+  cap), new costs (O(n·m) for Mann–Whitney, up to 792 support sums for
   Fisher), and a changed key order on printing, since a MAP's keys sort.
 - **Leaving an interval key out when it cannot be computed** on the plain
   words. Rejected: an absent key would mean either "infinite" or "failed",
@@ -450,9 +559,19 @@ consumes two.
 - **A trailing optional options MAP on the plain words.** A word whose
   arity depends on its top operand cannot declare a fixed effect, so every
   test would become opaque and leave the palette audit.
-- **R's asymptotic Hodges–Lehmann estimate and interval** (A9's option B).
-  The statistic it inverts is a step function in the shift, with no unique
-  root, and R's definition is not in `reference/` (Q62).
+- **R's asymptotic Hodges–Lehmann estimate and interval.** The statistic
+  it inverts is a step function in the shift, with no unique root
+  [UNGROUNDED as R's; Q62], and R's definition is not in `reference/`.
+- **k always by the normal approximation** (D251 A9's first ruling, A),
+  or **rounded to nearest** (its option B). The floor is up to 4 below the
+  exact k at 99% for small samples, and degenerate on criterion 6's first
+  case; rounding gives an interval below conf in 17 of 186 size pairs at
+  90%. Re-ruled C: exact where it applies.
+- **A one-sided Mann–Whitney p above the Hodges–Lehmann cap.** n·m above
+  10⁷ refuses the whole of `mannwhitney.opts`, so a one-sided test of two
+  samples of 5000 has no word. Selecting the two order statistics and the
+  median without forming every difference, in O((n + m) log(n + m)), would
+  lift the cap; left until a use needs it.
 - **±∞ for an infinite end**, as R prints `-Inf` [UNGROUNDED; Q62].
   Rejected by B12 **[A3]**.
 - **A `places` operand on `math.round`.** It would change a reference
@@ -475,8 +594,9 @@ Expected values are stated below, or come from a committed fixture
 computed from the definitions with mpmath at 50 digits, as RFC-0015's M5
 and M12 fixtures were **[A7]**. R's printed outputs are compared where a
 source for them is committed beside the fixture; where none is, the
-fixture alone is the check, and the milestone's note says so.
-Tolerance: 1e-12 relative for closed forms, as RFC-0015's; 1e-9 for an
+fixture alone is the check, and the milestone's note says so (A7's
+wording, confirmed by D251's amendment). Every `method` is compared
+exactly. Tolerance: 1e-12 relative for closed forms, as RFC-0015's; 1e-9 for an
 interval end that is a quantile, since the polish bounds |cdf(x) − p| at
 10⁻¹², not x (`dist.rs`, `POLISH_TOL`); 1e-8 for roots by bisection.
 
@@ -489,36 +609,54 @@ interval end that is a quantile, since the polish bounds |cdf(x) − p| at
    outside (0, 1), a non-STRING `alternative`); S2's E110 and E111; S5's
    and S7's listed refusals. No operand from a palette of NaN, ±∞, wrong
    types, empty and ragged values aborts, for every name and form.
-3. **Plain words unchanged.** Each of RFC-0015's ten tests answers, on
-   RFC-0015's fixtures, the same MAP, key for key and value for value, as
-   before this RFC; and `[ 1.0 4.0 ] [ 2.0 3.0 ] stat.test.mannwhitney`
-   answers p = 1.
+3. **Plain words unchanged.** M2's first commit, before any code moves,
+   records each of RFC-0015's ten tests' answers on RFC-0015's fixtures as
+   a snapshot, every key and the f64 bits of every number, taken at the
+   commit before M2 (after cae380d). Each milestone then answers that
+   snapshot bit for bit, `method` included. `[ 1.0 4.0 ] [ 2.0 3.0 ]
+   stat.test.mannwhitney` answers p = 1. With the defaults, each `.opts`
+   word's `statistic`, `p` and `df` equal its plain word's bit for bit.
 4. **t intervals.** On `sleep`, `t2.opts`, `welch.opts`, `paired.opts`
-   and `t1.opts` answer the fixture's estimate and two-sided 95% ends;
-   with `"less"` each answers only `upper` and the lower tail's p; with
-   `conf` 0.99 the fixture's wider ends.
+   and `t1.opts` (μ₀ 0, the fixture's) answer the fixture's estimate and
+   two-sided 95% ends and the plain words' `method`; with `"less"` each
+   answers only `upper` and the lower tail's p; with `conf` 0.99 the
+   fixture's wider ends; with `mu` 1.0 the two-sample words answer the
+   fixture's shifted t and p and the unshifted estimate and ends.
 5. **Exact intervals.**
    - `binom.opts` on 682 of 925 at p = 0.75: the fixture's Clopper–Pearson
      ends; at k = 0 the lower end is exactly 0, and at k = n the upper is
      exactly 1.
    - `fisher.opts` on [[3 1] [1 3]], two-sided and "greater": the
-     fixture's ψ̂, ends and p; on [[3 0] [0 3]] the estimate and upper end
-     are absent and the lower end present.
-6. **Hodges–Lehmann [A9].** On a = [1.1 2.2 3.3 4.4], b = [0.5 1.5 1.5
-   2.5 3.0] (n = 4, m = 5, a tie in b): the estimate is the median of the
-   20 differences and the two-sided 95% ends are D₍ₖ₎ and D₍₂₁₋ₖ₎, all
-   worked in the test's comment; k < 1 at a level too high for n = m = 2
-   is E101; n·m above 10⁷ is E111 before allocation.
+     fixture's ψ̂, ends and p, and S2's `method`; on [[3 0] [0 3]] the
+     estimate and upper end are absent and the lower end present.
+6. **Hodges–Lehmann [A9].** With a = [1.1 2.2 3.3 4.4] (n = 4), two
+   cases of m = 5; in each the 20 differences' median is 0.75 and the
+   `method` is S2's.
+   - **Exact k:** b = [0.5 1.5 2.0 2.5 3.0], no ties in the pooled nine.
+     The sorted differences are −1.9, −1.4, −0.9, −0.8, −0.4, −0.3, 0.2,
+     0.3, 0.6, 0.7, 0.8, 1.3, 1.4, 1.7, 1.8, 1.9, 2.4, 2.8, 2.9, 3.9. At
+     95%, P(U ≤ 1) = 2/126 ≤ 0.025 < P(U ≤ 2) = 4/126, so k = 2 and the
+     ends are D₍₂₎ = −1.4 and D₍₁₉₎ = 2.9 (the normal floor would give
+     k = 1, the whole range).
+   - **Normal k:** b = [0.5 1.5 1.5 2.5 3.0], a tie. At 90%,
+     nm/2 − 1.644854·√(200/12) = 3.285, so k = 3, and the sorted
+     differences −1.9, −1.4, −0.8, … , 2.8, 2.9, 2.9, 3.9 give ends
+     D₍₃₎ = −0.8 and D₍₁₈₎ = 2.9.
+
+   k < 1 at a level too high for n = m = 2 is E101; n·m above 10⁷ is
+   E111 before allocation.
 7. **Correlation tests.** On a committed fixture: Pearson's t, df, p and
-   Fisher-z ends, and no interval at n = 3; Spearman's S and p; Kendall's
-   exact p for n < 50 without ties and its tie-corrected normal p
+   Fisher-z ends, no interval at n = 3, and [1, 1] at r = 1; Spearman's S
+   and p; Kendall's exact T and p, by S3's two-sided rule, for n < 50
+   without ties, and its z and p with S3's tie-corrected variance
    otherwise; each one-sided alternative.
 8. **Corrections.** `hochberg`, `hommel` and `by` on a fixture of 20
-   p-values match the definitions in input order; Hommel above 10⁴
-   p-values is E111.
+   p-values match S4's formulas in input order, the fixture computing
+   Hommel's by the subset definition; Hommel above 10⁴ p-values is E111.
 9. **Effect sizes.** Cohen's d and Hedges' g on `sleep`, and g at
-   n_a = n_b = 200 (df 398, where Γ alone overflows) finite and within
-   1e-12 of the fixture; the odds and risk ratios with their intervals on
+   n_a = n_b = 200 (df 398, where Γ alone overflows) and at
+   n_a = n_b = 2·10⁵ finite and within 1e-12 of the fixture; the odds and
+   risk ratios with their intervals on
    a 2×2 fixture, and a zero cell in either refused (E101); Cramér's V on a
    3×3 with a zero cell, answered.
 10. **Rounding and formatting.** `2.675 2 math.round.places` is 2.67,
@@ -532,7 +670,8 @@ interval end that is a quantile, since the polish bounds |cdf(x) − p| at
     after `7 rng.seed` again, the same value; `rng.shuffle` answers a
     permutation of its list; `rng.choice` draws no index twice; over 10⁵
     seeded draws of `rng.choice.weighted` with weights [1 2 3 4], each
-    category's frequency is within 4 SE of its weight's share.
+    category's frequency is within 4 SE of its weight's share, and with
+    weights [0 1 0 1] no zero-weight element is drawn.
 12. **Health.** `cargo xtask conform` and `coverage` print the numbers of
     §Preservation analysis; clippy and `cargo deny` are clean;
     `PROMOTABLE.txt`, `bund2 effects` and `docs/arity.md` are regenerated,
@@ -560,23 +699,26 @@ Each ends with criterion 12.
 | **A4** | Default confidence level | **A** 0.95. **B** none, `conf` required | **A** |
 | **A5** | Spearman's p | **A** the t approximation. **B** AS 89's exact p | **A** |
 | **A6** | Ties in rounding to places | **A** the exact binary value, ties to even. **B** half away from zero | **A** |
-| **A7** | Reference values | **A** mpmath fixtures from the definitions, plus R's printed output where a source is committed. **B** install R | **A** |
+| **A7** | Reference values | **A** mpmath fixtures from the definitions, plus R's printed help-page outputs; worded "R's printed output where a source is committed; where none is, the fixture alone is the check" by D251's amendment, confirmed by the owner. **B** install R | **A** |
 | **A8** | Which build | **A** the default build. **B** a feature | **A** |
-| **A9** | `mannwhitney.opts`'s estimate and interval | **A** the Hodges–Lehmann median and the order-statistic interval, n·m capped at 10⁷. **B** R's asymptotic estimate and interval | **A** |
+| **A9** | `mannwhitney.opts`'s estimate and interval | **A** the Hodges–Lehmann median and the order-statistic interval, n·m capped at 10⁷, k by the normal approximation, floored. **B** R's asymptotic estimate and interval. Re-ruled after the second review on k: **A** the floor always, **B** rounded to nearest, **C** exact without ties and n, m < 50, the floor otherwise | **A**, then **C** in its k (D251's amendment) |
 
 ## Open questions
 
 - **Q62** (`docs/registers/open-questions.md`): every claim here about
   R's behaviour, each marked [UNGROUNDED] where it is made. R's source is
-  not in `reference/` and R is not installed. The register's entry lists
-  them: which tests `htest` gives an estimate or interval; `fisher.test`'s
-  conditional MLE and interval and one-sided p; `binom.test`'s one-sided p;
-  `ks.test`'s one-sided statistics, tail and sense of "greater";
-  `cor.test`'s Fisher-z interval, Spearman approximation and Kendall exact
-  and tie-corrected p; `p.adjust`'s Hochberg, Hommel and BY; the one-sided
-  Mann–Whitney correction; `round`'s rule since R 4.0.0; AS 89 as R's
-  default; R's `-Inf`. Each milestone's fixture is the check, against the
-  definitions this RFC states, which stand whether or not R agrees.
+  not in `reference/` and R is not installed. The claims this RFC makes
+  are: which tests `htest` gives an estimate or interval, and `t.test`'s
+  two means; `ks.test`'s one-sided statistics, tail and sense of
+  "greater"; `cor.test`'s Fisher-z interval and its Kendall exact and
+  tie-corrected p; `p.adjust`'s Hochberg, Hommel and BY; the one-sided
+  Mann–Whitney correction; p = 1 at W = n·m/2; R's Hodges–Lehmann
+  inversion; `round`'s rule since R 4.0.0; AS 89 as R's default; R's
+  `-Inf`; `sprintf`'s exponent. Q62 also keeps `fisher.test`'s and
+  `binom.test`'s one-sided p and R's exact Wilcoxon interval, which this
+  RFC no longer claims as R's. Each milestone's fixture is the check,
+  against the definitions this RFC states, which stand whether or not R
+  agrees.
 - D252 (tables and missing values) does not bear on this RFC; its words
   take LISTs, METRICS and MATRIX as RFC-0015's do.
 
@@ -618,3 +760,36 @@ Revision 2 answers `docs/rfc/reviews/RFC-0016-review-2026-11-16.md`.
 | N17 tolerances | 1e-12 for closed forms, as RFC-0015 |
 | N18 Fisher's bracket | doubling from [−1, 1], 64 at most, then bisection |
 | Assumptions: STRING keys, workbench answers, LIST-only reading, sampling algorithm, Kendall's loop, data-dependent absent keys, D252's `na` | each stated in S1, S6, S7 or S3 |
+
+## Revision 3
+
+Revision 3 answers `docs/rfc/reviews/RFC-0016-review-2026-11-16-2.md`.
+
+| Finding | Change |
+|---|---|
+| S1 criterion 6 degenerate | A9 re-ruled C (D251's amendment): exact k without ties and n, m < 50, the floor otherwise, stated as conservative with the measurement; the Hollander and Wolfe attribution dropped; the even-nm median defined; criterion 6 has two cases with every value stated, an exact k = 2 and a normal k = 3 |
+| S2 Fisher's work bound | 792 support sums, 264 per root, three roots |
+| S3 Hochberg, Hommel, BY undefined | S4 states each as a formula, Hommel by its subset definition and by step-by-step computation checked against it; criterion 8 points at them |
+| S4 Kendall's exact two-sided p and variance | S3 defines the null distribution, the two-sided rule, the tie-corrected variance, no continuity correction, and `statistic` per branch |
+| S5 `.opts` answers and `method` | S2 says which keys change with `alternative` and `mu`, gives every `method` string, and criteria 3–6 check them |
+| S6 research 07 contradicted | ERRATA entry for `07-statistical-research.md:133-140,216`, with A5's narrowing |
+| S7 A7's wording | confirmed by the owner (D251's amendment); the rulings table gives both texts; Q62 aligned |
+| S8 R and C claims unmarked | `sprintf`, Preservation row 4, and R's Hodges–Lehmann inversion marked; Q62 extended a second time |
+| S9 criterion 3's baseline | a bit-for-bit snapshot committed first in M2, taken after cae380d |
+| N1 the reason for 17 places | given as a choice for places, with the 1.5e-18 case |
+| N2 Pearson's one-sided far end | finite, answered, in "Infinite ends" and S3 |
+| N3 \|r\| = 1 | Spearman keeps S; Pearson's interval is [r, r] |
+| N4 zero weights | strict search, a zero weight never drawn; criterion 11 checks it |
+| N5 the stream | `gen_range` on `u64`, n − 1 draws, `gen::<f64>()` for weights |
+| N6 J at large n | the series above df 200, measured; criterion 9 adds df ≈ 4·10⁵ |
+| N7 ratio intervals | exp(log ∓ z·se) stated |
+| N8 the interval's tie term and one-sided end | no tie term, said and why; one-sided ends stated |
+| N9 the cap refuses a one-sided p | stated in "Work" and §Alternatives, with the way out |
+| N10 S3's and S4's effects | stated |
+| N11 D251's stale heading and bullet | noted in D251's amendment |
+| N12 §Open questions over-inclusive | split into what this RFC claims and what Q62 keeps |
+| N13 eight tests | seven with intervals, eight with alternatives |
+| N14 t1's μ₀, two-sample `mu` | μ₀ 0 named; a `mu` 1.0 case added |
+| N15 E101 for a non-LIST | said to be deliberate |
+| N16 NONE in S7 | moved like any value; D252's refusal is for numeric operands |
+| Assumptions: two-sided `.opts` p equals the plain one, Fisher in log space, the normal quantile's E110, an INTEGER `conf` | each stated in S1 or S2; criterion 3 checks the first |
