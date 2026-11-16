@@ -2,12 +2,11 @@
 
 - Status: **Draft** (2026-11-16), on the owner's "RFC for Phase A", after
   `docs/research/07-statistical-research.md`. Its owner questions are
-  D251's A1–A8, **OPEN**; every passage that rests on one is marked
-  **[A*n*]** and is written against the recommended option, which is not
-  adopted until ruled.
+  D251's A1–A8, **RESOLVED 2026-11-16**, "all as recommended": each is
+  **A**. Every passage that rests on one is marked **[A*n*]**.
 - Depends on: RFC-0015 (the `biomath` family: its operand readers, S3's
   forms, S8's generator, S11's refusals), RFC-0004 (effects)
-- Decisions consumed: D21, D24, D36, D37, D38, D39, D72, D111, D250 (B3,
+- Decisions consumed: D251 (A1–A8), D252 (context only), D21, D24, D36, D37, D38, D39, D72, D111, D250 (B3,
   B4, B5, B10, B11, B12, B15); F123
 - Reference SHA: `reference/rust_multistackvm`
   4605832678d4792c2b8e0564b7757d5aee1539a4; `reference/Bund`
@@ -400,7 +399,7 @@ Tolerance: 1e-10 relative for closed forms, 1e-8 for roots and series.
 
 Each ends with criterion 12.
 
-## Rulings needed — D251 (OPEN)
+## Rulings — D251 (RESOLVED 2026-11-16, all as recommended)
 
 | | Question | Options | Recommended |
 |---|---|---|---|

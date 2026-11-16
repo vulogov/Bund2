@@ -17208,9 +17208,12 @@ The reasoning for each is in the RFC, under the section the marker names.
 - Blocks: RFC-0016
 - Depends on: D72, D21, D24, D36, D37, D38, D39, D111; D250 (B3, B4, B5,
   B10, B11, B12, B15)
-- Status: **OPEN**. RFC-0016 is written against each recommended option
-  and marks each dependent passage **[A*n*]**; none is adopted until
-  ruled.
+- Status: **RESOLVED** by the repository owner, 2026-11-16: "all as
+  recommended". A1–A8 are each **A**. The rulings were given after the
+  owner was shown every option with its recommendation and reason. Ruling
+  these does not accept the RFC; that is the owner's separate step.
+  *(Was: OPEN. RFC-0016 is written against each recommended option and
+  marks each dependent passage **[A*n*]**; none was adopted until ruled.)*
 
 | | Question | Options | Recommended |
 |---|---|---|---|
