@@ -17208,8 +17208,9 @@ The reasoning for each is in the RFC, under the section the marker names.
 - Blocks: RFC-0016
 - Depends on: D72, D21, D24, D36, D37, D38, D39, D111; D250 (B3, B4, B5,
   B10, B11, B12, B15)
-- Status: **RESOLVED** by the repository owner, 2026-11-16: "all as
-  recommended". A1–A8 are each **A**. The rulings were given after the
+- Status: **RESOLVED**. Ruled by the repository owner, 2026-11-16: "all
+  as recommended"; A2 re-ruled C and A9 raised and ruled A the same day
+  (the amendment below). *(Was: OPEN; then RESOLVED except A9.)* A1–A8 are each **A**. The rulings were given after the
   owner was shown every option with its recommendation and reason. Ruling
   these does not accept the RFC; that is the owner's separate step.
   *(Was: OPEN. RFC-0016 is written against each recommended option and
@@ -17227,6 +17228,21 @@ The reasoning for each is in the RFC, under the section the marker names.
 | **A8** | Which build | **A** the default build, adding no crate. **B** a feature | **A** |
 
 The reasoning for each is in the RFC, under the section the marker names.
+
+*Amendment 2026-11-16, after `docs/rfc/reviews/RFC-0016-review-2026-11-16.md`
+(blocker B1):* **A2 is re-ruled C** by the repository owner: "adding no
+interval keys to the plain tests". The plain test words keep RFC-0015's
+answers, refusals and cost exactly; estimates and intervals are answered
+only by the `.opts` variants, where a root that does not converge is E110
+and a cap E111, and an absent `lower` or `upper` means only an infinite
+end (A3). A2's ruling of A, above, is superseded by this one and kept as
+the record.
+
+*Raised the same day, for the review's blocker B2:* **A9, RESOLVED** the same day by the repository owner, "agree to both": **A**. *(Was: OPEN.)*
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **A9** | `stat.test.mannwhitney.opts`'s estimate and interval | **A** the Hodges–Lehmann median of the n·m differences, and the distribution-free interval of their order statistics, [D₍ₖ₎, D₍ₙₘ₊₁₋ₖ₎] with k = ⌊nm/2 − z·√(nm(n + m + 1)/12)⌋ (Hollander and Wolfe); k < 1 is E101; n·m capped at 10⁷ (E111). **B** R's asymptotic estimate and interval, roots of the normal approximation found by inversion | **A**: defined exactly, so a fixture checks it by sorting; B's statistic is a step function with no unique root, and its definition rests on R's source, which is not here (Q62) |
 
 ## D252 — Research 07's C1 and C2: a table's representation and the missing-value marker
 
