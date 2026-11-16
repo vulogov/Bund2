@@ -57,7 +57,10 @@
 //! - [`dynamics`]: `ode.rk4`, `ode.rk45` and `sim.gillespie`, whose models
 //!   are lambdas run as RFC-0013's bridges run theirs.
 //!
-//! M12 adds `fit.` (§S16).
+//! M12 adds §S16:
+//!
+//! - [`fit`]: `fit.nls`, Levenberg–Marquardt over a model lambda, and
+//!   `fit.logistic`, logistic regression by IRLS.
 //!
 //! **What M1 links.** `nalgebra` and `rand_distr` become direct dependencies
 //! at the versions the lock already held, and `statrs` gains its `nalgebra`
@@ -67,6 +70,7 @@ pub mod align;
 pub mod describe;
 pub mod dist;
 pub mod dynamics;
+pub mod fit;
 pub mod infer;
 pub mod linalg;
 pub(crate) mod operand;
@@ -91,6 +95,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     popgen::register(r);
     phylo::register(r);
     dynamics::register(r);
+    fit::register(r);
     rng::register(r);
 }
 

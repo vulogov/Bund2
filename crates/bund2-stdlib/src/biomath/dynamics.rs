@@ -37,7 +37,11 @@ const STEP_CAP: u64 = 1_000_000;
 const STEP_FLOOR: f64 = 1e-12;
 
 /// A LAMBDA operand's items, or E101.
-fn lambda<'a>(word: &str, operand: &str, v: &'a BundValue) -> Result<&'a [BundValue], Error> {
+pub(super) fn lambda<'a>(
+    word: &str,
+    operand: &str,
+    v: &'a BundValue,
+) -> Result<&'a [BundValue], Error> {
     match v.as_lambda() {
         Some(items) if v.dt() == LAMBDA => Ok(items),
         _ => Err(domain(word, operand, v.summary(WIDTH))),
@@ -46,7 +50,7 @@ fn lambda<'a>(word: &str, operand: &str, v: &'a BundValue) -> Result<&'a [BundVa
 
 /// Run `f` on `args`, deepest first, and read the LIST of `n` finite
 /// numbers it leaves on top, or E112.
-fn call(
+pub(super) fn call(
     vm: &mut dyn Vm,
     word: &str,
     f: &[BundValue],

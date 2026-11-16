@@ -1115,6 +1115,43 @@ stoichiometry with no lambda.
 100 iterations (E110). It answers `coef`, `se`, `z`, `p`, `deviance` and
 `aic`.
 
+*Note 2026-11-15, M12:* built with these choices, which the owner
+confirmed the same day.
+
+- **`fit.nls`'s model** runs as §S15's do, through `kb::bridge::ask`: `x`
+  is pushed, then `p`, then the lambda's items run, and its answer must be a
+  LIST of `n` finite numbers, else E112. `x`, `y` and `p0` are read as
+  whole series; `x` and `y` of unequal length are E102, an empty `p0` and
+  `n ≤ k` E101, and `f` not a LAMBDA E101.
+- **The damping** is λI, added to JᵀJ. The step is taken, and λ divided by
+  10, when it does not raise the residual sum of squares; a step that
+  raises it, or a damped matrix Cholesky cannot factor, multiplies λ by
+  10. Every attempt counts as an iteration, and the answer's `iterations`
+  says how many. The Jacobian is recomputed only after an accepted step,
+  and convergence is judged only on one: the residual sum of squares fell
+  by at most 10⁻¹⁰ of itself, or every |Δpⱼ| ≤ 10⁻⁸·|pⱼ|.
+- **A model no parameter moves** (JᵀJ zero at `p0`) is E106 before any
+  step, and so is a normal matrix still singular at the solution, where
+  s²(JᵀJ)⁻¹ does not exist: the damping makes each step defined, but not
+  the standard errors. `df` is n − k, a FLOAT as `stat.lm`'s is.
+- **`fit.logistic`** adds an intercept column as `stat.lm` does; `X` is
+  read as `stat.lm`'s is, and every `y` must be 0 or 1 (E101). IRLS starts
+  from R's μ = (y + ½)/2 and stops by R's rule, a relative change in the
+  deviance, |Δ|/(|D| + 0.1), below 10⁻⁸; η is clamped at R's ±(−ln ε) in
+  the link's inverse. Each weighted step is solved by QR of √W·X, with
+  `stat.lm`'s rank test (E106). `se` is from the information at the
+  estimate, `p` the two-sided normal tail of `z`, and `aic` deviance + 2k.
+- **Separation is refused.** Where a fitted η reaches the clamp, R answers
+  with a warning that fitted probabilities are numerically 0 or 1, and
+  coefficients that are artefacts of its stopping rule; `fit.logistic`
+  refuses with E101 naming that instead.
+- **The fixture.** R is not installed where M12 was built, so
+  `fixtures/fit.py` computes the least-squares and maximum-likelihood
+  answers from their definitions with mpmath, as `infer.py` does. On R's
+  `Puromycin` (treated) and `mtcars` (`vs ~ mpg`) data they agree with
+  the answers R prints: criterion 20's for `nls`, and −8.8331, 0.4304, se
+  3.1623 and 0.1584, deviance 25.533 and AIC 29.533 for `glm`.
+
 ### S17. The tiers and the audits
 
 - **Effects** are declared as S3 says. Tier 1 crosses a native only if
@@ -1394,6 +1431,16 @@ under RK45; a model's extra values leave the caller's stack unchanged.
 A linear birth–death process's mean at t = 1 over 1000 seeded replicates
 is within 3 SE of 10·e^0.5. No `PROMOTABLE.txt` line is added, since
 opaque words are not audited (§S17).
+
+M12 landed 2026-11-15: `biomath::fit`, §S16's `fit.nls`, opaque and with no
+`.` form, and `fit.logistic` with its `.` form, with criteria 2, 3 (E101,
+E102, E106, E112), 6 and 20, and the choices §S16's M12 note records.
+`fit.nls` on `Puromycin` gives criterion 20's Vm, K, standard errors and
+residual sum of squares to 10⁻⁴, and the exact least-squares answer of
+`fixtures/fit.py` to 10⁻⁶, from (200, 0.05) and from (100, 1).
+`fit.logistic` on `mtcars` gives R's printed answer and the fixture's
+maximum-likelihood answer to 10⁻⁶. `PROMOTABLE.txt` lists `fit.logistic`
+and its form as not reached, since the palette holds no MATRIX of numbers.
 
 Each milestone ends with conform and coverage unchanged (D72), clippy
 clean, `cargo deny check` clean, and `PROMOTABLE.txt`, `bund2 effects`
