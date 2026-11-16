@@ -1,0 +1,140 @@
+//
+// The five worked examples of RFC-0015, biomathematics and genetics, and
+// §S18's rule base, one after another: Hardy–Weinberg and an FDR
+// correction, a primer's reverse complement and protein, Wright–Fisher
+// replicates on threads, an SIR epidemic, a Leslie matrix, and rules that
+// call the family's words through bridges. Run it:
+//
+//   bund2 demo.bund
+//
+// Every draw comes from a seeded generator, so a run prints the same lines
+// each time, and `expected.txt` beside this file is what it must print.
+//
+// Operands go deepest first: the deepest operand is a formula's first, so
+// `10.0 2.0 /` divides 2.0 by 10.0 and `a b -` is b − a.
+//
+
+// A FLOAT, or each FLOAT of a LIST, to `places` decimals, so that the
+// printed lines do not depend on the last bits of a long computation.
+:round { 1000000.0 * math.round 1000000.0 swap / } register
+:roundall { list swap { round swap + } loop } register
+
+//
+// 1. Hardy–Weinberg, and an association test with FDR. `popgen.hwe`
+//    answers a MAP of the χ² test and the exact test; `stat.padjust.bh`
+//    corrects a LIST of p-values by Benjamini and Hochberg.
+//
+"-- 1. Hardy–Weinberg, and an association test with FDR" println
+:hwe 298 489 213 popgen.hwe var
+"exact p for 298 AA, 489 Aa, 213 aa:  " print
+:hwe var? "p.exact" get round println
+"χ² p for the same counts:            " print
+:hwe var? "p.chisq" get round println
+:ps [ 0.001 0.02 0.04 0.3 0.5 ] var
+"BH-adjusted p-values:                " print
+:ps var? stat.padjust.bh roundall println
+"" println
+
+//
+// 2. A primer's reverse complement, and its protein under the standard
+//    genetic code, NCBI's table 1.
+//
+"-- 2. a primer's reverse complement, and its protein" println
+"reverse complement:  " print
+"ATGGCCATTGTAATGGGCCGCTGA" bio.revcomp println
+"protein:             " print
+"ATGGCCATTGTAATGGGCCGCTGA" 1 bio.translate println
+"" println
+
+//
+// 3. Wright–Fisher replicates on threads, reproducibly. Each child VM runs
+//    the LAMBDA with its seed as its only value, so it seeds its own
+//    generator and draws its own path: 200 generations of a population of
+//    100 from p = 0.5. A child cannot call the parent's words, so the
+//    program is the lambda itself. `vm.join` answers the child's final
+//    stack, whose one value is the path; its last element is the
+//    frequency after 200 generations.
+//
+"-- 3. Wright–Fisher replicates on threads" println
+:rep { rng.seed 100 0.5 200 popgen.wf } var
+:hs list var
+[ 1 2 3 4 5 6 7 8 ] {
+  list + :rep var? swap vm.spawn      // [ seed ] as the child's stack
+  :hs var? + :hs swap var
+} loop
+:finals list var
+:hs var? {
+  vm.join car                         // the path
+  1 swap tail car                     // its last frequency
+  :finals var? + :finals swap var
+} loop
+"final frequencies, seeds 1 to 8:  " print
+:finals var? println
+"seed 3 again, on a fresh thread:  " print
+3 list + :rep var? swap vm.spawn vm.join car 1 swap tail car println
+"" println
+
+//
+// 4. An SIR epidemic, β = 0.5 and γ = 0.1, from 1% infected, integrated by
+//    Dormand–Prince with its default tolerances to t = 100. The model is a
+//    lambda, t [ S I R ] -- [ dS dI dR ]. Since dS/dR = −(β/γ)·S, every
+//    point of the path keeps ln(S/S₀) = −(β/γ)·(R − R₀), the relation that
+//    gives an epidemic's final size; here R₀ = 0 and β/γ = 5, and the two
+//    sides agree to the integrator's tolerance.
+//
+"-- 4. an SIR epidemic" println
+:sir {                                   // t [ S I R ] -- [ dS dI dR ]
+  unfold :R swap var :I swap var :S swap var drop
+  :S var? :I var? * 0.5 * -1.0 * list +                      // −βSI
+  :S var? :I var? * 0.5 * :I var? 0.1 * swap - swap +        // βSI − γI
+  :I var? 0.1 * swap +                                       // γI
+} var
+:run :sir var? [ 0.99 0.01 0.0 ] 0.0 100.0 dict ode.rk45 var
+:final 1 :run var? "y" get tail car var
+"S, I and R at t = 100:  " print
+:final var? roundall println
+"ln(S/S₀) at t = 100:    " print
+0.99 1 :final var? at / math.ln round println      // ln(S/0.99)
+"−(β/γ)·R at t = 100:    " print
+3 :final var? at -5.0 * round println
+"" println
+
+//
+// 5. A Leslie matrix's growth rate and stable stage distribution. Its
+//    characteristic equation is λ³ = 0.75λ + 0.28, whose real root is
+//    λ = 1.013103401237989; the stable distribution is proportional to
+//    (1, s₁/λ, s₁s₂/λ²), scaled to sum to 1.
+//
+"-- 5. a Leslie matrix" println
+[ [ 0.0 1.5 0.8 ] [ 0.5 0.0 0.0 ] [ 0.0 0.7 0.0 ] ] matrix
+linalg.dominant
+"growth rate λ:        " print
+dup "value" get round println
+"stable distribution:  " print
+"vector" get roundall println
+"" println
+
+//
+// 6. §S18's rule base. A rule computes through a bridge: `test` keeps a
+//    solution when its lambda answers true, and `is` binds a variable to
+//    what its lambda answers, so every word of the family is callable from
+//    a rule. A genotype is a quoted STRING: a bare `Aa` would be a
+//    variable.
+//
+"-- 6. a rule base over the family's words" println
+:snps [
+  [ pvalue rs1 0.001 ] [ pvalue rs2 0.2 ] [ pvalue rs3 0.04 ]
+  [ genotype ann "Aa" ] [ genotype bob "AA" ]
+  [ counts l1 298 489 213 ] [ counts l2 14 57 50 ]
+  [ [ significant S ] ← [ pvalue S P ] [ test { 0.05 P < } ] ]
+  [ [ carrier X ] ← [ genotype X G ] [ test { G "Aa" == } ] ]
+  [ [ hwe.p L P ] ← [ counts L AA Aa AAa ]
+                    [ is P { AA Aa AAa popgen.hwe "p.exact" get } ] ]
+] kb! var
+
+"significant at 0.05:  " print
+:snps var? [ significant S ] kb.query { :S get } map println
+"carriers:             " print
+:snps var? [ carrier X ] kb.query { :X get } map println
+"exact HWE p by locus: " print
+:snps var? [ hwe.p L P ] kb.query { :P get round } map println

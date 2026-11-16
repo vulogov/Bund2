@@ -62,6 +62,9 @@
 //! - [`fit`]: `fit.nls`, Levenberg–Marquardt over a model lambda, and
 //!   `fit.logistic`, logistic regression by IRLS.
 //!
+//! M13 adds no word: `bund_examples/biomath/` runs the RFC's worked
+//! examples and a rule base over the family.
+//!
 //! **What M1 links.** `nalgebra` and `rand_distr` become direct dependencies
 //! at the versions the lock already held, and `statrs` gains its `nalgebra`
 //! feature, for the multivariate families (§S7). The lock gains no package.

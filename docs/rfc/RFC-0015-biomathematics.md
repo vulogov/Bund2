@@ -1296,6 +1296,26 @@ The matrix literal was run and is a MATRIX. Its characteristic equation is
 λ = 1.013103401237989; the stable distribution is proportional to
 (1, s₁/λ, s₁s₂/λ²).
 
+*Note 2026-11-15, M13:* `bund_examples/biomath/demo.bund` runs the five
+examples above and §S18's rule base, with these changes; the criterion
+that runs them whole is 21, not 20 as the paragraph opening this section
+says.
+
+- **Printed values are rounded** to six decimals, so `expected.txt` does
+  not rest on the last bits of a long computation.
+- **Example 3** prints each replicate's final frequency rather than its
+  path of 201, takes the path from `vm.join`'s answer, the child's final
+  stack, with `car`, and runs seed 3 a second time on a fresh thread to
+  show the same frequency.
+- **Example 4** prints S, I and R at t = 100 rather than the whole path,
+  and beside them both sides of ln(S/S₀) = −(β/γ)·(R − R₀), which every
+  point of the exact path keeps since dS/dR = −(β/γ)·S: −4.964376 and
+  −4.964377 at RK45's default tolerances.
+- **Example 6** is §S18's three rules over its facts, with a second
+  locus, `[ counts l2 14 57 50 ]`, and `popgen.hwe` in the third rule as
+  §S18 writes it. It answers `rs1` and `rs3`, `ann`, and 0.655663 and
+  0.84228.
+
 ## Implementation plan
 
 | M | Delivers | Phase |
@@ -1441,6 +1461,14 @@ residual sum of squares to 10⁻⁴, and the exact least-squares answer of
 `fit.logistic` on `mtcars` gives R's printed answer and the fixture's
 maximum-likelihood answer to 10⁻⁶. `PROMOTABLE.txt` lists `fit.logistic`
 and its form as not reached, since the palette holds no MATRIX of numbers.
+
+M13 landed 2026-11-15: `bund_examples/biomath/`, the five worked examples
+and §S18's rule base in one `demo.bund`, with criterion 21, and the changes
+§Worked examples' M13 note records. Its README states each example's
+output; `expected.txt` is what a run prints, and
+`crates/bund2-cli/tests/biomath_demo.rs` runs the demo and compares the
+two. No word is added, so `PROMOTABLE.txt` is unchanged. With M13 every
+milestone of the plan has landed.
 
 Each milestone ends with conform and coverage unchanged (D72), clippy
 clean, `cargo deny check` clean, and `PROMOTABLE.txt`, `bund2 effects`

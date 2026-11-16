@@ -1,0 +1,26 @@
+-- 1. Hardy–Weinberg, and an association test with FDR
+exact p for 298 AA, 489 Aa, 213 aa:  0.655663
+χ² p for the same counts:            0.637907
+BH-adjusted p-values:                [ 0.005 ::  0.05 ::  0.066667 ::  0.375 ::  0.5 :: ]
+
+-- 2. a primer's reverse complement, and its protein
+reverse complement:  TCAGCGGCCCATTACAATGGCCAT
+protein:             MAIVMGR*
+
+-- 3. Wright–Fisher replicates on threads
+final frequencies, seeds 1 to 8:  [ 1.0 ::  1.0 ::  0.38 ::  0.63 ::  0.55 ::  1.0 ::  0.805 ::  0.0 :: ]
+seed 3 again, on a fresh thread:  0.38
+
+-- 4. an SIR epidemic
+S, I and R at t = 100:  [ 0.006912 ::  0.000212 ::  0.992875 :: ]
+ln(S/S₀) at t = 100:    -4.964376
+−(β/γ)·R at t = 100:    -4.964377
+
+-- 5. a Leslie matrix
+growth rate λ:        1.013103
+stable distribution:  [ 0.545096 ::  0.269023 ::  0.18588 :: ]
+
+-- 6. a rule base over the family's words
+significant at 0.05:  [ rs1 ::  rs3 :: ]
+carriers:             [ ann :: ]
+exact HWE p by locus: [ 0.655663 ::  0.84228 :: ]
