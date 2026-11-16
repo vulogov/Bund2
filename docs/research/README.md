@@ -11,6 +11,7 @@ Expected contents, in order:
     04-consolidated-architecture.md
     05-rfc-roadmap.md
     06-biomathematics-and-genetics.md
+    07-statistical-research.md
     ERRATA.md
 
 When an RFC contradicts one of these, record the supersession in `ERRATA.md`
