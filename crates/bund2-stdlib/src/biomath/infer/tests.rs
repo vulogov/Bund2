@@ -337,3 +337,16 @@ fn a_program_defining_the_name_calls_its_own() {
     let mut i = run(":stat.test.t2 { 42 } register 1 2 stat.test.t2").unwrap();
     assert_eq!(i.pull().and_then(|v| v.as_int()), Some(42));
 }
+
+/// W at its mean, n·m/2: the continuity correction is R's `sign(z)·½`,
+/// which is 0 there, so z is 0 and p is 1. Bund2 once took
+/// `f64::signum(0.0)`, which is 1, and answered p = 0.6985 here
+/// (`docs/rfc/reviews/RFC-0016-review-2026-11-16.md`, S11).
+#[test]
+fn mannwhitney_at_the_mean_of_w_answers_p_1() {
+    let mut i = run("[ 1.0 4.0 ] [ 2.0 3.0 ] stat.test.mannwhitney").unwrap();
+    let v = i.pull().unwrap();
+    let m = v.as_map().unwrap();
+    assert_eq!(floats(&m["statistic"]), [2.0]);
+    assert_eq!(floats(&m["p"]), [1.0]);
+}

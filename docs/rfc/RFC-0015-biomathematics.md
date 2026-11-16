@@ -556,6 +556,13 @@ states the convention wherever R's default differs or is a choice:
   plain and `.` forms; the corrections are words of one series, so take
   the four forms; the rest have a fixed effect and a `.` form.
 
+*Note 2026-11-16:* `stat.test.mannwhitney` took its continuity correction
+as `0.5·signum(z)`, and `f64::signum(0.0)` is 1, so with W at its mean,
+n·m/2, it answered p < 1 (0.6985 for `[ 1.0 4.0 ] [ 2.0 3.0 ]`). R's
+`sign(z)·½` is 0 there, as `fixtures/infer.py`'s `mpmath.sign` is, so p is
+1. A Bund2 bug, found by RFC-0016's review (S11) and fixed with a test at
+that case; `sleep` never reached it.
+
 ### S7. Distributions (Phase 1) [B2]
 
 **Constructors.** Each takes the family's parameters, deepest first, and

@@ -457,8 +457,12 @@ fn mannwhitney(word: &str, a: &[f64], b: &[f64]) -> Result<BundValue, Error> {
     if sigma.is_nan() || sigma <= 0.0 {
         return Err(constant(word, "a and b"));
     }
+    // The continuity correction moves W toward its mean by ½, and not at all
+    // when W is its mean: R's `sign(z)`, which is 0 at 0, where
+    // `f64::signum(0.0)` is 1.
     let z = w - n1 * n2 / 2.0;
-    let z = (z - 0.5 * z.signum()) / sigma;
+    let correction = if z == 0.0 { 0.0 } else { 0.5 * z.signum() };
+    let z = (z - correction) / sigma;
     let normal = Family::Normal { mean: 0.0, sd: 1.0 };
     let (lower, upper) = normal.tails(word, z)?;
     Ok(answer(
