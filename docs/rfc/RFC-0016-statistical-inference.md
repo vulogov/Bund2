@@ -1,6 +1,11 @@
 # RFC-0016: Statistical inference — intervals, effect sizes, correlation tests, rounding and resampling primitives
 
-- Status: **Draft**, revision 6 (2026-11-16), on the owner's "RFC for
+- Status: **Accepted** (2026-11-17) by the repository owner ("accepting
+  RFC-0016"), at revision 6. Accepting means D251's A1–A9 as ruled and
+  amended; S1–S8 as specified; the milestones M1–M5 built in order, each
+  gated by its criteria and by criterion 12; and the 64 words as Bund2's
+  own (D72), as RFC-0015's family is.
+- Drafted 2026-11-16 on the owner's "RFC for
   Phase A", after `docs/research/07-statistical-research.md`. Revisions
   2 to 6 answer `docs/rfc/reviews/RFC-0016-review-2026-11-16.md`,
   `…-2.md`, `…-3.md`, `…-4.md` and `…-5.md`; §Revision 2 to §Revision 6
