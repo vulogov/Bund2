@@ -76,8 +76,10 @@
 //! - [`round`]: `math.round.places`, `math.signif`, `string.fixed` and
 //!   `string.sci`.
 //!
-//! Its M2 adds the first of §S2's `.opts` words to [`infer`]: the t tests'
-//! and the binomial's estimates, intervals and one-sided p.
+//! Its M2 and M3 add §S2's `.opts` words to [`infer`]: estimates,
+//! intervals and one-sided p for the t tests, the binomial, Fisher's test,
+//! Mann–Whitney and KS. Its M4 adds §S3's correlation tests, in
+//! [`infer::cor`].
 
 pub mod align;
 pub mod describe;

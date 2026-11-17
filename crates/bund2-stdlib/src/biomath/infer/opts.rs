@@ -112,17 +112,17 @@ pub(super) fn read(word: &str, v: &BundValue, takes: &[&str]) -> Result<Opts, Er
 }
 
 /// An interval's end, or E114 when it is not finite.
-fn end(word: &str, which: &str, y: f64) -> Result<f64, Error> {
+pub(super) fn end(word: &str, which: &str, y: f64) -> Result<f64, Error> {
     finite(word, y, || format!("the interval's {which} end"))
 }
 
 /// What an `.opts` word adds to the plain word's keys: the estimate and
 /// the interval's ends where they are answered, and `conf` where the word
 /// takes it.
-struct Extra {
-    estimate: Option<f64>,
-    ends: (Option<f64>, Option<f64>),
-    conf: bool,
+pub(super) struct Extra {
+    pub(super) estimate: Option<f64>,
+    pub(super) ends: (Option<f64>, Option<f64>),
+    pub(super) conf: bool,
 }
 
 /// The plain word's keys, with the estimate, the interval's ends that are
@@ -140,7 +140,7 @@ fn answer(
     BundValue::map(m)
 }
 
-fn with_extra(m: &mut BTreeMap<String, BundValue>, extra: Extra, o: &Opts) {
+pub(super) fn with_extra(m: &mut BTreeMap<String, BundValue>, extra: Extra, o: &Opts) {
     let (lower, upper) = extra.ends;
     if let Some(e) = extra.estimate {
         m.insert("estimate".to_string(), BundValue::float(e));

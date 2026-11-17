@@ -966,6 +966,37 @@ module, with criteria 1, 2, 3, 5's second part and 6.
 
 Criterion 12: conform and coverage unchanged.
 
+M4 landed 2026-11-17: S3, in `biomath::infer::cor`, with criteria 1, 2
+and 7.
+
+- **Words:** `stat.cor.test.pearson`, `.spearman` and `.kendall` (2 → 1),
+  and their `.opts` variants (3 → 1), each plain and `.`: 12 names, held
+  in `infer::cor::WORDS`. RFC-0015's `describe` counting test now leaves
+  them out by that list, the deliberate amendment §Preservation analysis
+  records; `cor`'s own test counts the `stat.cor.test.` prefix.
+- **The estimates are RFC-0015's words'.** `describe::pearson` is
+  `pub(crate)`, and `describe::kendall` is factored into
+  `kendall_counts`, which also answers the concordant and discordant
+  counts and whether either series ties; τ-b is computed as before, and
+  `estimate` equals `stat.cor.pearson`'s and `stat.cor.kendall`'s to the
+  bit.
+- **Each answer** carries `alternative`, the plain words included
+  ("two.sided"). `df` is Pearson's only; Spearman's and Kendall's answers
+  have neither `df` nor `conf`. The methods are "Pearson's product-moment
+  correlation", "Spearman's rank correlation rho" and "Kendall's rank
+  correlation tau", R's names [UNGROUNDED as R's; Q62].
+- **Fewer than three pairs** is `at_least`'s E101, `a series of 2
+  values`, after the lengths' E102.
+- **The fixture** (`infer16.py`): Pearson, Spearman and Kendall's exact
+  case on `sleep`; Pearson at n = 3; Kendall at n = 45 with five adjacent
+  swaps, T = 985, whose two-sided p is 3.16·10⁻⁵⁰, matched within 1e-10;
+  and a tied case for the normal branch, each alternative. Pearson's
+  `sleep` figures agree with what R prints for that data, but no R output
+  is committed, so the fixture alone is the check (A7).
+- **`UNVARIED`** gains S8's six correlation names.
+
+Criterion 12: conform and coverage unchanged.
+
 ## Rulings — D251 (RESOLVED 2026-11-16)
 
 | | Question | Options | Ruled |

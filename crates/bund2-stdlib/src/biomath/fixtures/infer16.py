@@ -294,3 +294,145 @@ for label, mu, alt in [("mw.greater", 0.0, "greater"), ("mw.less", 0.0, "less"),
     W, p = mw(HA, HB, mu, alt)
     num(label, "statistic", mpf(W.numerator) / W.denominator)
     num(label, "p", p)
+
+
+# Criterion 7 (M4): the correlation tests. Pearson's r from the f64 values
+# at 50 digits, its t on n - 2 df and Fisher's z interval; Spearman's rho
+# from exact ranks, S and the t approximation's p; Kendall's exact T and p
+# by the integer recurrence I(n, t) = sum_j I(n - 1, t - j) over n!, and
+# with ties its z by S3's variance.
+def pearson_r(a, b):
+    a, b = fl(a), fl(b)
+    ma, mb = mean(a), mean(b)
+    sab = mpmath.fsum((x - ma) * (y - mb) for x, y in zip(a, b))
+    saa = mpmath.fsum((x - ma) ** 2 for x in a)
+    sbb = mpmath.fsum((y - mb) ** 2 for y in b)
+    return sab / mpmath.sqrt(saa * sbb)
+
+
+def zq(p):
+    return mpmath.sqrt(2) * mpmath.erfinv(2 * p - 1)
+
+
+def cor_t(r, df, alt):
+    t = r * mpmath.sqrt(df / (1 - r * r))
+    if alt == "two.sided":
+        return t, 2 * t_cdf(-abs(t), df)
+    if alt == "greater":
+        return t, 1 - t_cdf(t, df)
+    return t, t_cdf(t, df)
+
+
+def pearson_case(label, a, b):
+    r = pearson_r(a, b)
+    n = len(a)
+    num(label, "estimate", r)
+    for alt in ["two.sided", "greater", "less"]:
+        t, p = cor_t(r, mpf(n - 2), alt)
+        num(label + "." + alt, "statistic", t)
+        num(label + "." + alt, "p", p)
+        if n >= 4:
+            se = 1 / mpmath.sqrt(n - 3)
+            alpha = 1 - mpf(0.95)
+            if alt == "two.sided":
+                q = zq(1 - alpha / 2)
+                num(label + "." + alt, "lower", mpmath.tanh(mpmath.atanh(r) - q * se))
+                num(label + "." + alt, "upper", mpmath.tanh(mpmath.atanh(r) + q * se))
+            elif alt == "greater":
+                num(label + "." + alt, "lower", mpmath.tanh(mpmath.atanh(r) - zq(1 - alpha) * se))
+            else:
+                num(label + "." + alt, "upper", mpmath.tanh(mpmath.atanh(r) + zq(1 - alpha) * se))
+
+
+def exact_ranks(xs):
+    xs = [Q(x) for x in xs]
+    srt = sorted(xs)
+    out = []
+    for x in xs:
+        first = srt.index(x)
+        last = len(srt) - 1 - srt[::-1].index(x)
+        out.append(Q(first + last + 2, 2))
+    return out
+
+
+def spearman_case(label, a, b):
+    ra, rb = exact_ranks(a), exact_ranks(b)
+    n = len(a)
+    ma, mb = sum(ra) / n, sum(rb) / n
+    sab = sum((x - ma) * (y - mb) for x, y in zip(ra, rb))
+    saa = sum((x - ma) ** 2 for x in ra)
+    sbb = sum((y - mb) ** 2 for y in rb)
+    rho = mpf(sab.numerator) / sab.denominator / mpmath.sqrt(
+        mpf((saa * sbb).numerator) / (saa * sbb).denominator)
+    num(label, "estimate", rho)
+    num(label, "statistic", (mpf(n) ** 3 - n) * (1 - rho) / 6)
+    for alt in ["two.sided", "greater", "less"]:
+        num(label + "." + alt, "p", cor_t(rho, mpf(n - 2), alt)[1])
+
+
+def kendall_counts(a, b):
+    a, b = [Q(x) for x in a], [Q(x) for x in b]
+    nc = nd = 0
+    for i in range(len(a)):
+        for j in range(i + 1, len(a)):
+            s = (a[i] - a[j]) * (b[i] - b[j])
+            if s > 0:
+                nc += 1
+            elif s < 0:
+                nd += 1
+    return nc, nd
+
+
+def kendall_exact(label, a, b):
+    n = len(a)
+    nc, nd = kendall_counts(a, b)
+    I = [1]
+    for k in range(2, n + 1):
+        nxt = [0] * (k * (k - 1) // 2 + 1)
+        for t in range(len(nxt)):
+            nxt[t] = sum(I[u] for u in range(max(0, t - k + 1), min(t, len(I) - 1) + 1))
+        I = nxt
+    fact = mpmath.factorial(n)
+    le = mpf(sum(I[: nc + 1])) / fact
+    ge = mpf(sum(I[nc:])) / fact
+    N = n * (n - 1) // 2
+    two = min(1, 2 * (ge if 4 * nc > n * (n - 1) else le))
+    num(label, "statistic", nc)
+    num(label + ".two.sided", "p", two)
+    num(label + ".greater", "p", ge)
+    num(label + ".less", "p", le)
+
+
+def kendall_ties(label, a, b):
+    n = len(a)
+    nc, nd = kendall_counts(a, b)
+
+    def groups(xs):
+        return [xs.count(v) for v in set(xs)]
+
+    ta, ub = groups([Q(x) for x in a]), groups([Q(x) for x in b])
+    v0 = n * (n - 1) * (2 * n + 5)
+    vt = sum(t * (t - 1) * (2 * t + 5) for t in ta)
+    vu = sum(u * (u - 1) * (2 * u + 5) for u in ub)
+    v1 = sum(t * (t - 1) for t in ta) * sum(u * (u - 1) for u in ub)
+    v2 = sum(t * (t - 1) * (t - 2) for t in ta) * sum(u * (u - 1) * (u - 2) for u in ub)
+    v = Q(v0 - vt - vu, 18) + Q(v1, 2 * n * (n - 1)) + Q(v2, 9 * n * (n - 1) * (n - 2))
+    z = (nc - nd) / mpmath.sqrt(mpf(v.numerator) / v.denominator)
+    num(label, "statistic", z)
+    num(label + ".two.sided", "p", 2 * min(mpmath.ncdf(z), 1 - mpmath.ncdf(z)))
+    num(label + ".greater", "p", 1 - mpmath.ncdf(z))
+    num(label + ".less", "p", mpmath.ncdf(z))
+
+
+SLEEP_A = ["0.7", "-1.6", "-0.2", "-1.2", "-0.1", "3.4", "3.7", "0.8", "0.0", "2.0"]
+SLEEP_B = ["1.9", "0.8", "1.1", "0.1", "-0.1", "4.4", "5.5", "1.6", "4.6", "3.4"]
+pearson_case("cor.pearson", SLEEP_A, SLEEP_B)
+pearson_case("cor.pearson3", ["1.0", "2.0", "4.0"], ["1.5", "2.0", "5.0"])
+spearman_case("cor.spearman", SLEEP_A, SLEEP_B)
+kendall_exact("cor.kendall10", SLEEP_A, SLEEP_B)
+K45_B = list(range(1, 46))
+for i in [0, 9, 19, 29, 39]:
+    K45_B[i], K45_B[i + 1] = K45_B[i + 1], K45_B[i]
+kendall_exact("cor.kendall45", list(range(1, 46)), K45_B)
+kendall_ties("cor.kendall.ties", ["1", "2", "2", "3", "4", "4", "5", "6", "7", "8"],
+             ["1.9", "0.8", "1.1", "0.1", "0.1", "4.4", "5.5", "1.6", "4.6", "4.4"])

@@ -28,6 +28,9 @@
 //! options MAP above them and answer its estimate and interval beside the
 //! plain word's keys, through the plain word's own code.
 //!
+//! **RFC-0016 §S3's correlation tests** are [`cor`]'s, with their own
+//! `WORDS`.
+//!
 //! **The p values come from §S7's own tails** (`dist`), the t's, the χ²'s and
 //! the normal's, so they share its accuracy and its refusals.
 
@@ -951,6 +954,7 @@ pub fn register(r: &mut Registry) {
     four_forms!(r, "stat.padjust.by", by);
     word!("stat.lm", stat_lm, 2);
     opts::register(r);
+    cor::register(r);
 }
 
 /// The words with their forms: four for a correction, two for the rest.
@@ -1019,6 +1023,7 @@ pub const WORDS: [&str; 62] = [
     "stat.test.ks2.opts.",
 ];
 
+pub mod cor;
 mod opts;
 
 #[cfg(test)]

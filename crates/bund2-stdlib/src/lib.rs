@@ -846,12 +846,13 @@ mod honesty_tests {
         // INTEGERs; `popgen.wf`'s and `popgen.wf.selection`'s is N, a count
         // refused unless from 1 to 10¹² (§S13). Their forms' are too.
         // RFC-0016 §S8: `stat.test.t2.opts`', `welch.opts`', `paired.opts`',
-        // `mannwhitney.opts`' and `ks2.opts`' first operand is a, a series
+        // `mannwhitney.opts`', `ks2.opts`' and `stat.cor.test.*.opts`'
+        // first operand is a, a series
         // read as `whole` reads
         // one, E115 unless a LIST or METRICS; `stat.test.binom.opts`' are k
         // and n, counts refused as `stat.test.binom`'s are. Their forms'
         // are too.
-        const UNVARIED: [&str; 55] = [
+        const UNVARIED: [&str; 61] = [
             "bio.align",
             "bio.align.",
             "bio.align.score",
@@ -891,6 +892,12 @@ mod honesty_tests {
             "set,",
             "set.",
             "set.,",
+            "stat.cor.test.kendall.opts",
+            "stat.cor.test.kendall.opts.",
+            "stat.cor.test.pearson.opts",
+            "stat.cor.test.pearson.opts.",
+            "stat.cor.test.spearman.opts",
+            "stat.cor.test.spearman.opts.",
             "stat.test.binom",
             "stat.test.binom.",
             "stat.test.binom.opts",

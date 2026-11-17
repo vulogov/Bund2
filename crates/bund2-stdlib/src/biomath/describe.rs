@@ -149,7 +149,7 @@ fn covariance(word: &str, a: &[f64], b: &[f64]) -> Result<f64, Error> {
     finite(word, c, || "the covariance".into())
 }
 
-fn pearson(word: &str, a: &[f64], b: &[f64]) -> Result<f64, Error> {
+pub(crate) fn pearson(word: &str, a: &[f64], b: &[f64]) -> Result<f64, Error> {
     let c = covariance(word, a, b)?;
     let (va, vb) = (variance(a), variance(b));
     if va == 0.0 {
@@ -186,6 +186,19 @@ pub(crate) fn ranks(xs: &[f64]) -> Vec<f64> {
 }
 
 fn kendall(word: &str, a: &[f64], b: &[f64]) -> Result<f64, Error> {
+    Ok(kendall_counts(word, a, b)?.tau)
+}
+
+/// Kendall's pair counts: concordant, discordant, and τ-b from them.
+pub(crate) struct KendallCounts {
+    pub(crate) tau: f64,
+    pub(crate) concordant: u64,
+    pub(crate) discordant: u64,
+    /// Whether any pair ties in a, or in b.
+    pub(crate) ties: bool,
+}
+
+pub(crate) fn kendall_counts(word: &str, a: &[f64], b: &[f64]) -> Result<KendallCounts, Error> {
     same_length(word, a, b)?;
     at_least(word, a, 2)?;
     let n = a.len();
@@ -216,7 +229,12 @@ fn kendall(word: &str, a: &[f64], b: &[f64]) -> Result<f64, Error> {
         return Err(domain(word, "b", "a constant series".into()));
     }
     let tau = (nc as f64 - nd as f64) / (((n0 - ta) as f64) * ((n0 - tb) as f64)).sqrt();
-    Ok(tau.clamp(-1.0, 1.0))
+    Ok(KendallCounts {
+        tau: tau.clamp(-1.0, 1.0),
+        concordant: nc,
+        discordant: nd,
+        ties: ta > 0 || tb > 0,
+    })
 }
 
 /// A statistic of two series, under a word's name.
