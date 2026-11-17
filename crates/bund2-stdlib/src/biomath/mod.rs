@@ -68,6 +68,13 @@
 //! **What M1 links.** `nalgebra` and `rand_distr` become direct dependencies
 //! at the versions the lock already held, and `statrs` gains its `nalgebra`
 //! feature, for the multivariate families (§S7). The lock gains no package.
+//!
+//! RFC-0016 adds statistical inference to the family, in its own milestones.
+//! Its M1 adds §S4 and §S6:
+//!
+//! - [`infer`]: `stat.padjust.hochberg`, `.hommel` and `.by`;
+//! - [`round`]: `math.round.places`, `math.signif`, `string.fixed` and
+//!   `string.sci`.
 
 pub mod align;
 pub mod describe;
@@ -81,6 +88,7 @@ pub mod phylo;
 pub mod popgen;
 pub mod refuse;
 pub mod rng;
+pub mod round;
 pub mod sequence;
 pub mod special;
 pub mod vector;
@@ -100,6 +108,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     dynamics::register(r);
     fit::register(r);
     rng::register(r);
+    round::register(r);
 }
 
 #[cfg(test)]

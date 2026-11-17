@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 495 promotable of 504 reached, of 709 fixed-effect natives; 9 reached natives
+# 503 promotable of 512 reached, of 717 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -296,7 +296,11 @@ math.power.
 math.random.int
 math.round
 math.round.
+math.round.places
+math.round.places.
 math.securerandom.int
+math.signif
+math.signif.
 math.signum
 math.signum.
 math.sin
@@ -402,6 +406,8 @@ string.distance.levenshtein
 string.distance.levenshtein.
 string.distance.sift3
 string.distance.sift3.
+string.fixed
+string.fixed.
 string.fuzzymatch
 string.fuzzymatch.
 string.lower
@@ -430,6 +436,8 @@ string.regex.matches
 string.regex.matches.
 string.regex.split
 string.regex.split.
+string.sci
+string.sci.
 string.snake
 string.snake.
 string.suffix

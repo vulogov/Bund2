@@ -1,5 +1,6 @@
 //! RFC-0015 §S6's tests, corrections and model: `stat.test.*`,
-//! `stat.padjust.*` and `stat.lm`.
+//! `stat.padjust.*` and `stat.lm`; and RFC-0016 §S4's further corrections,
+//! Hochberg's, Hommel's and Benjamini–Yekutieli's.
 //!
 //! **A test answers a MAP** (§S2) holding `statistic`, `p`, `df` where the
 //! test has one, and `method`, R's name for it. Every test is two-sided.
@@ -585,6 +586,99 @@ fn bh(word: &str, ps: &[f64]) -> Result<BundValue, Error> {
     Ok(list(out))
 }
 
+// RFC-0016 §S4's corrections.
+
+/// The most p-values Hommel's O(n²) steps take (D39): 10⁸ steps.
+const HOMMEL_CAP: u64 = 10_000;
+
+/// Sorted values back to input order.
+fn in_input_order(order: &[usize], sorted: &[f64]) -> Vec<f64> {
+    let mut out = vec![0.0; sorted.len()];
+    for (r, &i) in order.iter().enumerate() {
+        out[i] = sorted[r];
+    }
+    out
+}
+
+/// Hochberg's step-up: p̃₍ᵢ₎ = min_{j ≥ i} min(1, (n − j + 1)·p₍ⱼ₎).
+fn hochberg(word: &str, ps: &[f64]) -> Result<BundValue, Error> {
+    probabilities(word, ps)?;
+    let n = ps.len();
+    let mut out = vec![0.0; n];
+    let mut running = 1.0f64;
+    for (rank, &i) in order(ps).iter().enumerate().rev() {
+        running = running.min((n - rank) as f64 * ps[i]);
+        out[i] = running.min(1.0);
+    }
+    Ok(list(out))
+}
+
+/// Benjamini–Yekutieli: Benjamini–Hochberg's values times c = Σ 1/k,
+/// p̃₍ᵢ₎ = min_{j ≥ i} min(1, c·n·p₍ⱼ₎/j).
+fn by(word: &str, ps: &[f64]) -> Result<BundValue, Error> {
+    probabilities(word, ps)?;
+    let n = ps.len();
+    let c: f64 = (1..=n).map(|k| 1.0 / k as f64).sum();
+    let mut out = vec![0.0; n];
+    let mut running = 1.0f64;
+    for (rank, &i) in order(ps).iter().enumerate().rev() {
+        running = running.min(c * n as f64 * ps[i] / (rank + 1) as f64);
+        out[i] = running.min(1.0);
+    }
+    Ok(list(out))
+}
+
+/// Hommel's closed testing over Simes' tests, by S4's steps rather than
+/// over subsets. With p sorted, 1-based in the comments:
+///
+/// 1. q = a = min_i n·p₍ᵢ₎/i, in every position;
+/// 2. for m from n − 1 down to 2: q₁ = min_{i=2}^{m} m·p₍ₙ₋ₘ₊ᵢ₎/i;
+///    qᵢ = min(m·p₍ᵢ₎, q₁) for i ≤ n − m + 1, and q₍ₙ₋ₘ₊₁₎ beyond; then
+///    aᵢ = max(aᵢ, qᵢ);
+/// 3. p̃₍ᵢ₎ = min(1, max(aᵢ, p₍ᵢ₎)).
+fn hommel(word: &str, ps: &[f64]) -> Result<BundValue, Error> {
+    probabilities(word, ps)?;
+    let n = ps.len();
+    if n as u64 > HOMMEL_CAP {
+        return Err(Refusal::Cap {
+            what: format!("a series of {n} p-values"),
+            cap: HOMMEL_CAP,
+        }
+        .error(word));
+    }
+    if n == 0 {
+        return Ok(list(Vec::new()));
+    }
+    let o = order(ps);
+    let p: Vec<f64> = o.iter().map(|&i| ps[i]).collect();
+    let nf = n as f64;
+    let first = (0..n)
+        .map(|i| nf * p[i] / (i + 1) as f64)
+        .fold(f64::INFINITY, f64::min);
+    let mut a = vec![first; n];
+    let mut q = vec![first; n];
+    for m in (2..n).rev() {
+        let mf = m as f64;
+        // q₁ over i = 2..=m, 1-based: p₍ₙ₋ₘ₊ᵢ₎ is p[n - m + i - 1].
+        let q1 = (2..=m)
+            .map(|i| mf * p[n - m + i - 1] / i as f64)
+            .fold(f64::INFINITY, f64::min);
+        // i ≤ n − m + 1, 1-based, is index 0..=n - m.
+        for i in 0..=n - m {
+            q[i] = (mf * p[i]).min(q1);
+        }
+        let edge = q[n - m];
+        for qi in q.iter_mut().skip(n - m + 1) {
+            *qi = edge;
+        }
+        for (ai, qi) in a.iter_mut().zip(&q) {
+            *ai = ai.max(*qi);
+        }
+    }
+    let sorted: Vec<f64> = (0..n).map(|i| a[i].max(p[i]).min(1.0)).collect();
+    Ok(list(in_input_order(&o, &sorted)))
+}
+
 // The model.
 
 fn stat_lm(vm: &mut dyn Vm) -> Result<(), Error> {
@@ -726,11 +820,14 @@ pub fn register(r: &mut Registry) {
     four_forms!(r, "stat.padjust.bonferroni", bonferroni);
     four_forms!(r, "stat.padjust.holm", holm);
     four_forms!(r, "stat.padjust.bh", bh);
+    four_forms!(r, "stat.padjust.hochberg", hochberg);
+    four_forms!(r, "stat.padjust.hommel", hommel);
+    four_forms!(r, "stat.padjust.by", by);
     word!("stat.lm", stat_lm, 2);
 }
 
 /// The words with their forms: four for a correction, two for the rest.
-pub const WORDS: [&str; 34] = [
+pub const WORDS: [&str; 46] = [
     "stat.test.t1",
     "stat.test.t1.",
     "stat.test.t2",
@@ -763,6 +860,18 @@ pub const WORDS: [&str; 34] = [
     "stat.padjust.bh,",
     "stat.padjust.bh.",
     "stat.padjust.bh.,",
+    "stat.padjust.hochberg",
+    "stat.padjust.hochberg,",
+    "stat.padjust.hochberg.",
+    "stat.padjust.hochberg.,",
+    "stat.padjust.hommel",
+    "stat.padjust.hommel,",
+    "stat.padjust.hommel.",
+    "stat.padjust.hommel.,",
+    "stat.padjust.by",
+    "stat.padjust.by,",
+    "stat.padjust.by.",
+    "stat.padjust.by.,",
     "stat.lm",
     "stat.lm.",
 ];

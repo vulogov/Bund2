@@ -393,3 +393,109 @@ fn write_the_snapshot() {
     );
     std::fs::write(path, snapshot()).unwrap();
 }
+
+// RFC-0016 criterion 8: Hochberg, Hommel and Benjamini–Yekutieli.
+
+const FIXTURE16: &str = include_str!("../fixtures/infer16.txt");
+
+fn p20() -> String {
+    let ps = fixture(FIXTURE16, "padjust20 p");
+    assert_eq!(ps.len(), 20);
+    let cells: Vec<String> = ps.iter().map(|p| format!("{p:?}")).collect();
+    format!("[ {} ]", cells.join(" "))
+}
+
+#[test]
+fn rfc0016_corrections_against_the_fixture() {
+    let ps = p20();
+    for w in ["hochberg", "hommel", "by"] {
+        let got = top(&format!("{ps} stat.padjust.{w}"));
+        let want = fixture(FIXTURE16, &format!("padjust20 {w}"));
+        close(w, &got, &want, 1e-12);
+    }
+}
+
+/// Hommel's steps against its definition, the largest Simes p over every
+/// subset containing i, on every subset of small series.
+#[test]
+fn hommel_is_its_subset_definition() {
+    fn simes(ps: &[f64]) -> f64 {
+        let mut s = ps.to_vec();
+        s.sort_by(f64::total_cmp);
+        let k = s.len() as f64;
+        s.iter()
+            .enumerate()
+            .map(|(j, p)| k * p / (j + 1) as f64)
+            .fold(f64::INFINITY, f64::min)
+    }
+    let cases: [&[f64]; 6] = [
+        &[0.01],
+        &[0.04, 0.01],
+        &[0.01, 0.02, 0.03, 0.04, 0.05],
+        &[0.2, 0.001, 0.04, 0.04, 0.5, 0.012, 1.0],
+        &[0.003, 0.9, 0.02, 0.3, 0.0, 0.07, 0.011, 0.6],
+        &[0.5, 0.5, 0.5, 0.01],
+    ];
+    for ps in cases {
+        let n = ps.len();
+        let mut want = vec![0.0f64; n];
+        for mask in 1u32..(1 << n) {
+            let sub: Vec<f64> = (0..n)
+                .filter(|i| mask >> i & 1 == 1)
+                .map(|i| ps[i])
+                .collect();
+            let s = simes(&sub);
+            for i in (0..n).filter(|i| mask >> i & 1 == 1) {
+                want[i] = want[i].max(s);
+            }
+        }
+        let want: Vec<f64> = want.iter().map(|w| w.min(1.0)).collect();
+        let cells: Vec<String> = ps.iter().map(|p| format!("{p:?}")).collect();
+        let got = top(&format!("[ {} ] stat.padjust.hommel", cells.join(" ")));
+        close(&format!("{ps:?}"), &got, &want, 1e-15);
+    }
+}
+
+#[test]
+fn rfc0016_corrections_edges() {
+    for w in ["hochberg", "hommel", "by"] {
+        let mut i = run(&format!("list stat.padjust.{w}")).unwrap();
+        assert_eq!(i.pull().unwrap().as_list().map(<[_]>::len), Some(0), "{w}");
+        assert_eq!(top(&format!("[ 0.3 ] stat.padjust.{w}")), [0.3], "{w}");
+        assert_eq!(
+            err(&format!("[ 0.1 1.5 ] stat.padjust.{w}")),
+            format!(
+                "STAT.PADJUST.{}: E101 series is outside stat.padjust.{w}'s domain: 1.5 at 2",
+                w.to_uppercase()
+            )
+        );
+    }
+    // Every form answers the plain word's values.
+    let ps = "[ 0.01 0.04 0.03 ]";
+    for w in ["hochberg", "hommel", "by"] {
+        let plain = top(&format!("{ps} stat.padjust.{w}"));
+        let mut i = run(&format!("{ps} . stat.padjust.{w}.")).unwrap();
+        assert_eq!(floats(&i.pull_workbench().unwrap()), plain, "{w}");
+    }
+    // BY is BH times Σ 1/k, capped at 1.
+    let bh = top(&format!("{ps} stat.padjust.bh"));
+    let by = top(&format!("{ps} stat.padjust.by"));
+    let c = 1.0 + 0.5 + 1.0 / 3.0;
+    close(
+        "by",
+        &by,
+        &bh.iter().map(|b| (b * c).min(1.0)).collect::<Vec<_>>(),
+        1e-15,
+    );
+}
+
+#[test]
+fn hommel_above_its_cap_is_e111() {
+    let ps = format!("[ {} ]", vec!["0.5"; 10_001].join(" "));
+    assert_eq!(
+        err(&format!("{ps} stat.padjust.hommel")),
+        "STAT.PADJUST.HOMMEL: E111 a series of 10001 p-values exceeds its cap of 10000"
+    );
+    let ps = format!("[ {} ]", vec!["0.5"; 10_000].join(" "));
+    assert_eq!(top(&format!("{ps} stat.padjust.hommel")).len(), 10_000);
+}

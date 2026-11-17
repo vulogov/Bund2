@@ -871,6 +871,33 @@ interval end that is a quantile, since the polish bounds |cdf(x) − p| at
 
 Each ends with criterion 12.
 
+M1 landed 2026-11-17. Its first change records criterion 3's snapshot
+before any code moves: `biomath/fixtures/infer.snapshot`, every key of
+RFC-0015's ten tests' answers on their fixtures and of
+`[ 1.0 4.0 ] [ 2.0 3.0 ] stat.test.mannwhitney`, each number as its f64
+bits, written from the code at cae380d by the ignored test
+`write_the_snapshot` and compared by
+`the_plain_tests_answer_the_snapshot_bit_for_bit`. Then:
+
+- **S4** in `biomath::infer`: `stat.padjust.hochberg`, `.hommel` and
+  `.by`, in four forms, with criteria 1, 2 and 8. The fixture
+  (`fixtures/infer16.py`, exact rationals) computes Hommel's values by
+  enumerating all 2²⁰ subsets of its 20 p-values; a unit test also checks
+  the steps against the subset definition on every subset of six small
+  series. No R output is committed for these, so the fixture alone is the
+  check (A7). Hommel above 10⁴ p-values is E111, `a series of 10001
+  p-values exceeds its cap of 10000`.
+- **S6** in a new module, `biomath::round`: `math.round.places`,
+  `math.signif`, `string.fixed` and `string.sci`, plain and `.`, with
+  criteria 1, 2 and 10. n is read before x. S6 names a STRING x as E103;
+  any other operand that is neither a number nor a LIST, a MAP or NONE
+  say, is E101, as RFC-0015's scalar reader `real` refuses one.
+  `math.signif`'s E114 names the operand in `{:e}` form:
+  `1.7976931348623157e308 to 1 significant digits`.
+
+`PROMOTABLE.txt` gains the eight rounding and formatting names (the
+corrections are opaque). Criterion 12: conform and coverage unchanged.
+
 ## Rulings — D251 (RESOLVED 2026-11-16)
 
 | | Question | Options | Ruled |
