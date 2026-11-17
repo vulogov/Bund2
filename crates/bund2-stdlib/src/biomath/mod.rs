@@ -75,6 +75,9 @@
 //! - [`infer`]: `stat.padjust.hochberg`, `.hommel` and `.by`;
 //! - [`round`]: `math.round.places`, `math.signif`, `string.fixed` and
 //!   `string.sci`.
+//!
+//! Its M2 adds the first of §S2's `.opts` words to [`infer`]: the t tests'
+//! and the binomial's estimates, intervals and one-sided p.
 
 pub mod align;
 pub mod describe;

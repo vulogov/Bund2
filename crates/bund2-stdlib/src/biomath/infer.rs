@@ -24,6 +24,10 @@
 //! which is infinite at the support's ends (B12). The binomial test answers
 //! k. §S6's note of 2026-11-15 records both.
 //!
+//! **RFC-0016 §S2's `.opts` words** (`opts`) take a test's operands with an
+//! options MAP above them and answer its estimate and interval beside the
+//! plain word's keys, through the plain word's own code.
+//!
 //! **The p values come from §S7's own tails** (`dist`), the t's, the χ²'s and
 //! the normal's, so they share its accuracy and its refusals.
 
@@ -50,6 +54,16 @@ const SUPPORT_CAP: u64 = 100_000_000;
 // The answer.
 
 fn answer(statistic: f64, p: f64, df: Option<f64>, method: &str) -> BundValue {
+    BundValue::map(answer_map(statistic, p, df, method))
+}
+
+/// The keys every test answers, for a word that adds its own.
+fn answer_map(
+    statistic: f64,
+    p: f64,
+    df: Option<f64>,
+    method: &str,
+) -> BTreeMap<String, BundValue> {
     let mut m = BTreeMap::new();
     m.insert("statistic".to_string(), BundValue::float(statistic));
     m.insert("p".to_string(), BundValue::float(p.clamp(0.0, 1.0)));
@@ -57,7 +71,7 @@ fn answer(statistic: f64, p: f64, df: Option<f64>, method: &str) -> BundValue {
         m.insert("df".to_string(), BundValue::float(df));
     }
     m.insert("method".to_string(), BundValue::str(method));
-    BundValue::map(m)
+    m
 }
 
 fn constant(word: &str, operand: &str) -> Error {
@@ -89,23 +103,47 @@ pub(crate) fn chisq_p(word: &str, x: f64, df: f64) -> Result<f64, Error> {
 
 // The t tests.
 
-fn t_one(word: &str, xs: &[f64], mu: f64, method: &str) -> Result<BundValue, Error> {
+/// What a t test is of: the estimate, its standard error and the df. The
+/// plain words test the estimate against 0, or `t1` against μ₀; RFC-0016's
+/// `.opts` words also against a shifted μ, and build its interval.
+struct TCase {
+    estimate: f64,
+    se: f64,
+    df: f64,
+}
+
+impl TCase {
+    /// The statistic for the hypothesis that the estimate is `mu`.
+    fn t(&self, word: &str, mu: f64) -> Result<f64, Error> {
+        statistic(word, (self.estimate - mu) / self.se)
+    }
+}
+
+fn t_one_case(word: &str, xs: &[f64]) -> Result<TCase, Error> {
     at_least(word, xs, 2)?;
     let n = xs.len() as f64;
     let se = (variance(xs) / n).sqrt();
     if se == 0.0 {
         return Err(constant(word, "series"));
     }
-    let t = statistic(word, (mean(xs) - mu) / se)?;
-    let df = n - 1.0;
-    Ok(answer(t, t_p(word, t, df)?, Some(df), method))
+    Ok(TCase {
+        estimate: mean(xs),
+        se,
+        df: n - 1.0,
+    })
+}
+
+fn t_one(word: &str, xs: &[f64], mu: f64, method: &str) -> Result<BundValue, Error> {
+    let c = t_one_case(word, xs)?;
+    let t = c.t(word, mu)?;
+    Ok(answer(t, t_p(word, t, c.df)?, Some(c.df), method))
 }
 
 fn stat_test_t1(word: &str, xs: &[f64], mu: f64) -> Result<BundValue, Error> {
     t_one(word, xs, mu, "One Sample t-test")
 }
 
-fn t2(word: &str, a: &[f64], b: &[f64]) -> Result<BundValue, Error> {
+fn t2_case(word: &str, a: &[f64], b: &[f64]) -> Result<TCase, Error> {
     at_least(word, a, 2)?;
     at_least(word, b, 2)?;
     let (n1, n2) = (a.len() as f64, b.len() as f64);
@@ -115,11 +153,25 @@ fn t2(word: &str, a: &[f64], b: &[f64]) -> Result<BundValue, Error> {
     if se == 0.0 {
         return Err(constant(word, "a and b"));
     }
-    let t = statistic(word, (mean(a) - mean(b)) / se)?;
-    Ok(answer(t, t_p(word, t, df)?, Some(df), "Two Sample t-test"))
+    Ok(TCase {
+        estimate: mean(a) - mean(b),
+        se,
+        df,
+    })
 }
 
-fn welch(word: &str, a: &[f64], b: &[f64]) -> Result<BundValue, Error> {
+fn t2(word: &str, a: &[f64], b: &[f64]) -> Result<BundValue, Error> {
+    let c = t2_case(word, a, b)?;
+    let t = c.t(word, 0.0)?;
+    Ok(answer(
+        t,
+        t_p(word, t, c.df)?,
+        Some(c.df),
+        "Two Sample t-test",
+    ))
+}
+
+fn welch_case(word: &str, a: &[f64], b: &[f64]) -> Result<TCase, Error> {
     at_least(word, a, 2)?;
     at_least(word, b, 2)?;
     let (n1, n2) = (a.len() as f64, b.len() as f64);
@@ -132,20 +184,35 @@ fn welch(word: &str, a: &[f64], b: &[f64]) -> Result<BundValue, Error> {
         word,
         se2 * se2 / (v1 * v1 / (n1 - 1.0) + v2 * v2 / (n2 - 1.0)),
     )?;
-    let t = statistic(word, (mean(a) - mean(b)) / se2.sqrt())?;
+    Ok(TCase {
+        estimate: mean(a) - mean(b),
+        se: se2.sqrt(),
+        df,
+    })
+}
+
+fn welch(word: &str, a: &[f64], b: &[f64]) -> Result<BundValue, Error> {
+    let c = welch_case(word, a, b)?;
+    let t = c.t(word, 0.0)?;
     Ok(answer(
         t,
-        t_p(word, t, df)?,
-        Some(df),
+        t_p(word, t, c.df)?,
+        Some(c.df),
         "Welch Two Sample t-test",
     ))
 }
 
-fn paired(word: &str, a: &[f64], b: &[f64]) -> Result<BundValue, Error> {
+fn paired_case(word: &str, a: &[f64], b: &[f64]) -> Result<TCase, Error> {
     same_length(word, a, b)?;
     let d: Vec<f64> = a.iter().zip(b).map(|(x, y)| x - y).collect();
     finite_all(word, "a - b", &d)?;
-    t_one(word, &d, 0.0, "Paired t-test")
+    t_one_case(word, &d)
+}
+
+fn paired(word: &str, a: &[f64], b: &[f64]) -> Result<BundValue, Error> {
+    let c = paired_case(word, a, b)?;
+    let t = c.t(word, 0.0)?;
+    Ok(answer(t, t_p(word, t, c.df)?, Some(c.df), "Paired t-test"))
 }
 
 // χ².
@@ -357,23 +424,29 @@ fn stat_test_fisher(vm: &mut dyn Vm) -> Result<(), Error> {
 fn stat_test_binom(vm: &mut dyn Vm) -> Result<(), Error> {
     const W: &str = "stat.test.binom";
     let v = operands(vm, W, 3)?;
-    let count = |operand: &str, x: &BundValue| match x.unboxed() {
-        BundValue::Int(i, _) if *i >= 0 => Ok(i.unsigned_abs()),
-        _ => Err(domain(W, operand, x.summary(WIDTH))),
-    };
-    let k = count("k", &v[0])?;
-    let n = count("n", &v[1])?;
-    if k > n {
-        return Err(domain(W, "k", k.to_string()));
-    }
-    let p = real(W, "p", &v[2])?;
-    if !(0.0..=1.0).contains(&p) {
-        return Err(domain(W, "p", v[2].summary(WIDTH)));
-    }
+    let (k, n, p) = binom_operands(W, &v)?;
     let f = Family::Binomial { size: n, prob: p };
     let pv = binom_p(W, &f, k, n, p)?;
     vm.push(answer(k as f64, pv, None, "Exact binomial test"));
     Ok(())
+}
+
+/// The binomial test's k, n and p, each checked.
+fn binom_operands(word: &str, v: &[BundValue]) -> Result<(u64, u64, f64), Error> {
+    let count = |operand: &str, x: &BundValue| match x.unboxed() {
+        BundValue::Int(i, _) if *i >= 0 => Ok(i.unsigned_abs()),
+        _ => Err(domain(word, operand, x.summary(WIDTH))),
+    };
+    let k = count("k", &v[0])?;
+    let n = count("n", &v[1])?;
+    if k > n {
+        return Err(domain(word, "k", k.to_string()));
+    }
+    let p = real(word, "p", &v[2])?;
+    if !(0.0..=1.0).contains(&p) {
+        return Err(domain(word, "p", v[2].summary(WIDTH)));
+    }
+    Ok((k, n, p))
 }
 
 /// R's two-sided rule for `binom.test`, counting the outcomes on the far
@@ -824,10 +897,11 @@ pub fn register(r: &mut Registry) {
     four_forms!(r, "stat.padjust.hommel", hommel);
     four_forms!(r, "stat.padjust.by", by);
     word!("stat.lm", stat_lm, 2);
+    opts::register(r);
 }
 
 /// The words with their forms: four for a correction, two for the rest.
-pub const WORDS: [&str; 46] = [
+pub const WORDS: [&str; 56] = [
     "stat.test.t1",
     "stat.test.t1.",
     "stat.test.t2",
@@ -874,7 +948,19 @@ pub const WORDS: [&str; 46] = [
     "stat.padjust.by.,",
     "stat.lm",
     "stat.lm.",
+    "stat.test.t1.opts",
+    "stat.test.t1.opts.",
+    "stat.test.t2.opts",
+    "stat.test.t2.opts.",
+    "stat.test.welch.opts",
+    "stat.test.welch.opts.",
+    "stat.test.paired.opts",
+    "stat.test.paired.opts.",
+    "stat.test.binom.opts",
+    "stat.test.binom.opts.",
 ];
+
+mod opts;
 
 #[cfg(test)]
 mod tests;

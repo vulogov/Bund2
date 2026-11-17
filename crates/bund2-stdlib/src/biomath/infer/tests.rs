@@ -499,3 +499,360 @@ fn hommel_above_its_cap_is_e111() {
     let ps = format!("[ {} ]", vec!["0.5"; 10_000].join(" "));
     assert_eq!(top(&format!("{ps} stat.padjust.hommel")).len(), 10_000);
 }
+
+// RFC-0016 M2: the t tests' and the binomial's `.opts` words (§S2),
+// criteria 1, 2, 3, 4 and 5's first part. The fixture is `infer16.py`'s,
+// at 50 digits; no R output is committed for these, so it alone is the
+// check (A7).
+
+/// Each `.opts` word of M2 with its operands, the defaults' options, and
+/// the plain word it extends.
+fn opts_programs() -> Vec<(&'static str, String, String)> {
+    vec![
+        (
+            "t1",
+            format!("{A} 0.5 dict stat.test.t1.opts"),
+            format!("{A} 0.5 stat.test.t1"),
+        ),
+        (
+            "t2",
+            format!("{A} {B} dict stat.test.t2.opts"),
+            format!("{A} {B} stat.test.t2"),
+        ),
+        (
+            "welch",
+            format!("{A} {B} dict stat.test.welch.opts"),
+            format!("{A} {B} stat.test.welch"),
+        ),
+        (
+            "paired",
+            format!("{A} {B} dict stat.test.paired.opts"),
+            format!("{A} {B} stat.test.paired"),
+        ),
+        (
+            "binom",
+            "682 925 0.75 dict stat.test.binom.opts".into(),
+            "682 925 0.75 stat.test.binom".into(),
+        ),
+        (
+            "binom.low",
+            "3 20 0.5 dict stat.test.binom.opts".into(),
+            "3 20 0.5 stat.test.binom".into(),
+        ),
+    ]
+}
+
+/// Whether the MAP `src` leaves has `key`, asked as a program asks it.
+fn has(src: &str, key: &str) -> bool {
+    let mut i = run(&format!("{src} \"{key}\" ?key")).unwrap_or_else(|e| panic!("{src}: {e}"));
+    match i.pull().unwrap() {
+        BundValue::Bool(b, _) => b,
+        v => panic!("{src} {key} ?key: {v:?}"),
+    }
+}
+
+fn text(m: &std::collections::BTreeMap<String, BundValue>, k: &str) -> String {
+    m.get(k)
+        .and_then(BundValue::as_str)
+        .unwrap_or_else(|| panic!("no {k} STRING in {m:?}"))
+}
+
+#[test]
+fn rfc0016_m2_words_are_registered_with_their_effects() {
+    let mut i = bund2_interp::Interp::new();
+    crate::register_all(&mut i.registry);
+    let shape = |w: &str| {
+        let e = i.registry.effect_of(w).unwrap_or_else(|| panic!("{w}"));
+        (e.consumes, e.produces, e.opaque)
+    };
+    assert!(shape("stat.test.t1.opts").2);
+    assert!(shape("stat.test.t1.opts.").2);
+    for w in ["t2", "welch", "paired"] {
+        assert_eq!(shape(&format!("stat.test.{w}.opts")), (3, 1, false), "{w}");
+        assert_eq!(shape(&format!("stat.test.{w}.opts.")), (2, 0, false), "{w}");
+    }
+    assert_eq!(shape("stat.test.binom.opts"), (4, 1, false));
+    assert_eq!(shape("stat.test.binom.opts."), (3, 0, false));
+}
+
+/// Criterion 3: with the defaults, each `.opts` word's `statistic`, `p` and
+/// `df` are its plain word's, bit for bit, and so is its `method`.
+#[test]
+fn rfc0016_opts_defaults_are_the_plain_words_bit_for_bit() {
+    for (label, opts, plain) in opts_programs() {
+        let (o, p) = (map(&opts), map(&plain));
+        for k in ["statistic", "p", "df"] {
+            assert_eq!(
+                o.get(k).map(|_| field(&o, k)[0].to_bits()),
+                p.get(k).map(|_| field(&p, k)[0].to_bits()),
+                "{label} {k}"
+            );
+        }
+        assert_eq!(text(&o, "method"), text(&p, "method"), "{label}");
+        assert_eq!(text(&o, "alternative"), "two.sided", "{label}");
+        assert_eq!(field(&o, "conf"), [0.95], "{label}");
+    }
+}
+
+/// Criterion 4: each t word against the fixture, two-sided at 95% and 99%,
+/// one-sided, and with `mu` 1.0 for the two-sample words.
+#[test]
+fn rfc0016_t_intervals_against_the_fixture() {
+    let want = |label: &str, k: &str| fixture(FIXTURE16, &format!("{label}.opts {k}"));
+    let cases = [
+        ("t1", format!("{A} 0.0"), "One Sample t-test"),
+        ("t2", format!("{A} {B}"), "Two Sample t-test"),
+        ("welch", format!("{A} {B}"), "Welch Two Sample t-test"),
+        ("paired", format!("{A} {B}"), "Paired t-test"),
+    ];
+    for (label, ops, method) in &cases {
+        let w = format!("stat.test.{label}.opts");
+        let src = format!("{ops} dict {w}");
+        let m = map(&src);
+        close(
+            label,
+            &field(&m, "statistic"),
+            &want(label, "statistic"),
+            1e-12,
+        );
+        close(label, &field(&m, "p"), &want(label, "p"), 1e-8);
+        close(label, &field(&m, "df"), &want(label, "df"), 1e-12);
+        close(
+            label,
+            &field(&m, "estimate"),
+            &want(label, "estimate"),
+            1e-12,
+        );
+        close(label, &field(&m, "lower"), &want(label, "lower"), 1e-9);
+        close(label, &field(&m, "upper"), &want(label, "upper"), 1e-9);
+        assert_eq!(text(&m, "method"), *method, "{label}");
+
+        let m = map(&format!("{ops} dict \"conf\" 0.99 set {w}"));
+        close(label, &field(&m, "lower"), &want(label, "lower99"), 1e-9);
+        close(label, &field(&m, "upper"), &want(label, "upper99"), 1e-9);
+        assert_eq!(field(&m, "conf"), [0.99]);
+
+        let less = format!("{ops} dict \"alternative\" \"less\" set {w}");
+        let m = map(&less);
+        close(label, &field(&m, "p"), &want(label, "less.p"), 1e-8);
+        close(label, &field(&m, "upper"), &want(label, "less.upper"), 1e-9);
+        assert!(!has(&less, "lower"), "{label}");
+        assert!(has(&less, "upper"), "{label}");
+        assert_eq!(text(&m, "alternative"), "less");
+
+        let greater = format!("{ops} dict \"alternative\" \"greater\" set {w}");
+        let m = map(&greater);
+        close(label, &field(&m, "p"), &want(label, "greater.p"), 1e-8);
+        close(
+            label,
+            &field(&m, "lower"),
+            &want(label, "greater.lower"),
+            1e-9,
+        );
+        assert!(!has(&greater, "upper"), "{label}");
+
+        if *label != "t1" {
+            let shifted = map(&format!("{ops} dict \"mu\" 1.0 set {w}"));
+            close(
+                label,
+                &field(&shifted, "statistic"),
+                &want(label, "mu1.statistic"),
+                1e-12,
+            );
+            close(label, &field(&shifted, "p"), &want(label, "mu1.p"), 1e-8);
+            // The estimate and interval are of the difference itself.
+            let plain = map(&src);
+            for k in ["estimate", "lower", "upper", "df"] {
+                assert_eq!(field(&shifted, k), field(&plain, k), "{label} {k}");
+            }
+            // An INTEGER mu converts (B15).
+            let int = map(&format!("{ops} dict \"mu\" 1 set {w}"));
+            assert_eq!(int, shifted, "{label}");
+        }
+    }
+}
+
+/// Criterion 5's first part: Clopper–Pearson and the exact one-sided p.
+#[test]
+fn rfc0016_binom_interval_against_the_fixture() {
+    let want = |k: &str| fixture(FIXTURE16, &format!("binom.opts {k}"));
+    let w = "682 925 0.75";
+    let m = map(&format!("{w} dict stat.test.binom.opts"));
+    close("estimate", &field(&m, "estimate"), &want("estimate"), 1e-15);
+    close("lower", &field(&m, "lower"), &want("lower"), 1e-9);
+    close("upper", &field(&m, "upper"), &want("upper"), 1e-9);
+    assert_eq!(text(&m, "method"), "Exact binomial test");
+    assert_eq!(field(&m, "statistic"), [682.0]);
+
+    let m = map(&format!(
+        "{w} dict \"alternative\" \"less\" set stat.test.binom.opts"
+    ));
+    close("less p", &field(&m, "p"), &want("less.p"), 1e-9);
+    assert_eq!(field(&m, "lower"), [0.0]);
+    close("less upper", &field(&m, "upper"), &want("less.upper"), 1e-9);
+
+    let m = map(&format!(
+        "{w} dict \"alternative\" \"greater\" set stat.test.binom.opts"
+    ));
+    close("greater p", &field(&m, "p"), &want("greater.p"), 1e-9);
+    close(
+        "greater lower",
+        &field(&m, "lower"),
+        &want("greater.lower"),
+        1e-9,
+    );
+    assert_eq!(field(&m, "upper"), [1.0]);
+
+    // The ends by definition, without a quantile at a zero shape.
+    let m = map("0 10 0.5 dict stat.test.binom.opts");
+    assert_eq!(field(&m, "lower")[0].to_bits(), 0.0f64.to_bits());
+    assert!(field(&m, "upper")[0] > 0.0 && field(&m, "upper")[0] < 1.0);
+    let m = map("10 10 0.5 dict stat.test.binom.opts");
+    assert_eq!(field(&m, "upper"), [1.0]);
+    assert!(field(&m, "lower")[0] > 0.0 && field(&m, "lower")[0] < 1.0);
+    // P(X >= 0) is 1.
+    let m = map("0 10 0.5 dict \"alternative\" \"greater\" set stat.test.binom.opts");
+    assert_eq!(field(&m, "p"), [1.0]);
+}
+
+#[test]
+fn rfc0016_opts_forms_answer_the_plain_words() {
+    for (label, src) in [
+        (
+            "t1",
+            format!("{A} 0.0 dict \"conf\" 0.9 set . stat.test.t1.opts."),
+        ),
+        (
+            "t2",
+            format!("{A} {B} dict \"mu\" 0.5 set . stat.test.t2.opts."),
+        ),
+        ("welch", format!("{A} {B} dict . stat.test.welch.opts.")),
+        ("paired", format!("{A} {B} dict . stat.test.paired.opts.")),
+        (
+            "binom",
+            "682 925 0.75 dict \"alternative\" \"less\" set . stat.test.binom.opts.".into(),
+        ),
+    ] {
+        let mut i = run(&src).unwrap_or_else(|e| panic!("{src}: {e}"));
+        assert_eq!(i.depth(), 0, "{label}");
+        let got = i.pull_workbench().unwrap();
+        let plain = map(&src.replace(" . ", " ").replace("opts.", "opts"));
+        assert_eq!(got.as_map().unwrap(), &plain, "{label}");
+    }
+}
+
+/// Criterion 2, for the options MAP.
+#[test]
+fn rfc0016_opts_refusals_are_their_templates() {
+    let t2 = |o: &str| err(&format!("{A} {B} {o} stat.test.t2.opts"));
+    assert_eq!(
+        t2("dict \"level\" 0.9 set"),
+        "STAT.TEST.T2.OPTS: E101 opts is outside stat.test.t2.opts's domain: an unknown key \"level\""
+    );
+    assert_eq!(
+        t2("dict \"conf\" 1.0 set"),
+        "STAT.TEST.T2.OPTS: E101 conf is outside stat.test.t2.opts's domain: 1.0"
+    );
+    assert!(t2("dict \"conf\" 0.0 set").starts_with("STAT.TEST.T2.OPTS: E101 conf "));
+    assert!(t2("dict \"conf\" 0 set").starts_with("STAT.TEST.T2.OPTS: E101 conf "));
+    assert!(t2("dict \"conf\" -0.5 set").starts_with("STAT.TEST.T2.OPTS: E101 conf "));
+    assert!(t2("dict \"alternative\" 1.0 set").starts_with("STAT.TEST.T2.OPTS: E101 alternative "));
+    assert!(
+        t2("dict \"alternative\" \"two-sided\" set")
+            .starts_with("STAT.TEST.T2.OPTS: E101 alternative ")
+    );
+    assert!(t2("dict \"mu\" \"x\" set").starts_with("STAT.TEST.T2.OPTS: E101 mu "));
+    assert!(t2("dict \"mu\" float.+Inf set").starts_with("STAT.TEST.T2.OPTS: E101 mu "));
+    assert!(t2("1.0").starts_with("STAT.TEST.T2.OPTS: E101 opts "));
+    assert_eq!(
+        err(&format!("{A} 0.0 dict \"mu\" 1.0 set stat.test.t1.opts")),
+        "STAT.TEST.T1.OPTS: E101 opts is outside stat.test.t1.opts's domain: \
+         the key \"mu\", which this word does not take"
+    );
+    assert!(
+        err("682 925 0.75 dict \"mu\" 1.0 set stat.test.binom.opts")
+            .starts_with("STAT.TEST.BINOM.OPTS: E101 opts ")
+    );
+    // The plain word's own refusals, under the `.opts` name.
+    assert!(
+        err("926 925 0.75 dict stat.test.binom.opts").starts_with("STAT.TEST.BINOM.OPTS: E101 k ")
+    );
+    assert!(
+        err("[ 1.0 1.0 ] [ 1.0 1.0 ] dict stat.test.t2.opts")
+            .starts_with("STAT.TEST.T2.OPTS: E101 a and b ")
+    );
+    // n = 0 has no estimate.
+    assert!(err("0 0 0.5 dict stat.test.binom.opts").starts_with("STAT.TEST.BINOM.OPTS: E114 "));
+    // An overflowing difference is the statistic's E114, as the plain word's.
+    let big = "[ 1.7e308 1.6e308 ] [ -1.7e308 -1.6e308 ]";
+    assert_eq!(
+        err(&format!("{big} dict stat.test.welch.opts")),
+        "STAT.TEST.WELCH.OPTS: E114 the answer overflows a FLOAT: the test statistic"
+    );
+    assert_eq!(
+        err(&format!("{big} stat.test.welch")),
+        "STAT.TEST.WELCH: E114 the answer overflows a FLOAT: the test statistic"
+    );
+    // S1: an end that overflows is the whole word's E114, where the plain
+    // word, which has no interval, still answers (criterion 3).
+    let near = "[ 1.0e308 5.0e307 ] 7.5e307";
+    assert_eq!(
+        err(&format!("{near} dict stat.test.t1.opts")),
+        "STAT.TEST.T1.OPTS: E114 the answer overflows a FLOAT: the interval's lower end"
+    );
+    assert_eq!(
+        field(&map(&format!("{near} stat.test.t1")), "statistic"),
+        [0.0]
+    );
+}
+
+#[test]
+fn rfc0016_opts_no_operand_aborts() {
+    let operands = [
+        "float.NaN",
+        "0.5",
+        "0",
+        "10",
+        "\"x\"",
+        "list",
+        "[ 1 ]",
+        "[ 1 1 1 ]",
+        "[ 1 2 4 ]",
+        "[ 1 float.NaN ]",
+        "dict",
+        "dict \"conf\" 0.999999999999 set",
+        "dict \"conf\" 1.0e-300 set",
+        "dict \"alternative\" \"less\" set",
+        "dict \"mu\" 1.0e308 set",
+        "[ [ 1 2 ] [ 3 4 ] ] matrix",
+    ];
+    let words = [
+        "stat.test.t1.opts",
+        "stat.test.t2.opts",
+        "stat.test.welch.opts",
+        "stat.test.paired.opts",
+        "stat.test.binom.opts",
+    ];
+    for w in words {
+        for (i, o) in operands.iter().enumerate() {
+            let p = operands[(i + 3) % operands.len()];
+            let q = operands[(i + 7) % operands.len()];
+            for src in [
+                format!("{o} {w}"),
+                format!("{o} {p} {w}"),
+                format!("{o} {p} {q} {w}"),
+                format!("{o} {p} {q} {o} {w}"),
+                format!("{o} {p} {o} dict {w}"),
+                format!("{p} {o} {q} {o} {w}"),
+                format!("{o} {p} {q} {o} . {w}."),
+            ] {
+                if let Err(e) = run(&src) {
+                    assert!(
+                        e.contains(": E1") || e.contains("too shallow") || e.contains("returned"),
+                        "{src}: {e}"
+                    );
+                }
+            }
+        }
+    }
+}

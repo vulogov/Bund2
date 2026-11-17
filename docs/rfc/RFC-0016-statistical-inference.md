@@ -898,6 +898,40 @@ bits, written from the code at cae380d by the ignored test
 `PROMOTABLE.txt` gains the eight rounding and formatting names (the
 corrections are opaque). Criterion 12: conform and coverage unchanged.
 
+M2 landed 2026-11-17: S2 for the t tests and the binomial, in
+`biomath::infer`'s child module `opts`, with criteria 1, 2, 3, 4 and 5's
+first part.
+
+- **Words:** `stat.test.t1.opts`, `t2.opts`, `welch.opts`, `paired.opts`
+  and `binom.opts`, each plain and `.`. `t1.opts` is opaque (3, its form
+  2), reading its series by `get_data`; the others are fixed, 3 → 1 and
+  4 → 1, their forms taking the options from the workbench (`bench!`).
+  `Family::quantile` is `pub(crate)`.
+- **The plain words' code is shared, not copied.** The t tests are
+  factored into an estimate, a standard error and a df (`TCase`), from
+  which the plain words compute their t exactly as before; the binomial's
+  operand checks are one function (`binom_operands`). The snapshot test
+  confirms every plain answer is unchanged to the bit, and a test confirms
+  each `.opts` word's default `statistic`, `p` and `df` are its plain
+  word's to the bit.
+- **The answer** adds `estimate`, the ends answered, `conf` and
+  `alternative` (as a STRING) to the plain word's keys.
+- **Options refusals,** each E101: a non-MAP is E101 on `opts`; an unknown
+  key `an unknown key "level"`; a key the word does not take
+  `the key "mu", which this word does not take`; a bad value names the key
+  (`conf`, `alternative`, `mu`).
+- **E114:** an end that overflows names it, `the interval's lower end`
+  (`[ 1.0e308 5.0e307 ] 7.5e307 dict stat.test.t1.opts`, which the plain
+  `stat.test.t1` answers), and `0 0 p dict stat.test.binom.opts` is E114
+  on `the estimate k/n`.
+- **The fixture** is `fixtures/infer16.py`'s, extended: t quantiles by
+  mpmath's root finder, beta quantiles by bisection to below 10⁻⁶⁰, the
+  one-sided binomial tails as exact rationals. No R output is committed
+  for these, so the fixture alone is the check (A7).
+- **`UNVARIED`** gains S8's eight names for these words.
+
+Criterion 12: conform and coverage unchanged.
+
 ## Rulings — D251 (RESOLVED 2026-11-16)
 
 | | Question | Options | Ruled |

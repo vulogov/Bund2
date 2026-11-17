@@ -755,7 +755,7 @@ impl Family {
 
     /// The quantile at p in [0, 1]; ±∞ at an unbounded end, for the caller
     /// to refuse.
-    fn quantile(&self, word: &str, p: f64) -> Result<f64, Error> {
+    pub(crate) fn quantile(&self, word: &str, p: f64) -> Result<f64, Error> {
         let (lo, hi) = self.support();
         if p == 0.0 {
             return Ok(lo);
