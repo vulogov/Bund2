@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 503 promotable of 512 reached, of 725 fixed-effect natives; 9 reached natives
+# 503 promotable of 512 reached, of 731 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -723,6 +723,12 @@ vec.sub.
 # not reached: stat.test.chisq.table.
 # not reached: stat.test.fisher
 # not reached: stat.test.fisher.
+# not reached: stat.test.fisher.opts
+# not reached: stat.test.fisher.opts.
+# not reached: stat.test.ks2.opts
+# not reached: stat.test.ks2.opts.
+# not reached: stat.test.mannwhitney.opts
+# not reached: stat.test.mannwhitney.opts.
 # not reached: stat.test.paired
 # not reached: stat.test.paired.
 # not reached: stat.test.paired.opts

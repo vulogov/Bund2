@@ -3,12 +3,15 @@
 //! alternative and `mu`, and the estimate and interval beside them.
 //!
 //! M2 builds the t tests' and the binomial's: `stat.test.t1.opts`,
-//! `t2.opts`, `welch.opts`, `paired.opts` and `binom.opts`.
+//! `t2.opts`, `welch.opts`, `paired.opts` and `binom.opts`; M3 builds
+//! `fisher.opts`, `mannwhitney.opts` and `ks2.opts`.
 //!
 //! **The plain words are unchanged.** Each `.opts` word computes through
 //! the plain word's own code (`TCase`, `binom_p`), so with the defaults,
 //! two-sided and `mu` 0, its `statistic`, `p` and `df` are the plain
-//! word's, bit for bit (criterion 3).
+//! word's, bit for bit (criterion 3). Fisher's, Mann–Whitney's and the KS
+//! test's share the plain words' parts (`FisherCase`, `mannwhitney_parts`,
+//! `ks2_parts`), and their two-sided answers are the plain words' own.
 //!
 //! **Intervals** are at level `conf`, two-sided with α = 1 − conf split
 //! evenly, one-sided with α on the one end kept: [lower, ∞) for "greater",
@@ -21,10 +24,11 @@ use bund2_api::{Error, Vm};
 use bund2_value::{BundValue, FLOAT, MAP, STRING};
 
 use super::{
-    Family, TCase, answer_map, binom_operands, binom_p, paired_case, t_one_case, t_p, t2_case,
-    welch_case,
+    Family, FisherCase, REL_ERR, TCase, answer_map, binom_operands, binom_p, fisher_case, ks2,
+    ks2_parts, mannwhitney, mannwhitney_parts, paired_case, t_one_case, t_p, t2_case, welch_case,
 };
-use crate::biomath::operand::{WIDTH, domain, finite, operands, real, series, whole};
+use crate::biomath::operand::{WIDTH, domain, finite, finite_all, operands, real, series, whole};
+use crate::biomath::refuse::Refusal;
 use crate::series::Mode;
 use crate::wb::Side;
 
@@ -112,32 +116,56 @@ fn end(word: &str, which: &str, y: f64) -> Result<f64, Error> {
     finite(word, y, || format!("the interval's {which} end"))
 }
 
+/// What an `.opts` word adds to the plain word's keys: the estimate and
+/// the interval's ends where they are answered, and `conf` where the word
+/// takes it.
+struct Extra {
+    estimate: Option<f64>,
+    ends: (Option<f64>, Option<f64>),
+    conf: bool,
+}
+
 /// The plain word's keys, with the estimate, the interval's ends that are
 /// answered, `conf` and `alternative` beside them.
-#[allow(clippy::too_many_arguments)]
 fn answer(
     statistic: f64,
     p: f64,
     df: Option<f64>,
     method: &str,
-    estimate: f64,
-    (lower, upper): (Option<f64>, Option<f64>),
+    extra: Extra,
     o: &Opts,
 ) -> BundValue {
     let mut m: BTreeMap<String, BundValue> = answer_map(statistic, p, df, method);
-    m.insert("estimate".to_string(), BundValue::float(estimate));
+    with_extra(&mut m, extra, o);
+    BundValue::map(m)
+}
+
+fn with_extra(m: &mut BTreeMap<String, BundValue>, extra: Extra, o: &Opts) {
+    let (lower, upper) = extra.ends;
+    if let Some(e) = extra.estimate {
+        m.insert("estimate".to_string(), BundValue::float(e));
+    }
     if let Some(l) = lower {
         m.insert("lower".to_string(), BundValue::float(l));
     }
     if let Some(u) = upper {
         m.insert("upper".to_string(), BundValue::float(u));
     }
-    m.insert("conf".to_string(), BundValue::float(o.conf));
+    if extra.conf {
+        m.insert("conf".to_string(), BundValue::float(o.conf));
+    }
     m.insert(
         "alternative".to_string(),
         BundValue::str(o.alternative.name()),
     );
-    BundValue::map(m)
+}
+
+fn full(estimate: Option<f64>, ends: (Option<f64>, Option<f64>)) -> Extra {
+    Extra {
+        estimate,
+        ends,
+        conf: true,
+    }
 }
 
 // The t tests.
@@ -172,7 +200,14 @@ fn t_answer(word: &str, c: &TCase, mu: f64, o: &Opts, method: &str) -> Result<Bu
             (None, Some(end(word, "upper", estimate + q * c.se)?))
         }
     };
-    Ok(answer(t, p, Some(c.df), method, estimate, ends, o))
+    Ok(answer(
+        t,
+        p,
+        Some(c.df),
+        method,
+        full(Some(estimate), ends),
+        o,
+    ))
 }
 
 /// `stat.test.t1.opts`, from the stack or, its `.` form, the options from
@@ -302,14 +337,389 @@ fn stat_test_binom_opts(vm: &mut dyn Vm) -> Result<(), Error> {
         pv,
         None,
         "Exact binomial test",
-        estimate,
-        ends,
+        full(Some(estimate), ends),
         &o,
     ));
     Ok(())
 }
 
-/// Register M2's `.opts` words, each plain and `.`, the `.` form taking the
+// Fisher's exact test.
+
+/// The most doublings that bracket one of Fisher's roots, and the most
+/// bisection steps that refine it (S2, "Intervals").
+const BRACKET_CAP: u64 = 64;
+const BISECT_CAP: u64 = 200;
+
+impl FisherCase {
+    /// Under Fisher's noncentral hypergeometric at odds ratio e^t: the mean
+    /// of X, P(X ≥ x) and P(X ≤ x). The masses are taken in log space, the
+    /// largest subtracted before exponentiating, so no t overflows.
+    fn noncentral(&self, t: f64) -> (f64, f64, f64) {
+        let at = |i: usize| self.logs[i] + i as f64 * t;
+        let top = (0..self.logs.len())
+            .map(at)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let ix = (self.x - self.lo) as usize;
+        let (mut total, mut first, mut ge, mut le) = (0.0, 0.0, 0.0, 0.0);
+        for i in 0..self.logs.len() {
+            let w = (at(i) - top).exp();
+            total += w;
+            first += i as f64 * w;
+            if i >= ix {
+                ge += w;
+            }
+            if i <= ix {
+                le += w;
+            }
+        }
+        (self.lo as f64 + first / total, ge / total, le / total)
+    }
+
+    /// The ψ at which `f(ln ψ)` crosses `target`, `f` rising in ln ψ (or
+    /// falling, with `rising` false): bracketed by doubling from [−1, 1],
+    /// then bisected to 10⁻¹⁰ relative in ψ; either cap is E110.
+    fn root(
+        &self,
+        word: &str,
+        f: impl Fn(&Self, f64) -> f64,
+        target: f64,
+        rising: bool,
+    ) -> Result<f64, Error> {
+        let h = |t: f64| {
+            let d = f(self, t) - target;
+            if rising { d } else { -d }
+        };
+        let (mut lo, mut hi) = (-1.0f64, 1.0f64);
+        let mut doublings = 0;
+        while h(lo) > 0.0 || h(hi) < 0.0 {
+            if doublings == BRACKET_CAP {
+                return Err(Refusal::NoConvergence {
+                    method: "the odds ratio's bracket".into(),
+                    cap: BRACKET_CAP,
+                }
+                .error(word));
+            }
+            if h(lo) > 0.0 {
+                lo *= 2.0;
+            } else {
+                hi *= 2.0;
+            }
+            doublings += 1;
+        }
+        let mut steps = 0;
+        while (hi - lo).exp_m1() > 1e-10 {
+            if steps == BISECT_CAP {
+                return Err(Refusal::NoConvergence {
+                    method: "the odds ratio's bisection".into(),
+                    cap: BISECT_CAP,
+                }
+                .error(word));
+            }
+            let mid = lo + (hi - lo) / 2.0;
+            if h(mid) < 0.0 {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+            steps += 1;
+        }
+        Ok((lo + (hi - lo) / 2.0).exp())
+    }
+}
+
+/// `stat.test.fisher.opts`: a 2×2 table and the options. The estimate is
+/// the conditional MLE of the odds ratio, the interval the exact
+/// conditional one; at x the support's minimum both the estimate and the
+/// lower end are 0, at its maximum the estimate and upper end are infinite
+/// and left out [A3].
+fn stat_test_fisher_opts(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "stat.test.fisher.opts";
+    let v = operands(vm, W, 2)?;
+    let o = read(W, &v[1], &["alternative", "conf"])?;
+    let c = fisher_case(W, &v[0])?;
+    let (_, ge, le) = c.noncentral(0.0);
+    let p = match o.alternative {
+        Alternative::TwoSided => c.two_sided_p(),
+        Alternative::Less => le,
+        Alternative::Greater => ge,
+    };
+    let (at_lo, at_hi) = (c.x == c.lo, c.x == c.hi);
+    let x = c.x as f64;
+    let estimate = if at_lo {
+        Some(0.0)
+    } else if at_hi {
+        None
+    } else {
+        let e = c.root(W, |c, t| c.noncentral(t).0, x, true)?;
+        Some(finite(W, e, || "the estimate".into())?)
+    };
+    let lower = |a: f64| -> Result<f64, Error> {
+        if at_lo {
+            Ok(0.0)
+        } else {
+            end(W, "lower", c.root(W, |c, t| c.noncentral(t).1, a, true)?)
+        }
+    };
+    let upper = |a: f64| -> Result<Option<f64>, Error> {
+        if at_hi {
+            Ok(None)
+        } else {
+            let u = c.root(W, |c, t| c.noncentral(t).2, a, false)?;
+            Ok(Some(end(W, "upper", u)?))
+        }
+    };
+    let alpha = 1.0 - o.conf;
+    let ends = match o.alternative {
+        Alternative::TwoSided => (Some(lower(alpha / 2.0)?), upper(alpha / 2.0)?),
+        Alternative::Greater => (Some(lower(alpha)?), None),
+        Alternative::Less => (Some(0.0), upper(alpha)?),
+    };
+    vm.push(answer(
+        x,
+        p,
+        None,
+        "Fisher's Exact Test for Count Data; \
+         conditional maximum likelihood estimate of the odds ratio",
+        full(estimate, ends),
+        &o,
+    ));
+    Ok(())
+}
+
+// The Kolmogorov–Smirnov test.
+
+/// `stat.test.ks2.opts`: two-sided, the plain word's answer; one-sided, D⁺
+/// for "greater" and D⁻ for "less", with the asymptotic one-sided tail
+/// exp(−2·nm/(n + m)·D²).
+fn stat_test_ks2_opts(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "stat.test.ks2.opts";
+    let v = operands(vm, W, 3)?;
+    let o = read(W, &v[2], &["alternative"])?;
+    let a = whole(W, "a", &v[0])?;
+    let b = whole(W, "b", &v[1])?;
+    let mut m = match o.alternative {
+        Alternative::TwoSided => ks2(W, &a, &b)?.as_map().cloned().ok_or_else(|| {
+            Error::internal("stat.test.ks2.opts: the two-sided test answered no MAP")
+        })?,
+        side => {
+            let (_, plus, minus) = ks2_parts(W, &a, &b)?;
+            let d = if side == Alternative::Greater {
+                plus
+            } else {
+                minus
+            };
+            let (n, m) = (a.len() as f64, b.len() as f64);
+            let p = (-2.0 * (n * m / (n + m)) * d * d).exp();
+            answer_map(d, p, None, "Asymptotic two-sample Kolmogorov-Smirnov test")
+        }
+    };
+    let extra = Extra {
+        estimate: None,
+        ends: (None, None),
+        conf: false,
+    };
+    with_extra(&mut m, extra, &o);
+    vm.push(BundValue::map(m));
+    Ok(())
+}
+
+// The Mann–Whitney test, with Hodges–Lehmann's estimate [A9].
+
+/// The most differences `mannwhitney.opts` forms (D39).
+const DIFFERENCES_CAP: u64 = 10_000_000;
+
+/// C(l + s, s) exactly, or `None` when it is 2¹²⁸ or more. Each step
+/// multiplies by l + i and divides by i, the gcd of the running value and
+/// i taken out first, so the division is exact and only the answer's own
+/// size can overflow.
+fn choose(l: u64, s: u64) -> Option<u128> {
+    fn gcd(mut a: u128, mut b: u128) -> u128 {
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        a
+    }
+    let mut c: u128 = 1;
+    for i in 1..=u128::from(s) {
+        let g = gcd(c, i);
+        let num = (u128::from(l) + i) / (i / g);
+        c = (c / g).checked_mul(num)?;
+    }
+    Some(c)
+}
+
+/// The exact k (S2, "Mann–Whitney"): the largest k in 0 … nm + 1 with
+/// P(U ≤ k − 1) ≤ a·(1 + 10⁻⁷), U's distribution counted by the Gaussian
+/// binomial's coefficients up to ⌊nm/2⌋ and by symmetry above; `None` when
+/// C(n + m, n) is 2¹²⁸ or more.
+fn exact_k(n: u64, m: u64, a: f64) -> Result<Option<u64>, Error> {
+    let (s, l) = (n.min(m), n.max(m));
+    let Some(total) = choose(l, s) else {
+        return Ok(None);
+    };
+    let nm = n * m;
+    let half = (nm / 2) as usize;
+    let overflow =
+        || Error::internal("the Mann–Whitney counts left u128, which C(n + m, n) bounds");
+    let mut c = vec![0u128; half + 1];
+    c[0] = 1;
+    for i in 1..=s as usize {
+        // ÷ (1 − q^i): a stride-i running sum, ascending.
+        for u in i..=half {
+            c[u] = c[u].checked_add(c[u - i]).ok_or_else(overflow)?;
+        }
+        // × (1 − q^(l+i)): a stride l + i difference, descending.
+        let step = l as usize + i;
+        for u in (step..=half).rev() {
+            c[u] = c[u].checked_sub(c[u - step]).ok_or_else(overflow)?;
+        }
+    }
+    // The lower tail's counts, L(u) = Σ_{v ≤ u} c(v), for u ≤ ⌊nm/2⌋.
+    let mut low = c;
+    for u in 1..=half {
+        low[u] = low[u].checked_add(low[u - 1]).ok_or_else(overflow)?;
+    }
+    // L(u) for 0 ≤ u ≤ nm, by symmetry above ⌊nm/2⌋: C − L(nm − u − 1),
+    // with L(−1) = 0.
+    let tail = |u: u64| -> Result<u128, Error> {
+        if u as usize <= half {
+            Ok(low[u as usize])
+        } else if u == nm {
+            Ok(total)
+        } else {
+            let below = low[(nm - u - 1) as usize];
+            total.checked_sub(below).ok_or_else(overflow)
+        }
+    };
+    let bound = a * REL_ERR;
+    let whole = total as f64;
+    // k qualifies when P(U ≤ k − 1) is within the bound; k = 0 always does.
+    let mut k = 0u64;
+    while k <= nm && tail(k)? as f64 / whole <= bound {
+        k += 1;
+    }
+    Ok(Some(k))
+}
+
+/// The normal approximation's k, ⌊nm/2 − z₁₋ₐ·√(nm(n + m + 1)/12)⌋.
+fn normal_k(word: &str, n: u64, m: u64, a: f64) -> Result<f64, Error> {
+    let z = Family::Normal { mean: 0.0, sd: 1.0 }.quantile(word, 1.0 - a)?;
+    let (n, m) = (n as f64, m as f64);
+    Ok((n * m / 2.0 - z * (n * m * (n + m + 1.0) / 12.0).sqrt()).floor())
+}
+
+/// `stat.test.mannwhitney.opts`: a, b and the options. The statistic and p
+/// are of a − μ against b, by the plain word's normal approximation; the
+/// estimate and interval are of the differences aᵢ − bⱼ themselves.
+fn stat_test_mannwhitney_opts(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "stat.test.mannwhitney.opts";
+    let v = operands(vm, W, 3)?;
+    let o = read(W, &v[2], &KEYS)?;
+    let a = whole(W, "a", &v[0])?;
+    let b = whole(W, "b", &v[1])?;
+    let (n, m) = (a.len() as u64, b.len() as u64);
+    let nm = n.saturating_mul(m);
+    if nm > DIFFERENCES_CAP {
+        return Err(Refusal::Cap {
+            what: format!("{nm} differences of a and b"),
+            cap: DIFFERENCES_CAP,
+        }
+        .error(W));
+    }
+    let shifted: Vec<f64> = a.iter().map(|x| x - o.mu).collect();
+    finite_all(W, "a - mu", &shifted)?;
+    // The test, of a − μ against b.
+    let (statistic, p) = match o.alternative {
+        Alternative::TwoSided => {
+            let plain = mannwhitney(W, &shifted, &b)?;
+            let get = |k: &str| match plain
+                .as_map()
+                .and_then(|m| m.get(k))
+                .map(BundValue::unboxed)
+            {
+                Some(BundValue::Float(x, _)) => Ok(*x),
+                _ => Err(Error::internal(format!(
+                    "stat.test.mannwhitney.opts: the two-sided test answered no {k}"
+                ))),
+            };
+            (get("statistic")?, get("p")?)
+        }
+        side => {
+            let (w, z, sigma) = mannwhitney_parts(W, &shifted, &b)?;
+            let normal = Family::Normal { mean: 0.0, sd: 1.0 };
+            if side == Alternative::Greater {
+                (w, normal.tails(W, (z - 0.5) / sigma)?.1)
+            } else {
+                (w, normal.tails(W, (z + 0.5) / sigma)?.0)
+            }
+        }
+    };
+    // The differences, sorted, and their order statistics, 1-based.
+    let mut d = Vec::with_capacity(nm as usize);
+    for x in &a {
+        for y in &b {
+            d.push(x - y);
+        }
+    }
+    d.sort_by(f64::total_cmp);
+    let at = |i: u64| -> Result<f64, Error> {
+        d.get((i as usize).wrapping_sub(1)).copied().ok_or_else(|| {
+            Error::internal(format!(
+                "stat.test.mannwhitney.opts: order statistic {i} of {nm}"
+            ))
+        })
+    };
+    let estimate = if nm % 2 == 1 {
+        at(nm.div_ceil(2))?
+    } else {
+        let (u, w) = (at(nm / 2)?, at(nm / 2 + 1)?);
+        let sum = u + w;
+        if sum.is_finite() {
+            sum / 2.0
+        } else {
+            u / 2.0 + w / 2.0
+        }
+    };
+    let estimate = finite(W, estimate, || "the estimate".into())?;
+    // k: exact when no value of a or b ties another, before the shift, and
+    // C(n + m, n) is below 2¹²⁸; the normal approximation's floor otherwise.
+    let alpha = 1.0 - o.conf;
+    let a_side = match o.alternative {
+        Alternative::TwoSided => alpha / 2.0,
+        _ => alpha,
+    };
+    let mut pooled: Vec<f64> = a.iter().chain(&b).copied().collect();
+    pooled.sort_by(f64::total_cmp);
+    let ties = pooled.windows(2).any(|w| w[0] == w[1]);
+    let exact = if ties { None } else { exact_k(n, m, a_side)? };
+    let k = match exact {
+        Some(k) => k as f64,
+        None => normal_k(W, n, m, a_side)?,
+    };
+    if !(k >= 1.0 && k <= nm as f64) {
+        return Err(domain(W, "a and b", "too few for the level".into()));
+    }
+    let k = k as u64;
+    let lower = || -> Result<f64, Error> { end(W, "lower", at(k)?) };
+    let upper = || -> Result<f64, Error> { end(W, "upper", at(nm + 1 - k)?) };
+    let ends = match o.alternative {
+        Alternative::TwoSided => (Some(lower()?), Some(upper()?)),
+        Alternative::Greater => (Some(lower()?), None),
+        Alternative::Less => (None, Some(upper()?)),
+    };
+    vm.push(answer(
+        statistic,
+        p,
+        None,
+        "Wilcoxon rank sum test with continuity correction; \
+         Hodges–Lehmann estimate, order-statistic interval",
+        full(Some(estimate), ends),
+        &o,
+    ));
+    Ok(())
+}
+
+/// Register the `.opts` words, each plain and `.`, the `.` form taking the
 /// options from the workbench (S2, "Forms").
 pub(super) fn register(r: &mut bund2_api::Registry) {
     use bund2_api::{StackEffect, WordKind};
@@ -335,4 +745,7 @@ pub(super) fn register(r: &mut bund2_api::Registry) {
     word!("stat.test.welch.opts", stat_test_welch_opts, 3);
     word!("stat.test.paired.opts", stat_test_paired_opts, 3);
     word!("stat.test.binom.opts", stat_test_binom_opts, 4);
+    word!("stat.test.fisher.opts", stat_test_fisher_opts, 2);
+    word!("stat.test.mannwhitney.opts", stat_test_mannwhitney_opts, 3);
+    word!("stat.test.ks2.opts", stat_test_ks2_opts, 3);
 }

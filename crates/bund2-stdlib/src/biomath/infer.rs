@@ -358,17 +358,40 @@ fn whole_count(x: f64) -> Option<u64> {
     (x >= 0.0 && x.fract() == 0.0 && x < 9.007_199_254_740_992e15).then_some(x as u64)
 }
 
+/// A 2×2 table read for Fisher's test: x, the first cell, and the central
+/// hypergeometric's log-masses over the support `lo..=hi`, with their
+/// largest.
+struct FisherCase {
+    x: u64,
+    lo: u64,
+    hi: u64,
+    logs: Vec<f64>,
+    top: f64,
+    family: Family,
+}
+
 fn stat_test_fisher(vm: &mut dyn Vm) -> Result<(), Error> {
     const W: &str = "stat.test.fisher";
     let v = operands(vm, W, 1)?;
-    let t = counts(W, &v[0])?;
+    let c = fisher_case(W, &v[0])?;
+    vm.push(answer(
+        c.x as f64,
+        c.two_sided_p(),
+        None,
+        "Fisher's Exact Test for Count Data",
+    ));
+    Ok(())
+}
+
+fn fisher_case(word: &str, v: &BundValue) -> Result<FisherCase, Error> {
+    let t = counts(word, v)?;
     if t.len() != 2 {
         return Err(Refusal::Disagree {
             what: "rows".into(),
             n: t.len(),
             m: 2,
         }
-        .error(W));
+        .error(word));
     }
     if t[0].len() != 2 {
         return Err(Refusal::Disagree {
@@ -376,12 +399,17 @@ fn stat_test_fisher(vm: &mut dyn Vm) -> Result<(), Error> {
             n: t[0].len(),
             m: 2,
         }
-        .error(W));
+        .error(word));
     }
     let mut cells = [0u64; 4];
     for (k, x) in [t[0][0], t[0][1], t[1][0], t[1][1]].into_iter().enumerate() {
-        cells[k] = whole_count(x)
-            .ok_or_else(|| domain(W, "table", format!("{x} at [{},{}]", k / 2 + 1, k % 2 + 1)))?;
+        cells[k] = whole_count(x).ok_or_else(|| {
+            domain(
+                word,
+                "table",
+                format!("{x} at [{},{}]", k / 2 + 1, k % 2 + 1),
+            )
+        })?;
     }
     let [a, b, c, d] = cells;
     // R's names: m the first column's total, n the second's, k the first
@@ -399,26 +427,34 @@ fn stat_test_fisher(vm: &mut dyn Vm) -> Result<(), Error> {
             what: format!("a support of {} tables", hi - lo + 1),
             cap: SUPPORT_CAP,
         }
-        .error(W));
+        .error(word));
     }
     let logs: Vec<f64> = (lo..=hi).map(|x| family.lpdf(x as f64)).collect();
     let top = logs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    let bar = family.lpdf(a as f64) + REL_ERR.ln();
-    let (mut total, mut tail) = (0.0, 0.0);
-    for l in &logs {
-        let w = (l - top).exp();
-        total += w;
-        if *l <= bar {
-            tail += w;
+    Ok(FisherCase {
+        x: a,
+        lo,
+        hi,
+        logs,
+        top,
+        family,
+    })
+}
+
+impl FisherCase {
+    /// R's two-sided rule: the tables as probable as x's or less.
+    fn two_sided_p(&self) -> f64 {
+        let bar = self.family.lpdf(self.x as f64) + REL_ERR.ln();
+        let (mut total, mut tail) = (0.0, 0.0);
+        for l in &self.logs {
+            let w = (l - self.top).exp();
+            total += w;
+            if *l <= bar {
+                tail += w;
+            }
         }
+        tail / total
     }
-    vm.push(answer(
-        a as f64,
-        tail / total,
-        None,
-        "Fisher's Exact Test for Count Data",
-    ));
-    Ok(())
 }
 
 fn stat_test_binom(vm: &mut dyn Vm) -> Result<(), Error> {
@@ -506,6 +542,24 @@ fn binom_p(word: &str, f: &Family, k: u64, n: u64, p: f64) -> Result<f64, Error>
 // The rank tests.
 
 fn mannwhitney(word: &str, a: &[f64], b: &[f64]) -> Result<BundValue, Error> {
+    let (w, z, sigma) = mannwhitney_parts(word, a, b)?;
+    // The continuity correction moves W toward its mean by ½, and not at all
+    // when W is its mean: R's `sign(z)`, which is 0 at 0, where
+    // `f64::signum(0.0)` is 1.
+    let correction = if z == 0.0 { 0.0 } else { 0.5 * z.signum() };
+    let z = (z - correction) / sigma;
+    let normal = Family::Normal { mean: 0.0, sd: 1.0 };
+    let (lower, upper) = normal.tails(word, z)?;
+    Ok(answer(
+        w,
+        2.0 * lower.min(upper),
+        None,
+        "Wilcoxon rank sum test with continuity correction",
+    ))
+}
+
+/// W for `a`, W less its mean n·m/2, and σ with its tie term.
+fn mannwhitney_parts(word: &str, a: &[f64], b: &[f64]) -> Result<(f64, f64, f64), Error> {
     at_least(word, a, 1)?;
     at_least(word, b, 1)?;
     let (n1, n2) = (a.len() as f64, b.len() as f64);
@@ -531,20 +585,7 @@ fn mannwhitney(word: &str, a: &[f64], b: &[f64]) -> Result<BundValue, Error> {
     if sigma.is_nan() || sigma <= 0.0 {
         return Err(constant(word, "a and b"));
     }
-    // The continuity correction moves W toward its mean by ½, and not at all
-    // when W is its mean: R's `sign(z)`, which is 0 at 0, where
-    // `f64::signum(0.0)` is 1.
-    let z = w - n1 * n2 / 2.0;
-    let correction = if z == 0.0 { 0.0 } else { 0.5 * z.signum() };
-    let z = (z - correction) / sigma;
-    let normal = Family::Normal { mean: 0.0, sd: 1.0 };
-    let (lower, upper) = normal.tails(word, z)?;
-    Ok(answer(
-        w,
-        2.0 * lower.min(upper),
-        None,
-        "Wilcoxon rank sum test with continuity correction",
-    ))
+    Ok((w, w - n1 * n2 / 2.0, sigma))
 }
 
 /// The Kolmogorov distribution's upper tail, P(K > x), to f64's precision:
@@ -586,6 +627,20 @@ fn kolmogorov_upper(x: f64) -> f64 {
 }
 
 fn ks2(word: &str, a: &[f64], b: &[f64]) -> Result<BundValue, Error> {
+    let (d, _, _) = ks2_parts(word, a, b)?;
+    let (n1, n2) = (a.len() as f64, b.len() as f64);
+    let p = kolmogorov_upper((n1 * n2 / (n1 + n2)).sqrt() * d);
+    Ok(answer(
+        d,
+        p,
+        None,
+        "Asymptotic two-sample Kolmogorov-Smirnov test",
+    ))
+}
+
+/// D, D⁺ = max(F_a − F_b) and D⁻ = max(F_b − F_a), over the pooled values,
+/// each at least 0.
+fn ks2_parts(word: &str, a: &[f64], b: &[f64]) -> Result<(f64, f64, f64), Error> {
     at_least(word, a, 1)?;
     at_least(word, b, 1)?;
     let mut sa = a.to_vec();
@@ -594,6 +649,7 @@ fn ks2(word: &str, a: &[f64], b: &[f64]) -> Result<BundValue, Error> {
     sb.sort_by(f64::total_cmp);
     let (n1, n2) = (sa.len() as f64, sb.len() as f64);
     let (mut i, mut j, mut d) = (0, 0, 0.0f64);
+    let (mut plus, mut minus) = (0.0f64, 0.0f64);
     while i < sa.len() && j < sb.len() {
         let x = sa[i].min(sb[j]);
         while i < sa.len() && sa[i] <= x {
@@ -602,15 +658,12 @@ fn ks2(word: &str, a: &[f64], b: &[f64]) -> Result<BundValue, Error> {
         while j < sb.len() && sb[j] <= x {
             j += 1;
         }
-        d = d.max((i as f64 / n1 - j as f64 / n2).abs());
+        let diff = i as f64 / n1 - j as f64 / n2;
+        d = d.max(diff.abs());
+        plus = plus.max(diff);
+        minus = minus.max(-diff);
     }
-    let p = kolmogorov_upper((n1 * n2 / (n1 + n2)).sqrt() * d);
-    Ok(answer(
-        d,
-        p,
-        None,
-        "Asymptotic two-sample Kolmogorov-Smirnov test",
-    ))
+    Ok((d, plus, minus))
 }
 
 // Corrections.
@@ -901,7 +954,7 @@ pub fn register(r: &mut Registry) {
 }
 
 /// The words with their forms: four for a correction, two for the rest.
-pub const WORDS: [&str; 56] = [
+pub const WORDS: [&str; 62] = [
     "stat.test.t1",
     "stat.test.t1.",
     "stat.test.t2",
@@ -958,6 +1011,12 @@ pub const WORDS: [&str; 56] = [
     "stat.test.paired.opts.",
     "stat.test.binom.opts",
     "stat.test.binom.opts.",
+    "stat.test.fisher.opts",
+    "stat.test.fisher.opts.",
+    "stat.test.mannwhitney.opts",
+    "stat.test.mannwhitney.opts.",
+    "stat.test.ks2.opts",
+    "stat.test.ks2.opts.",
 ];
 
 mod opts;

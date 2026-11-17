@@ -856,3 +856,427 @@ fn rfc0016_opts_no_operand_aborts() {
         }
     }
 }
+
+// RFC-0016 M3: Fisher's, Mann–Whitney's and the KS test's `.opts` words
+// (§S2), criteria 1, 2, 3, 5's second part and 6. The fixture is
+// `infer16.py`'s; no R output is committed for these, so it alone is the
+// check (A7), except criterion 6's ends, which the RFC states.
+
+const HL_METHOD: &str = "Wilcoxon rank sum test with continuity correction; \
+                         Hodges–Lehmann estimate, order-statistic interval";
+
+/// bⱼ = 1.001·j + 0.5 for j = 0 … m − 1, each as Rust writes the f64, which
+/// reads back as the same f64.
+fn spaced(m: usize) -> String {
+    let b: Vec<String> = (0..m)
+        .map(|j| format!("{:?}", 1.001 * j as f64 + 0.5))
+        .collect();
+    format!("[ {} ]", b.join(" "))
+}
+
+/// 1.0 … n.0.
+fn counting(n: usize) -> String {
+    let a: Vec<String> = (1..=n).map(|i| format!("{i}.0")).collect();
+    format!("[ {} ]", a.join(" "))
+}
+
+fn hl(a: &str, b: &str, opts: &str) -> std::collections::BTreeMap<String, BundValue> {
+    map(&format!("{a} {b} dict {opts} stat.test.mannwhitney.opts"))
+}
+
+fn one(m: &std::collections::BTreeMap<String, BundValue>, k: &str) -> f64 {
+    field(m, k)[0]
+}
+
+#[test]
+fn rfc0016_m3_words_are_registered_with_their_effects() {
+    let mut i = bund2_interp::Interp::new();
+    crate::register_all(&mut i.registry);
+    let shape = |w: &str| {
+        let e = i.registry.effect_of(w).unwrap_or_else(|| panic!("{w}"));
+        (e.consumes, e.produces, e.opaque)
+    };
+    assert_eq!(shape("stat.test.fisher.opts"), (2, 1, false));
+    assert_eq!(shape("stat.test.fisher.opts."), (1, 0, false));
+    for w in ["mannwhitney", "ks2"] {
+        assert_eq!(shape(&format!("stat.test.{w}.opts")), (3, 1, false), "{w}");
+        assert_eq!(shape(&format!("stat.test.{w}.opts.")), (2, 0, false), "{w}");
+    }
+}
+
+/// Criterion 3: with the defaults, `statistic`, `p` and `df` are the plain
+/// word's, bit for bit.
+#[test]
+fn rfc0016_m3_defaults_are_the_plain_words_bit_for_bit() {
+    let cases = [
+        ("[ [ 3 1 ] [ 1 3 ] ] matrix", "fisher"),
+        ("[ [ 12 5 ] [ 7 21 ] ] matrix", "fisher"),
+        (&format!("{A} {B}") as &str, "mannwhitney"),
+        ("[ 1.1 2.2 3.3 4.4 ] [ 0.5 1.5 2.0 2.5 3.0 ]", "mannwhitney"),
+        (&format!("{A} {B}") as &str, "ks2"),
+    ];
+    for (ops, w) in cases {
+        let o = map(&format!("{ops} dict stat.test.{w}.opts"));
+        let p = map(&format!("{ops} stat.test.{w}"));
+        for k in ["statistic", "p", "df"] {
+            assert_eq!(
+                o.get(k).map(|_| field(&o, k)[0].to_bits()),
+                p.get(k).map(|_| field(&p, k)[0].to_bits()),
+                "{ops} {w} {k}"
+            );
+        }
+        assert_eq!(text(&o, "alternative"), "two.sided");
+    }
+    // The method: the plain word's for KS, S2's own for the other two.
+    let ks = map(&format!("{A} {B} dict stat.test.ks2.opts"));
+    assert_eq!(
+        text(&ks, "method"),
+        "Asymptotic two-sample Kolmogorov-Smirnov test"
+    );
+    assert!(!ks.contains_key("conf") && !ks.contains_key("estimate"));
+    assert_eq!(text(&hl(A, B, ""), "method"), HL_METHOD);
+}
+
+/// Criterion 5's second part: Fisher's estimate, ends and p.
+#[test]
+fn rfc0016_fisher_against_the_fixture() {
+    let want = |k: &str| fixture(FIXTURE16, k)[0];
+    let tea = "[ [ 3 1 ] [ 1 3 ] ] matrix";
+    let w = "stat.test.fisher.opts";
+    let m = map(&format!("{tea} dict {w}"));
+    assert_eq!(
+        text(&m, "method"),
+        "Fisher's Exact Test for Count Data; \
+         conditional maximum likelihood estimate of the odds ratio"
+    );
+    close(
+        "estimate",
+        &[one(&m, "estimate")],
+        &[want("fisher.tea.two.sided estimate")],
+        1e-8,
+    );
+    close(
+        "lower",
+        &[one(&m, "lower")],
+        &[want("fisher.tea.two.sided lower")],
+        1e-8,
+    );
+    close(
+        "upper",
+        &[one(&m, "upper")],
+        &[want("fisher.tea.two.sided upper")],
+        1e-8,
+    );
+    close(
+        "p",
+        &[one(&m, "p")],
+        &fixture(FIXTURE, "fisher.tea p"),
+        1e-12,
+    );
+
+    let greater = format!("{tea} dict \"alternative\" \"greater\" set {w}");
+    let m = map(&greater);
+    close(
+        "greater lower",
+        &[one(&m, "lower")],
+        &[want("fisher.tea.greater lower")],
+        1e-8,
+    );
+    close(
+        "greater p",
+        &[one(&m, "p")],
+        &[want("fisher.tea.greater p")],
+        1e-12,
+    );
+    assert!(!has(&greater, "upper"));
+    assert!(has(&greater, "estimate"));
+
+    let m = map(&format!("{tea} dict \"alternative\" \"less\" set {w}"));
+    close(
+        "less upper",
+        &[one(&m, "upper")],
+        &[want("fisher.tea.less upper")],
+        1e-8,
+    );
+    close(
+        "less p",
+        &[one(&m, "p")],
+        &[want("fisher.tea.less p")],
+        1e-12,
+    );
+    assert_eq!(one(&m, "lower"), 0.0);
+
+    // x at the support's maximum: no estimate and no upper end.
+    let top = format!("[ [ 3 0 ] [ 0 3 ] ] matrix dict {w}");
+    assert!(!has(&top, "estimate"));
+    assert!(!has(&top, "upper"));
+    close(
+        "zero lower",
+        &[one(&map(&top), "lower")],
+        &[want("fisher.zero.two.sided lower")],
+        1e-8,
+    );
+    // At its minimum: both the estimate and the lower end are 0.
+    let m = map(&format!("[ [ 0 3 ] [ 3 0 ] ] matrix dict {w}"));
+    assert_eq!((one(&m, "estimate"), one(&m, "lower")), (0.0, 0.0));
+    assert!(one(&m, "upper") > 0.0);
+}
+
+/// Criterion 5's second part: KS for each alternative.
+#[test]
+fn rfc0016_ks2_against_the_fixture() {
+    let w = |alt: &str| {
+        map(&format!(
+            "{A} {B} dict \"alternative\" \"{alt}\" set stat.test.ks2.opts"
+        ))
+    };
+    let m = w("two.sided");
+    close(
+        "D",
+        &[one(&m, "statistic")],
+        &fixture(FIXTURE, "ks2 statistic"),
+        1e-12,
+    );
+    close("p", &[one(&m, "p")], &fixture(FIXTURE, "ks2 p"), 1e-8);
+    for alt in ["greater", "less"] {
+        let m = w(alt);
+        let s = fixture(FIXTURE16, &format!("ks2.{alt} statistic"));
+        let p = fixture(FIXTURE16, &format!("ks2.{alt} p"));
+        close(alt, &[one(&m, "statistic")], &s, 1e-12);
+        close(alt, &[one(&m, "p")], &p, 1e-12);
+        assert_eq!(text(&m, "alternative"), alt);
+        assert_eq!(
+            text(&m, "method"),
+            "Asymptotic two-sample Kolmogorov-Smirnov test"
+        );
+    }
+    // Swapped, "greater" and "less" exchange.
+    let swapped = map(&format!(
+        "{B} {A} dict \"alternative\" \"less\" set stat.test.ks2.opts"
+    ));
+    assert_eq!(one(&swapped, "statistic"), one(&w("greater"), "statistic"));
+}
+
+/// Criterion 6: Hodges–Lehmann's estimate and the order-statistic interval.
+#[test]
+fn rfc0016_hodges_lehmann() {
+    let a = "[ 1.1 2.2 3.3 4.4 ]";
+    // Exact k = 2.
+    let exact = "[ 0.5 1.5 2.0 2.5 3.0 ]";
+    let m = hl(a, exact, "");
+    close("estimate", &[one(&m, "estimate")], &[0.75], 1e-12);
+    close("lower", &[one(&m, "lower")], &[-1.4], 1e-12);
+    close("upper", &[one(&m, "upper")], &[2.9], 1e-12);
+    assert_eq!(text(&m, "method"), HL_METHOD);
+    // Normal k = 3, with a tie, at 90%.
+    let m = hl(a, "[ 0.5 1.5 1.5 2.5 3.0 ]", "\"conf\" 0.9 set");
+    close("estimate", &[one(&m, "estimate")], &[0.75], 1e-12);
+    close("lower", &[one(&m, "lower")], &[-0.8], 1e-12);
+    close("upper", &[one(&m, "upper")], &[2.9], 1e-12);
+    // The boundary: P(U ≤ 0) = 1/20 exactly admits k = 1 at 90%.
+    let m = hl("[ 1.0 2.0 3.0 ]", "[ 1.5 2.5 3.5 ]", "\"conf\" 0.9 set");
+    assert_eq!((one(&m, "lower"), one(&m, "upper")), (-2.5, 1.5));
+    // One-sided, and mu.
+    let greater =
+        format!("{a} {exact} dict \"alternative\" \"greater\" set stat.test.mannwhitney.opts");
+    let m = map(&greater);
+    close("greater lower", &[one(&m, "lower")], &[-0.9], 1e-12);
+    assert!(!has(&greater, "upper"));
+    close(
+        "greater p",
+        &[one(&m, "p")],
+        &fixture(FIXTURE16, "mw.greater p"),
+        1e-10,
+    );
+    close(
+        "W",
+        &[one(&m, "statistic")],
+        &fixture(FIXTURE16, "mw.greater statistic"),
+        0.0,
+    );
+    let less = format!("{a} {exact} dict \"alternative\" \"less\" set stat.test.mannwhitney.opts");
+    let m = map(&less);
+    assert!(!has(&less, "lower"));
+    // k = 3 as for "greater": D₍₁₈₎.
+    close("less upper", &[one(&m, "upper")], &[2.8], 1e-12);
+    close(
+        "less p",
+        &[one(&m, "p")],
+        &fixture(FIXTURE16, "mw.less p"),
+        1e-10,
+    );
+    let shifted = hl(a, exact, "\"mu\" 0.5 set");
+    close(
+        "mu p",
+        &[one(&shifted, "p")],
+        &fixture(FIXTURE16, "mw.mu p"),
+        1e-10,
+    );
+    close(
+        "mu W",
+        &[one(&shifted, "statistic")],
+        &fixture(FIXTURE16, "mw.mu statistic"),
+        0.0,
+    );
+    let plain = hl(a, exact, "");
+    for k in ["estimate", "lower", "upper"] {
+        assert_eq!(field(&shifted, k), field(&plain, k), "{k}");
+    }
+
+    // The f64 ends as the RFC states them (scratch `rev6v.py`).
+    let ends = |a: &str, b: &str, opts: &str| {
+        let m = hl(a, b, opts);
+        (one(&m, "lower"), one(&m, "upper"))
+    };
+    // A wide exact case: k = 15, where the floor's 16 is narrower.
+    assert_eq!(
+        ends("[ 1.0 2.3 ]", &spaced(52), "\"conf\" 0.9 set"),
+        (-43.245, -5.505999999999999)
+    );
+    // A large exact case: C(130, 65) < 2¹²⁸, k = 1692.
+    assert_eq!(
+        ends(&counting(65), &spaced(65), ""),
+        (-6.525999999999996, 7.462000000000003)
+    );
+    // Past the bound: the floor's k = 1747.
+    assert_eq!(
+        ends(&counting(66), &spaced(66), ""),
+        (-6.529999999999998, 7.465000000000003)
+    );
+    // The floor's documented shortfall: k = 5749 at 80%.
+    assert_eq!(
+        ends(&counting(20), &spaced(691), "\"conf\" 0.8 set"),
+        (-393.895, -276.79499999999996)
+    );
+    // Low one-sided levels: past ⌊nm/2⌋, read by symmetry, k = 6.
+    let m = hl(
+        "[ 1.0 2.0 3.0 ]",
+        "[ 1.1 2.3 3.6 ]",
+        "\"alternative\" \"greater\" set \"conf\" 0.3 set",
+    );
+    assert_eq!(one(&m, "lower"), -0.10000000000000009);
+}
+
+/// Criterion 2: Mann–Whitney's and the others' refusals.
+#[test]
+fn rfc0016_m3_refusals_are_their_templates() {
+    let w = "stat.test.mannwhitney.opts";
+    let too_few = "STAT.TEST.MANNWHITNEY.OPTS: E101 a and b is outside stat.test.mannwhitney.opts's \
+         domain: too few for the level";
+    // The exact k is 10 > 9.
+    assert_eq!(
+        err(&format!(
+            "[ 1.0 2.0 3.0 ] [ 1.1 2.3 3.6 ] dict \"alternative\" \"greater\" set \
+             \"conf\" 1.0e-8 set {w}"
+        )),
+        too_few
+    );
+    // A tie, so the floor: k = 10 > 9.
+    assert_eq!(
+        err(&format!(
+            "[ 1.0 2.0 3.0 ] [ 1.0 2.5 3.5 ] dict \"alternative\" \"greater\" set \
+             \"conf\" 0.005 set {w}"
+        )),
+        too_few
+    );
+    // k < 1: n = m = 2 at 95%.
+    assert_eq!(err(&format!("[ 1.0 2.0 ] [ 3.5 4.5 ] dict {w}")), too_few);
+    // n·m above 10⁷, before allocating.
+    let big = counting(3163);
+    assert_eq!(
+        err(&format!("{big} {big} dict {w}")),
+        "STAT.TEST.MANNWHITNEY.OPTS: E111 10004569 differences of a and b exceeds its cap \
+         of 10000000"
+    );
+    // An infinite end is E114, where the plain word answers.
+    let (a, b) = ("[ 1.0e308 1.0 2.0 3.0 ]", "[ -1.0e308 1.5 2.5 3.5 ]");
+    assert_eq!(
+        err(&format!("{a} {b} dict {w}")),
+        "STAT.TEST.MANNWHITNEY.OPTS: E114 the answer overflows a FLOAT: the interval's upper end"
+    );
+    assert!(run(&format!("{a} {b} stat.test.mannwhitney")).is_ok());
+    // A median whose sum overflows is halved first, and answered.
+    let m = hl("[ 1.7e308 1.6e308 1.5e308 0.0 ]", "[ 0.0 0.1 0.2 0.3 ]", "");
+    assert_eq!(one(&m, "estimate"), 1.55e308);
+    // The options each word does not take.
+    assert!(
+        err("[ [ 3 1 ] [ 1 3 ] ] matrix dict \"mu\" 1.0 set stat.test.fisher.opts")
+            .starts_with("STAT.TEST.FISHER.OPTS: E101 opts ")
+    );
+    assert_eq!(
+        err(&format!("{A} {B} dict \"conf\" 0.9 set stat.test.ks2.opts")),
+        "STAT.TEST.KS2.OPTS: E101 opts is outside stat.test.ks2.opts's domain: \
+         the key \"conf\", which this word does not take"
+    );
+    assert!(
+        err("[ [ 3 1 ] [ 1 3 ] [ 1 1 ] ] matrix dict stat.test.fisher.opts")
+            .starts_with("STAT.TEST.FISHER.OPTS: E102 ")
+    );
+}
+
+#[test]
+fn rfc0016_m3_forms_answer_the_plain_words() {
+    for src in [
+        "[ [ 3 1 ] [ 1 3 ] ] matrix dict \"alternative\" \"less\" set . stat.test.fisher.opts."
+            .to_string(),
+        format!("{A} {B} dict \"mu\" 0.5 set . stat.test.mannwhitney.opts."),
+        format!("{A} {B} dict \"alternative\" \"greater\" set . stat.test.ks2.opts."),
+    ] {
+        let mut i = run(&src).unwrap_or_else(|e| panic!("{src}: {e}"));
+        assert_eq!(i.depth(), 0, "{src}");
+        let got = i.pull_workbench().unwrap();
+        let plain = map(&src.replace(" . ", " ").replace("opts.", "opts"));
+        assert_eq!(got.as_map().unwrap(), &plain, "{src}");
+    }
+}
+
+#[test]
+fn rfc0016_m3_no_operand_aborts() {
+    let operands = [
+        "float.NaN",
+        "0.5",
+        "0",
+        "\"x\"",
+        "list",
+        "[ 1 ]",
+        "[ 1 1 1 ]",
+        "[ 1 2 4 ]",
+        "[ 1.0e308 -1.0e308 ]",
+        "[ 1 float.NaN ]",
+        "dict",
+        "dict \"conf\" 0.999999999999 set",
+        "dict \"conf\" 1.0e-300 set",
+        "dict \"alternative\" \"greater\" set",
+        "dict \"mu\" 1.0e308 set",
+        "[ [ 1 2 ] [ 3 4 ] ] matrix",
+        "[ [ 0 0 ] [ 0 5 ] ] matrix",
+        "[ [ 1000 0 ] [ 0 1000 ] ] matrix",
+    ];
+    for w in [
+        "stat.test.fisher.opts",
+        "stat.test.mannwhitney.opts",
+        "stat.test.ks2.opts",
+    ] {
+        for (i, o) in operands.iter().enumerate() {
+            for j in 0..operands.len() {
+                let p = operands[j];
+                let q = operands[(i + j + 5) % operands.len()];
+                for src in [
+                    format!("{o} {w}"),
+                    format!("{o} {p} {w}"),
+                    format!("{o} {p} {q} {w}"),
+                    format!("{o} {p} . {w}."),
+                ] {
+                    if let Err(e) = run(&src) {
+                        assert!(
+                            e.contains(": E1")
+                                || e.contains("too shallow")
+                                || e.contains("returned"),
+                            "{src}: {e}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}

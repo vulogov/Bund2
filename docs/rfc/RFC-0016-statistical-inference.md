@@ -932,6 +932,40 @@ first part.
 
 Criterion 12: conform and coverage unchanged.
 
+M3 landed 2026-11-17: S2 for Fisher, Mann–Whitney and KS, in the same
+module, with criteria 1, 2, 3, 5's second part and 6.
+
+- **Words:** `stat.test.fisher.opts` (2 → 1), `mannwhitney.opts` and
+  `ks2.opts` (3 → 1), each plain and `.`.
+- **The plain words' code is shared.** Fisher's table reading and two-sided
+  p are `FisherCase`; Mann–Whitney's W, W − nm/2 and σ are
+  `mannwhitney_parts`; the KS steps, which now also keep D⁺ and D⁻, are
+  `ks2_parts`. Each `.opts` word's two-sided answer is the plain word's
+  own, and the snapshot is answered to the bit.
+- **Fisher's roots** are found on log ψ as S2 says: the doublings, 64 at
+  most, count both ends of the bracket together, then at most 200
+  bisection steps until e^(hi − lo) − 1 ≤ 10⁻¹⁰. The masses are offset by
+  the support's minimum, a constant factor that cancels. E110 names `the
+  odds ratio's bracket` or `the odds ratio's bisection`. Against
+  `infer16.py`'s roots, by bisection at 50 digits to 10⁻⁴⁰, within 1e-8.
+  The tea table's two-sided interval is (0.21174, 626.24) and its
+  "greater" end 0.31357; R's `uniroot` tolerance moves R's printed
+  figures in their fifth digit, which is why no R output is compared.
+- **Mann–Whitney:** the exact k's counts are `u128` with checked
+  arithmetic, a failure `Error::internal`; C(n + m, n) is formed by a
+  gcd-reduced product and is `None` when it reaches 2¹²⁸. The E111 text is
+  `10004569 differences of a and b exceeds its cap of 10000000`. Every f64
+  end criterion 6 states is answered exactly, k = 15, 1692, 1747, 5749 and
+  the symmetric k = 6, and the RFC's E101 and E114 cases refuse as stated.
+  For "less" on the exact case, k = 3 as for "greater", so `upper` is
+  D₍₁₈₎ = 2.8; the criterion does not state that end.
+- **KS:** `ks2.opts` takes only `alternative`, and answers neither `conf`
+  nor an estimate.
+- **`UNVARIED`** gains `mannwhitney.opts` and `ks2.opts` with their forms;
+  `fisher.opts` consumes two and is not listed.
+
+Criterion 12: conform and coverage unchanged.
+
 ## Rulings — D251 (RESOLVED 2026-11-16)
 
 | | Question | Options | Ruled |

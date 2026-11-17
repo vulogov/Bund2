@@ -182,3 +182,115 @@ def binom_case(label, k, n, p):
 from math import comb  # noqa: E402
 
 binom_case("binom.opts", 682, 925, 0.75)
+
+
+# Criteria 5's second part and 6 (M3): Fisher's conditional MLE and exact
+# interval, the KS test's one-sided statistics and p, and Mann-Whitney's
+# one-sided and shifted p. Fisher's roots are found by bisection on log psi
+# to 1e-40; the masses are exact binomials times psi^x.
+def fisher_opts(label, t, alts):
+    (a_, b_), (c_, d_) = t
+    m, n_, k, x = a_ + c_, b_ + d_, a_ + b_, a_
+    lo, hi = max(0, k - n_), min(k, m)
+    base = {i: mpf(comb(m, i) * comb(n_, k - i)) for i in range(lo, hi + 1)}
+
+    def masses(lpsi):
+        return {i: base[i] * mpmath.exp(i * lpsi) for i in base}
+
+    def mean_at(lpsi):
+        w = masses(lpsi)
+        return mpmath.fsum(i * v for i, v in w.items()) / mpmath.fsum(w.values())
+
+    def ge(lpsi):
+        w = masses(lpsi)
+        return mpmath.fsum(v for i, v in w.items() if i >= x) / mpmath.fsum(w.values())
+
+    def le(lpsi):
+        w = masses(lpsi)
+        return mpmath.fsum(v for i, v in w.items() if i <= x) / mpmath.fsum(w.values())
+
+    def root(f, target, rising):
+        lo_, hi_ = mpf(-60), mpf(60)
+        while hi_ - lo_ > mpf("1e-40"):
+            mid = (lo_ + hi_) / 2
+            if (f(mid) < target) == rising:
+                lo_ = mid
+            else:
+                hi_ = mid
+        return mpmath.exp((lo_ + hi_) / 2)
+
+    total = mpmath.fsum(base.values())
+    for alt in alts:
+        conf = mpf(0.95)
+        alpha = (1 - conf) / 2 if alt == "two.sided" else 1 - conf
+        tag = label + "." + alt
+        if alt == "two.sided":
+            if lo < x < hi:
+                num(tag, "estimate", root(mean_at, x, True))
+        if alt in ("two.sided", "greater") and x > lo:
+            num(tag, "lower", root(ge, alpha, True))
+        if alt in ("two.sided", "less") and x < hi:
+            num(tag, "upper", root(le, alpha, False))
+        if alt == "greater":
+            num(tag, "p", mpmath.fsum(v for i, v in base.items() if i >= x) / total)
+        if alt == "less":
+            num(tag, "p", mpmath.fsum(v for i, v in base.items() if i <= x) / total)
+
+
+fisher_opts("fisher.tea", [[3, 1], [1, 3]], ["two.sided", "greater", "less"])
+fisher_opts("fisher.zero", [[3, 0], [0, 3]], ["two.sided"])
+
+
+# KS on sleep: D+ = max(F_a - F_b), D- = max(F_b - F_a), over the pooled
+# values, exactly; the one-sided p is exp(-2 nm/(n+m) D^2).
+QA = [Q(s) for s in ["0.7", "-1.6", "-0.2", "-1.2", "-0.1", "3.4", "3.7", "0.8", "0.0", "2.0"]]
+QB = [Q(s) for s in ["1.9", "0.8", "1.1", "0.1", "-0.1", "4.4", "5.5", "1.6", "4.6", "3.4"]]
+dp = max(Q(sum(1 for a in QA if a <= v), 10) - Q(sum(1 for b in QB if b <= v), 10) for v in QA + QB)
+dm = max(Q(sum(1 for b in QB if b <= v), 10) - Q(sum(1 for a in QA if a <= v), 10) for v in QA + QB)
+for alt, d in [("greater", dp), ("less", dm)]:
+    num("ks2." + alt, "statistic", mpf(d.numerator) / d.denominator)
+    num("ks2." + alt, "p", mpmath.exp(-2 * mpf(100) / 20 * (mpf(d.numerator) / d.denominator) ** 2))
+
+
+# Mann-Whitney on criterion 6's exact case: W of a - mu against b, each
+# value the f64 the program writes, taken exactly; sigma with its tie term;
+# the one-sided p with c = +1/2 ("greater") or -1/2 ("less"), the
+# two-sided with sign(z)/2.
+def mw(a, b, mu, alt):
+    a = [Q(x) - Q(mu) for x in a]  # a - mu rounds in f64 in Bund2; exact here
+    b = [Q(x) for x in b]
+    allv = a + b
+    n1, n2 = len(a), len(b)
+    srt = sorted(allv)
+    rank = {}
+    i = 0
+    while i < len(srt):
+        j = i
+        while j + 1 < len(srt) and srt[j + 1] == srt[i]:
+            j += 1
+        rank[srt[i]] = Q(i + j + 2, 2)
+        i = j + 1
+    W = sum(rank[v] for v in a) - Q(n1 * (n1 + 1), 2)
+    ties = 0
+    for v in set(allv):
+        t = allv.count(v)
+        ties += t**3 - t
+    N = n1 + n2
+    sigma = mpmath.sqrt(mpf(n1 * n2) / 12 * ((N + 1) - mpf(ties) / (N * (N - 1))))
+    z0 = mpf(W.numerator) / W.denominator - mpf(n1 * n2) / 2
+    if alt == "two.sided":
+        c = 0 if z0 == 0 else mpmath.sign(z0) / 2
+        z = (z0 - c) / sigma
+        return W, 2 * min(mpmath.ncdf(z), 1 - mpmath.ncdf(z))
+    if alt == "greater":
+        return W, 1 - mpmath.ncdf((z0 - mpf(1) / 2) / sigma)
+    return W, mpmath.ncdf((z0 + mpf(1) / 2) / sigma)
+
+
+HA = [1.1, 2.2, 3.3, 4.4]
+HB = [0.5, 1.5, 2.0, 2.5, 3.0]
+for label, mu, alt in [("mw.greater", 0.0, "greater"), ("mw.less", 0.0, "less"),
+                       ("mw.mu", 0.5, "two.sided")]:
+    W, p = mw(HA, HB, mu, alt)
+    num(label, "statistic", mpf(W.numerator) / W.denominator)
+    num(label, "p", p)
