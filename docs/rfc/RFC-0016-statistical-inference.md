@@ -997,6 +997,46 @@ and 7.
 
 Criterion 12: conform and coverage unchanged.
 
+M5 landed 2026-11-17: S5 in a new module, `biomath::effect`, and S7 in
+another, `biomath::sample`, with criteria 1, 2, 9 and 11. With it every
+milestone has landed, and the 64 names of criterion 1 are registered.
+
+- **Words:** `stat.effect.cohend` (2 → 1), `.oddsratio`, `.riskratio` and
+  `.cramerv` (1 → 1); `rng.shuffle` (1 → 1), `rng.choice` and
+  `rng.choice.replace` (2 → 1), `rng.choice.weighted` (3 → 1); each plain
+  and `.`. Each module has its own `WORDS`, which RFC-0015's counting
+  tests now leave out: `describe`'s by `effect::WORDS`, and `dist`'s,
+  which counts the `rng.` prefix, by `sample::WORDS` (§Preservation
+  analysis).
+- **Shared code.** `stat.test.chisq.table`'s statistic and refusals are
+  `infer::chisq_table`, which Cramér's V calls, and `infer::counts` is
+  `pub(crate)` for the ratios' tables; the snapshot is answered to the bit.
+- **Answers.** `cohend` answers a MAP of `d` and `g`; `cramerv` a FLOAT.
+  The ratios answer `estimate`, `log`, `se`, `lower`, `upper`, `conf` and
+  a `method` naming which ratio it is, "Sample odds ratio; Woolf's
+  interval" or "Risk ratio; Katz's interval", so that S5's "each word's
+  `method` names which it is" holds of `oddsratio` beside
+  `fisher.opts`. At se = 0 (b = d = 0) the ends are the estimate itself,
+  which exp(ln x) could miss by an ulp. A zero cell is E101 `0 at [i,j]`.
+- **The J fixture** (`infer16.py`) is by mpmath's gamma at 50 digits. Its
+  long series are aᵢ = i mod 3 and bᵢ = (i mod 4)/2 + 5/4, which puts d
+  near −1.43, so that no cancellation in the means hides J at 1e-12. Every
+  case criterion 9 names is within 1e-12, df 399 998 included.
+- **Sampling** is S7's algorithms over `with_rng`. A test recomputes the
+  shuffle and the weighted draw from `StdRng::seed_from_u64(7)` directly,
+  and the first answers after `7 rng.seed` are pinned. Refusals not given
+  their texts by S7: an empty list for `rng.choice.replace` is `an empty
+  list` on `list`; k above the length is `11, above the length 10` on k;
+  zero weights are `a sum of 0` on `weights`; the cap is `a draw of
+  100000001 elements exceeds its cap of 100000000`. A non-LIST `weights` is
+  E101, as S7 has a non-LIST `list`. With k = 0 the weights are still read
+  and checked, but their sum is not, so an empty list with k = 0 answers
+  an empty LIST, as S7 says.
+- **`UNVARIED`** gains `rng.choice.weighted` and its form, the last of
+  S8's 20.
+
+Criterion 12: conform and coverage unchanged.
+
 ## Rulings — D251 (RESOLVED 2026-11-16)
 
 | | Question | Options | Ruled |

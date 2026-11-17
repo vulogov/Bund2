@@ -436,3 +436,62 @@ for i in [0, 9, 19, 29, 39]:
 kendall_exact("cor.kendall45", list(range(1, 46)), K45_B)
 kendall_ties("cor.kendall.ties", ["1", "2", "2", "3", "4", "4", "5", "6", "7", "8"],
              ["1.9", "0.8", "1.1", "0.1", "0.1", "4.4", "5.5", "1.6", "4.6", "4.4"])
+
+
+# Criterion 9 (M5): effect sizes. d from exact means and variances of the
+# f64 values; J = Gamma(df/2) / (Gamma((df - 1)/2) sqrt(df/2)) at 50 digits,
+# by mpmath's own gamma, not the series. The long series are
+# a_i = i mod 3 and b_i = (i mod 4)/2 + 5/4 for i = 0 ... n - 1, exact in
+# f64 (b_i is shifted by 1, so that d is near -1 and no cancellation in
+# the means hides J). The ratios on ?fisher.test's larger table; Cramer's V on a 3x3 with
+# a zero cell, exactly.
+def cohend(label, a, b):
+    a, b = [Q(x) for x in a], [Q(x) for x in b]
+    na, nb = len(a), len(b)
+
+    def mv(xs):
+        m = sum(xs) / len(xs)
+        return m, sum((x - m) ** 2 for x in xs) / (len(xs) - 1)
+
+    (ma, va), (mb, vb) = mv(a), mv(b)
+    df = na + nb - 2
+    pooled = ((na - 1) * va + (nb - 1) * vb) / df
+    d = mpf((ma - mb).numerator) / (ma - mb).denominator / mpmath.sqrt(
+        mpf(pooled.numerator) / pooled.denominator)
+    j = mpmath.gamma(mpf(df) / 2) / (mpmath.gamma(mpf(df - 1) / 2) * mpmath.sqrt(mpf(df) / 2))
+    num(label, "d", d)
+    num(label, "g", j * d)
+
+
+def series_a(n):
+    return [i % 3 for i in range(n)]
+
+
+def series_b(n):
+    return [Q(i % 4, 2) + Q(5, 4) for i in range(n)]
+
+
+cohend("cohend.sleep", SLEEP_A, SLEEP_B)
+for na, nb in [(101, 101), (101, 102), (200, 200), (200000, 200000)]:
+    cohend("cohend.%d.%d" % (na, nb), series_a(na), series_b(nb))
+
+a_, b_, c_, d_ = 12, 5, 7, 21
+z975 = zq(mpf("0.975"))
+for label, est, se in [
+    ("oddsratio", mpf(a_ * d_) / (b_ * c_), mpmath.sqrt(mpf(1) / a_ + mpf(1) / b_ + mpf(1) / c_ + mpf(1) / d_)),
+    ("riskratio", (mpf(a_) / (a_ + b_)) / (mpf(c_) / (c_ + d_)),
+     mpmath.sqrt(mpf(1) / a_ - mpf(1) / (a_ + b_) + mpf(1) / c_ - mpf(1) / (c_ + d_))),
+]:
+    num(label, "estimate", est)
+    num(label, "log", mpmath.log(est))
+    num(label, "se", se)
+    num(label, "lower", mpmath.exp(mpmath.log(est) - z975 * se))
+    num(label, "upper", mpmath.exp(mpmath.log(est) + z975 * se))
+
+T3 = [[10, 0, 5], [3, 8, 2], [4, 6, 9]]
+rows3 = [sum(r) for r in T3]
+cols3 = [sum(r[j] for r in T3) for j in range(3)]
+N3 = sum(rows3)
+x2 = sum((Q(T3[i][j]) - Q(rows3[i] * cols3[j], N3)) ** 2 / Q(rows3[i] * cols3[j], N3)
+         for i in range(3) for j in range(3))
+num("cramerv", "V", mpmath.sqrt(mpf(x2.numerator) / x2.denominator / (N3 * 2)))

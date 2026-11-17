@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 503 promotable of 512 reached, of 743 fixed-effect natives; 9 reached natives
+# 509 promotable of 518 reached, of 759 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -344,8 +344,12 @@ register
 resolve.class
 resolve.class.
 return
+rng.choice.replace
+rng.choice.replace.
 rng.seed
 rng.seed.
+rng.shuffle
+rng.shuffle.
 rng.uniform
 send
 send.
@@ -380,6 +384,8 @@ stat.cor.spearman
 stat.cor.spearman.
 stat.cov
 stat.cov.
+stat.effect.cohend
+stat.effect.cohend.
 stat.test.chisq
 stat.test.chisq.
 stat.test.ks2
@@ -709,6 +715,10 @@ vec.sub.
 # not reached: popgen.wf.selection.
 # not reached: raise
 # not reached: return_to
+# not reached: rng.choice
+# not reached: rng.choice.
+# not reached: rng.choice.weighted
+# not reached: rng.choice.weighted.
 # not reached: set,
 # not reached: set.
 # not reached: set.,
@@ -725,6 +735,12 @@ vec.sub.
 # not reached: stat.cor.test.spearman.
 # not reached: stat.cor.test.spearman.opts
 # not reached: stat.cor.test.spearman.opts.
+# not reached: stat.effect.cramerv
+# not reached: stat.effect.cramerv.
+# not reached: stat.effect.oddsratio
+# not reached: stat.effect.oddsratio.
+# not reached: stat.effect.riskratio
+# not reached: stat.effect.riskratio.
 # not reached: stat.lm
 # not reached: stat.lm.
 # not reached: stat.test.binom

@@ -305,7 +305,7 @@ pub(crate) fn table(word: &str, operand: &str, v: &BundValue) -> Result<Vec<Vec<
 }
 
 /// A table of counts, every cell finite and not negative.
-fn counts(word: &str, v: &BundValue) -> Result<Vec<Vec<f64>>, Error> {
+pub(crate) fn counts(word: &str, v: &BundValue) -> Result<Vec<Vec<f64>>, Error> {
     let t = table(word, "table", v)?;
     for (i, row) in t.iter().enumerate() {
         if let Some(j) = row.iter().position(|x| *x < 0.0) {
@@ -322,18 +322,41 @@ fn counts(word: &str, v: &BundValue) -> Result<Vec<Vec<f64>>, Error> {
 fn stat_test_chisq_table(vm: &mut dyn Vm) -> Result<(), Error> {
     const W: &str = "stat.test.chisq.table";
     let v = operands(vm, W, 1)?;
-    let t = counts(W, &v[0])?;
+    let t = chisq_table(W, &v[0])?;
+    vm.push(answer(
+        t.x2,
+        chisq_p(W, t.x2, t.df)?,
+        Some(t.df),
+        "Pearson's Chi-squared test",
+    ));
+    Ok(())
+}
+
+/// χ² on a contingency table, without Yates' correction: the statistic,
+/// its df, the total and the table's shape.
+pub(crate) struct ChisqTable {
+    pub(crate) x2: f64,
+    pub(crate) df: f64,
+    pub(crate) n: f64,
+    pub(crate) rows: usize,
+    pub(crate) cols: usize,
+}
+
+/// `stat.test.chisq.table`'s statistic and refusals: a table at least 2×2,
+/// cells non-negative, no row or column summing to 0.
+pub(crate) fn chisq_table(word: &str, v: &BundValue) -> Result<ChisqTable, Error> {
+    let t = counts(word, v)?;
     let (r, c) = (t.len(), t.first().map_or(0, Vec::len));
     if r < 2 || c < 2 {
-        return Err(domain(W, "table", format!("a table of {r} by {c}")));
+        return Err(domain(word, "table", format!("a table of {r} by {c}")));
     }
     let rows: Vec<f64> = t.iter().map(|row| row.iter().sum()).collect();
     let cols: Vec<f64> = (0..c).map(|j| t.iter().map(|row| row[j]).sum()).collect();
     if let Some(i) = rows.iter().position(|s| *s == 0.0) {
-        return Err(domain(W, "table", format!("row {} sums to 0", i + 1)));
+        return Err(domain(word, "table", format!("row {} sums to 0", i + 1)));
     }
     if let Some(j) = cols.iter().position(|s| *s == 0.0) {
-        return Err(domain(W, "table", format!("column {} sums to 0", j + 1)));
+        return Err(domain(word, "table", format!("column {} sums to 0", j + 1)));
     }
     let n: f64 = rows.iter().sum();
     let mut x2 = 0.0;
@@ -343,15 +366,15 @@ fn stat_test_chisq_table(vm: &mut dyn Vm) -> Result<(), Error> {
             x2 += (o - e) * (o - e) / e;
         }
     }
-    let x2 = statistic(W, x2)?;
+    let x2 = statistic(word, x2)?;
     let df = ((r - 1) * (c - 1)) as f64;
-    vm.push(answer(
+    Ok(ChisqTable {
         x2,
-        chisq_p(W, x2, df)?,
-        Some(df),
-        "Pearson's Chi-squared test",
-    ));
-    Ok(())
+        df,
+        n,
+        rows: r,
+        cols: c,
+    })
 }
 
 // The exact tests.

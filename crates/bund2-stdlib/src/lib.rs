@@ -850,9 +850,11 @@ mod honesty_tests {
         // first operand is a, a series
         // read as `whole` reads
         // one, E115 unless a LIST or METRICS; `stat.test.binom.opts`' are k
-        // and n, counts refused as `stat.test.binom`'s are. Their forms'
-        // are too.
-        const UNVARIED: [&str; 61] = [
+        // and n, counts refused as `stat.test.binom`'s are; and
+        // `rng.choice.weighted`'s is `list`, the list drawn from, whose
+        // values are moved and never read as names (§S7). Their forms' are
+        // too.
+        const UNVARIED: [&str; 63] = [
             "bio.align",
             "bio.align.",
             "bio.align.score",
@@ -883,6 +885,8 @@ mod honesty_tests {
             "popgen.wf.",
             "popgen.wf.selection",
             "popgen.wf.selection.",
+            "rng.choice.weighted",
+            "rng.choice.weighted.",
             "save.model",
             "seq.asc",
             "seq.asc.",

@@ -55,6 +55,8 @@ fn every_word_is_registered_with_its_dot_form() {
         .word_names()
         .into_iter()
         .filter(|n| n.starts_with("dist.") || n.starts_with("rng."))
+        // RFC-0016 §S7's sampling words, which `sample`'s own test holds.
+        .filter(|n| !crate::biomath::sample::WORDS.contains(&n.as_str()))
         .count();
     assert_eq!(ours, 2 * WORDS.len() + 3);
 }

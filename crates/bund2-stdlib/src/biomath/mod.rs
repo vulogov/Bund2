@@ -79,12 +79,17 @@
 //! Its M2 and M3 add §S2's `.opts` words to [`infer`]: estimates,
 //! intervals and one-sided p for the t tests, the binomial, Fisher's test,
 //! Mann–Whitney and KS. Its M4 adds §S3's correlation tests, in
-//! [`infer::cor`].
+//! [`infer::cor`]. Its M5 adds the last two sections:
+//!
+//! - [`effect`]: §S5's effect sizes, `stat.effect.*`;
+//! - [`sample`]: §S7's shuffling and sampling, `rng.shuffle` and
+//!   `rng.choice*`.
 
 pub mod align;
 pub mod describe;
 pub mod dist;
 pub mod dynamics;
+pub mod effect;
 pub mod fit;
 pub mod infer;
 pub mod linalg;
@@ -94,6 +99,7 @@ pub mod popgen;
 pub mod refuse;
 pub mod rng;
 pub mod round;
+pub mod sample;
 pub mod sequence;
 pub mod special;
 pub mod vector;
@@ -114,6 +120,8 @@ pub fn register(r: &mut bund2_api::Registry) {
     fit::register(r);
     rng::register(r);
     round::register(r);
+    effect::register(r);
+    sample::register(r);
 }
 
 #[cfg(test)]

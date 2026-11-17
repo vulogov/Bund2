@@ -28,7 +28,8 @@ fn every_word_and_form_is_registered() {
     }
     // Beside the reference's `stat.count` and `stat.mean*`, M5's tests,
     // corrections and model, which `infer`'s own test holds, and RFC-0016's
-    // correlation tests, which `infer::cor`'s does, nothing else.
+    // correlation tests and effect sizes, which `infer::cor`'s and
+    // `effect`'s own tests hold, nothing else.
     let ours: Vec<String> = i
         .registry
         .word_names()
@@ -39,6 +40,7 @@ fn every_word_and_form_is_registered() {
                 && !n.starts_with("stat.mean")
                 && !crate::biomath::infer::WORDS.contains(&n.as_str())
                 && !crate::biomath::infer::cor::WORDS.contains(&n.as_str())
+                && !crate::biomath::effect::WORDS.contains(&n.as_str())
         })
         .collect();
     assert_eq!(ours.len(), WORDS.len(), "{ours:?}");
