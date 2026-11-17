@@ -66,6 +66,7 @@ ignore = [
     { id = "RUSTSEC-2024-0375", reason = "atty is unmaintained: reached through clap 3, which srch brings; srch is the reference's crate for string.expressionmatch." },
     { id = "RUSTSEC-2024-0384", reason = "instant is unmaintained: reached through notify, which prqlc brings." },
     { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml is unmaintained: reached through prqlc." },
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained, with no safe upgrade: reached only through prqlc 0.13.14. Bund2 calls no chrono API." },
     { id = "RUSTSEC-2022-0013", reason = "regex 0.2.11, slow parsing of large repetitions: reached through markov-chain 0.1.1 (D215), whose one regex is a fixed pattern in train_string, which Bund2 never calls; no program supplies a pattern to it (D216)." },
     { id = "RUSTSEC-2022-0006", reason = "thread_local 0.3, a data race in Iter and IterMut: reached through regex 0.2.11 under markov-chain 0.1.1 (D215); regex keeps its cache in it, and the one regex is never compiled by Bund2 (D216)." },
     { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained: reached through argmin 0.10 under augurs-forecaster 0.9 (D215), a compile-time macro crate (D216)." },
