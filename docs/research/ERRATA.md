@@ -245,3 +245,15 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   key order, since a MAP's keys sort. In the same section, "Spearman's and
   Kendall's exact and asymptotic p" is narrowed by D251 A5: Spearman's p
   is the t approximation only; Kendall's keeps both.
+
+- `07-statistical-research.md:91-92` -> departed from by RFC-0017,
+  recorded here on 2026-11-17 (RFC-0017's second review, N13). §3.1 calls
+  "a MAP of equal-length LISTs … (`"dose" get`)" the natural convention
+  for a table. D252 ruled C1 B, a MAP with reserved keys (`columns`,
+  `data`, `levels`), so a column is `"data" get "dose" get`, and `"dose"
+  get` on a frame is `get`'s missing-key error. §3.1's "reading a whole
+  file into such a MAP" is likewise refined: RFC-0017 parses the STRING
+  that `file` reads (`frame.csv.parse`) rather than adding a word that
+  opens a file. §5 posed the shape as question C1, so the research
+  reached no conclusion this contradicts; the entry records the
+  departure from its stated default.

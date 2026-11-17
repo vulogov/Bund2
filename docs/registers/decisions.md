@@ -17335,3 +17335,201 @@ What the rulings fix, for the RFC that specifies Phase B to build on:
   where a cell is empty, so rows stay aligned.
 - **Names** of the NONE words, the frame words and the reader are the
   Phase B RFC's to propose.
+
+**Dated note, 2026-11-17 (RFC-0017's drafting).** The finding "**NONE**
+(tag 0, `BundValue::none`) exists and no word produces it" is narrower
+than it reads. `json.to_value` converts a JSON `null` to NONE, in the
+reference (`reference/rust_dynamic/src/cast_json_to_value.rs:38-39`) and
+in Bund2 (`crates/bund2-stdlib/src/json.rs`, `to_value`, the `J::Null`
+arm): `'[1, null, 3]' json json.to_value println` prints `[ 1 :: NONE ::
+3 :: ]` (probed). No word produces NONE except by converting JSON. The
+ruling does not rest on the finding and is unchanged; the correction
+strengthens it, since JSON's missing value and the frame's are then one
+value.
+
+**Note, 2026-11-17.** A second finding above is wrong: "`+` will not
+append one to a LIST". `[ 1 2 ] nodata +` prints `[ 1 ::  2 ::  NODATA :: ]`
+on `target/debug/bund2` (probed by RFC-0017's second review, S8, and
+re-run). The rest of the finding stands: NODATA ends a drained series
+(`crates/bund2-stdlib/src/series.rs`, the module doc), so a NODATA inside
+a LIST would still mean one thing to a series word and another to a
+frame word. The ruling (C2 C) does not rest on the `+` claim and is
+unchanged.
+
+## D253 — RFC-0017's questions, P1–P12: frames, factors and missing values
+
+**Raised 2026-11-17** by `docs/rfc/RFC-0017-frames-and-missing-values.md`,
+drafted on D252's rulings (C1 B, C2 C), which left the names, the column
+rules and the reader's details to "the Phase B RFC".
+
+- Blocks: RFC-0017's review and acceptance
+- Depends on: D252, D51, D72, D119, D250 (B12)
+- Status: **RESOLVED** by the repository owner, 2026-11-17, ruling every
+  question as recommended: "P1–P12 A". The Recommended column is the ruling.
+
+| | Question | Options | Recommended |
+|---|---|---|---|
+| **P1** | Names | **A** `frame.` for frames; `na`, `na.is`, `na.count`, `na.omit`, `na.fill` for missing values. **B** `frame.` and `none.`. **C** `frame.` and `missing.` | **A**: short, and R's word for the idea |
+| **P2** | Column kinds | **A** typed: a column's kind (numeric, logical, string, factor) read from its non-NONE cells, numbers finite (B12). **B** any values in any column | **A**: a model word needs to know a column is numeric or a factor without scanning for surprises |
+| **P3** | Keys other than `columns`, `data`, `levels` | **A** refused. **B** ignored and carried by words that rebuild a frame | **A**: one shape, so every word can rebuild a frame without deciding what to carry |
+| **P4** | `levels` with no factor | **A** always present, possibly an empty MAP. **B** optional | **A**: one check, no absent-key branch in every reader |
+| **P5** | Scope | **A** S4–S6 with `frame.aggregate` (named statistics, no lambdas) and `frame.join` (inner and left). **B** S4 and S6 only; summarising and joining to a later RFC | **A**: research 07 §3.1 lists "group, join and summarise" in Phase B, and Phase C's models want grouped data |
+| **P6** | CSV missing strings, and NONE written | **A** `[ "" "NA" ]` read as missing by default; NONE written as an empty field. **B** `[ "" ]` only. **C** NONE written as `NA` | **A**: R's `read.csv` default [UNGROUNDED as R's; Q64]; an empty field is what `csv` and polars read as null |
+| **P7** | A factor's default level order | **A** sorted (bytes). **B** first appearance | **A**: R's `factor` default [UNGROUNDED as R's; Q64]; stable under row order |
+| **P8** | What `"omit"` dropped | **A** a `.dropped` column for `frame.aggregate`; a `{ matrix, dropped }` MAP from `frame.matrix` under `"omit"`. **B** a second value left on the stack | **A**: one answer per word, as every family word has |
+| **P9** | Refusal codes | **A** RFC-0015's E101–E103, E111, E112. **B** a new E116 for a malformed frame | **A**: no new code; the text names what is wrong |
+| **P10** | `frame.filter`'s lambda | **A** given the row as a MAP of name to cell. **B** given the cells pushed in column order | **A**: names survive a reordering of columns |
+| **P11** | Sort | **A** stable, ascending, NONE last, a `descending` option naming columns. **B** NONE first | **A**: R's `order` default `na.last = TRUE` [UNGROUNDED as R's; Q64] |
+| **P12** | NONE in `frame.text` | **A** `NA`. **B** empty | **A**: visible in a table, where an empty cell reads as a formatting gap |
+
+## D254 — RFC-0017's CSV text format: a quoted field is text
+
+**Raised 2026-11-17** by RFC-0017's first review
+(`docs/rfc/reviews/RFC-0017-review-2026-11-17.md`, B1): `frame.csv.parse`
+of `frame.csv.text` of a frame is not that frame when a STRING cell is
+`""` or `"NA"` (read back as NONE), or looks like a number or a BOOL
+(`"007"`, `"true"`, read back as INTEGER or BOOL), because S6 quoted only
+fields holding a delimiter, a quote or a line break, and the inference saw
+each field after the `csv` crate had removed its quotes
+(`crates/bund2-stdlib/src/data.rs`, the module doc).
+
+- Blocks: RFC-0017's revision
+- Depends on: D51, D252, D253 (P6)
+- Status: **RESOLVED** by the repository owner, 2026-11-17: "B1: parser
+  treat quoted fields as text".
+
+What the ruling fixes, for RFC-0017's revision:
+
+- **`frame.csv.parse`** treats a field written in quotes as a STRING
+  whatever it holds: it takes part in no inference, and is never one of
+  the `na` strings, so `""` quoted is an empty STRING and `"NA"` quoted
+  is the STRING `NA`. An unquoted field is inferred as `csv` infers it.
+  This is closer to polars than `csv` is: `data.rs`'s module doc records
+  that polars treats a quoted field as a string whatever it holds, and
+  lists the `csv` crate's quote removal as a difference left under D51.
+- **`frame.csv.text`** quotes every STRING cell (a factor's included),
+  so that a STRING column reads back as one.
+- **`csv` is unchanged** (D51, D252): the ruling is about the frame
+  reader only.
+- **Not settled by this ruling:** a numeric column mixing INTEGER and
+  FLOAT cells (allowed by RFC-0017 S2) still reads back all FLOAT, as
+  polars' inference merges the two. RFC-0017's revision must state a rule
+  or narrow its round-trip claim; it is put to the owner separately.
+
+**Note, 2026-11-17.** The point left open above is ruled by the owner:
+"A", keep each cell's type in a numeric column. `frame.csv.parse` reads
+an unquoted field of a column inferred FLOAT from INTEGER and FLOAT
+evidence cell by cell: a field that matches polars' integer pattern
+(`data.rs`, `is_int`) is an INTEGER, any other a FLOAT. `frame.csv.text`
+already writes the two apart (an INTEGER without a point, a FLOAT by
+`float_text`, an integral one keeping its `.0`), so a mixed numeric
+column round-trips cell for cell. Like the rest of D254, this is the
+frame reader's own rule; `csv` still merges such a column to FLOAT (D51).
+
+## D255 — RFC-0017's CSV reader: a non-finite field is refused
+
+**Raised 2026-11-17** by RFC-0017's first review
+(`docs/rfc/reviews/RFC-0017-review-2026-11-17.md`, B2): the inference
+`frame.csv.parse` reuses from `csv` takes `NaN`, `inf`, `-inf` and
+`+inf` as FLOAT (`crates/bund2-stdlib/src/data.rs`, `is_float`, polars'
+`FLOAT_RE`; probed: a column `1.5`, `NaN`, `inf` through `csv` answers
+`[ 1.5 :: NaN :: inf :: ]`), and RFC-0017 S2 makes a non-finite numeric
+cell a malformed frame (B12). S6 said nothing about it.
+
+- Blocks: RFC-0017's revision
+- Depends on: D250 (B12), D252, D253 (P6), D254
+- Status: **RESOLVED** by the repository owner, 2026-11-17: "B2 A".
+
+| | Options | Ruled |
+|---|---|---|
+| **B2** | **A** E101 naming the field, row and column, by default; a program that means "missing" lists the string in the `na` option, which is matched before inference. **B** always read as NONE. **C** a new option, `nonfinite`, `"refuse"` or `"na"`. **D** read as a STRING, making the column a string column | **A** |
+
+What the ruling fixes, for RFC-0017's revision:
+
+- An unquoted field that infers as FLOAT and parses to NaN or ±∞ is E101,
+  its text naming the field, its row and its column and pointing at the
+  `na` option. A quoted one is a STRING (D254) and never reaches the
+  check.
+- No new option: `{ na: [ "" "NA" "NaN" ] }` reads such fields as NONE
+  in place, as P6's `na` strings already are.
+- Not changed, and to be stated in the RFC: polars' float pattern is
+  case-sensitive, so `nan` or `Inf` infers as a string and turns its
+  column into a string column without a refusal, as in `csv`. No
+  case-folding is added; the `na` option is the way out there too.
+- `csv` is unchanged (D51, D252).
+
+**Note, 2026-11-17.** RFC-0017's third review (S1) found the ruling's
+"an unquoted field that infers as FLOAT" readable per field, so that a
+string column holding the word `inf` (`csv` reads `inf`, `ctl` as
+STRINGs, probed) would be refused. RFC-0017's revision 3 applies the
+refusal in a column inferred FLOAT only, which is what the ruling's "NaN
+in a numeric column" purpose asks; recorded here so the reading is the
+owner's to overrule.
+
+## D256 — RFC-0017's first review, S1–S8: statistics, complete cases, refusal texts, the reader and `frame.aggregate`
+
+**Raised 2026-11-17** by RFC-0017's first review
+(`docs/rfc/reviews/RFC-0017-review-2026-11-17.md`, S1–S8), each a case
+the draft left unstated or stated wrongly.
+
+- Blocks: RFC-0017's revision
+- Depends on: D252, D253 (P5, P7, P8, P9), D254, D255
+- Status: **RESOLVED** by the repository owner, 2026-11-17: "S1–S8 as
+  recommended".
+
+| | Question | Ruled |
+|---|---|---|
+| **S1** | Which code each statistic of `frame.aggregate` shares | `mean` → `stat.mean.arithmetic` (`crates/bund2-stdlib/src/series.rs`, `amean`); `var`, `sd` → `stat.var`, `stat.sd` (`biomath/describe.rs`, n − 1); `median` → `stat.median` (`describe.rs`). `sum`, `min`, `max`, which have no word, are defined by the RFC: a left-to-right f64 sum; the smallest and largest cell as a FLOAT. Criterion 5 asks each group's answer to equal, bit for bit, the named word's on the group's cells |
+| **S2** | `"omit"` in `frame.matrix` cannot feed `stat.lm` its `y` | A new word `frame.complete` (`frame names -- frame`): the rows with no NONE in those columns, all columns when `names` is empty. `frame.matrix` keeps `"omit"` and `{ matrix, dropped }` (P8). `na.omit` stays LIST-only. Criterion 5 gains the path `frame.complete`, then `frame.matrix` and `frame.column`, then `stat.lm`, with a NONE in `y` |
+| **S3** | E103's text says "of numbers" | Every rule about a column's kind is E101, its text naming the column, the row, what the cell is and what the column wants; E103 is kept for a numeric column's non-number cell only. No new code (P9). Criterion 2 lists each text |
+| **S4** | Cells past the 100-row inference window | `frame.csv.parse` infers each column from every row, so no late mismatch arises. The frame reader's own rule; `csv` keeps polars' 100 rows (D51) |
+| **S5** | Headers | `header: false` names the columns `column_1`, `column_2`, … as `csv` does; a duplicate or empty header name is E101 naming it, nothing renamed; `frame.csv.text` always writes a header and takes no options; the option is `header`, a deliberate difference from `csv`'s `is_header`, stated |
+| **S6** | `frame.matrix` on other kinds | Numeric columns only; a logical, string or factor column is E101 naming it (coding is Phase C's `model.matrix`); INTEGER cells convert to FLOAT, as `stat.lm`'s `table` does; empty `names`, and zero rows before or after `"omit"`, are E101 naming the cause |
+| **S7** | `frame.aggregate`'s cases | NONE in a `by` column is a group of its own, last, and `by` columns are outside the `na` option, which governs the statistics' columns only; `"omit"` drops each row with a NONE in any column a statistic reads, `.dropped` counting them per group; `count` is the group's rows the statistics used and takes a column of any kind; every other statistic needs a numeric column, else E101 naming column and statistic; a result name that collides with a `by` column or `.dropped` is E101 at entry; groups are ordered by the `by` columns as `frame.sort` orders them (a factor by its levels, NONE last), not by first appearance |
+| **S8** | Preservation rows missed | Added: the existing NONE refusal texts (`stat.var`'s "Can not convert NONE", `stat.cov`'s E103 `… none`) unchanged; `header` against `is_header`; `bund2 words`' listing grows, and `lib.rs`'s `UNVARIED: [&str; 63]` audit array changes |
+
+**Note, 2026-11-17.** S1's premise that `sum`, `min` and `max` "have no
+word" is wrong for `sum`: RFC-0015's `vec.sum` is a left-to-right sum
+that refuses an overflow with E114
+(`crates/bund2-stdlib/src/biomath/vector.rs`, `vec.sum`; `[ 1.0e308
+1.0e308 ] vec.sum` is `VEC.SUM: E114 the answer overflows a FLOAT: Σ xᵢ`,
+probed), found by RFC-0017's third review (N9). `math.min` and
+`math.max` exist too (`series.rs`), folding from NaN, so an empty series
+answers NaN; the ruling's definitions stand for those two. D258 rules
+`"sum"` onto `vec.sum`'s code.
+
+## D257 — RFC-0017's second review: row indices, equality in tests, `frame.join`, `frame.text`, the delimiter
+
+**Raised 2026-11-17** by RFC-0017's second review
+(`docs/rfc/reviews/RFC-0017-review-2026-11-17-2.md`, B2, B3, S6, S9,
+S10), the findings D254–D256 did not already cover.
+
+- Blocks: RFC-0017's revision
+- Depends on: D252, D253, D254, D256
+- Status: **RESOLVED** by the repository owner, 2026-11-17: "as
+  recommended".
+
+| | Question | Ruled |
+|---|---|---|
+| **B3** | Row indices | **1-based**, as Bund's `at` (`reference/rust_dynamic/src/carcdr.rs:57-60`; `1 [ 10 20 30 ] at` prints `10`, probed) and R: `frame.take`'s indices, and the row a refusal names. Answers Q63 |
+| **B2** | What "equal" means in criteria 4–7 | A test-only helper, no new word: structural over the frame MAP, each cell the same type (INTEGER 1 is not FLOAT 1.0), FLOATs bit for bit, NONE equal to NONE. Bund's `==` refuses a LIST or MAP (probed) and `BundValue`'s `PartialEq` compares them by identity and INTEGER 1 equal to FLOAT 1.0 (`crates/bund2-value/src/lib.rs`, its `PartialEq`), so neither serves |
+| **S6** | `frame.join`'s details | Columns: left's, then right's columns other than `by`. Rows: left's order, several matches in right's order. Number keys compare by value (1 matches 1.0), as `frame.sort` compares. Factor keys compare by level text; the answer keeps left's levels. NONE never matches, as in SQL. The output row count is computed before allocating; above 10⁸ is E111 |
+| **S9** | `frame.text`'s layout | A header row, then one space between columns; each column as wide as its widest cell; numbers right-aligned, the rest left; a FLOAT as Bund prints it; NONE as `NA`; at most 20 rows, then `… <n> more rows`. Criterion 8 checks this layout |
+| **S10** | The delimiter, and unknown `factors` names | `frame.csv.parse`'s option `sep`, one character, default `","`; a name in `factors` that is not a column is E101 |
+
+## D258 — RFC-0017's third review: empty CSV lines, overflowing statistics, oversized integers
+
+**Raised 2026-11-17** by RFC-0017's third review
+(`docs/rfc/reviews/RFC-0017-review-2026-11-17-3.md`, B1, B2 with N9,
+S2), on revision 2.
+
+- Blocks: RFC-0017's revision 3
+- Depends on: D250 (B12), D253 (P6), D254, D255, D256, D257
+- Status: **RESOLVED** by the repository owner, 2026-11-17: "as
+  recommended".
+
+| | Question | Ruled |
+|---|---|---|
+| **B1** | A one-column frame's NONE is written as an empty line, which `csv-core` skips (`csv-core-0.1.13/src/reader.rs:94`; `x\n1\n\n3\n` through `csv` reads two rows, probed) | **The frame reader counts every line as a record.** In a one-column frame an empty line is one empty field, NONE; in a wider frame it is a short row, E102 naming the row. Only the text's final line terminator ends it. P6 (NONE written empty) stands. A multi-column file with a stray blank line is refused where `csv` skips it |
+| **B2** | `"mean"` copies `stat.mean.arithmetic`, which answers `inf` from finite cells (`[ 1.0e308 1.0e308 ] stat.mean.arithmetic` prints `inf`, probed), against B12 | Each statistic's answer is checked; a non-finite one is E114 naming the group and statistic, refusing the word. `"sum"` is `vec.sum`'s code (D256's note). A finite answer stays bit for bit the named word's |
+| **S2** | An integer field beyond i64 (`99999999999999999999` through `csv` is `could not parse … as dtype i64`, probed by the review) | E101 naming the field, its row and its column. Like D255: refused, not silently changed |
