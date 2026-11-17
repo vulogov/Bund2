@@ -241,7 +241,7 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   come only from new `<test>.opts` words. Adding keys would have broken
   more than §3.4 counted: the plain words would gain refusals (a quantile's
   polish, a bisection, the Hodges–Lehmann cap), costs (O(n·m) for
-  Mann–Whitney, up to 792 support sums for Fisher), and a changed printed
+  Mann–Whitney, up to 798 support sums for Fisher), and a changed printed
   key order, since a MAP's keys sort. In the same section, "Spearman's and
   Kendall's exact and asymptotic p" is narrowed by D251 A5: Spearman's p
   is the t approximation only; Kendall's keeps both.

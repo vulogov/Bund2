@@ -17271,6 +17271,19 @@ The estimate (the Hodges–Lehmann median), the order-statistic interval and the
 - **A3 confirmed on a corrected premise.** The ruling was explained by saying a program meets NODATA on `"upper" get` for an absent key. It does not: `get` on a MAP without the key is an error, `GET returns error: Key not found: upper` (`reference/rust_dynamic/src/get.rs:10-12`; probed). A program tests `"upper" ?key` first. With that consequence, A3 stays **A**: the key is left out. ±∞ is against B12, and NONE would mean "infinite" here and "missing" under D252.
 - **A9's C widened.** The exact k now applies when the pooled sample has no ties and C(n + m, n) < 2¹²⁸, in place of n, m < 50. The floor's interval was below conf for a small sample against one of 50 or more: at n = 2, m = 52 and 90% it covers 0.8994. Under the wider condition every n ≤ 5 up to the 10⁷ cap on n·m is exact, and a balanced n = m up to 65. Outside it, sampled at n from 67 to 100 and m from n to 5n at 80–99%, one- and two-sided, the floor is at most 1 above the exact k in 10 of 128 cases, its coverage short of conf by at most 2.1·10⁻⁴ (scratch `widen.py`). The ruling stays **C**, with this condition.
 
+*Amended 2026-11-16, after RFC-0016's fourth review (S1)*, by the repository owner, "record A": **the floor's shortfall corrected; the ruling stands.** The figure above, coverage short of conf by at most 2.1·10⁻⁴ ("10 of 128 cases"), was measured only at n from 67 to 100 and understates the floor where the widened branch hands it untied data: a small sample, s = min(n, m) from 7 to 66, against one past C(n + m, n) ≥ 2¹²⁸ (s = 7 from l = 1 080 104, s = 20 from l = 691, s = 65 from l = 67). Measured there by the fourth review on 114 sizes (scratch `rev5_floor.py`), the worst shortfall, each at n = 7, m = 1 080 104, is:
+
+| conf, sides | worst shortfall |
+|---|---|
+| 0.80, two-sided | 4.7·10⁻³ |
+| 0.80, one-sided | 4.0·10⁻³ |
+| 0.90, one-sided | 2.3·10⁻³ |
+| 0.90, two-sided | 8.2·10⁻⁴ |
+| 0.95, one-sided | 4.1·10⁻⁴ |
+| 0.95 and 0.99, two-sided; 0.99 one-sided | none: conservative |
+
+It falls with s (1.6·10⁻³ at s = 20, 3.8·10⁻⁴ at s = 66). The options shown were **A** accept and record the figure, **B** make the fallback conservative, by a wider integer, an f64 count, or a correction term. **A**: the shortfall is at most half a percentage point at levels rarely reported, the sizes are rare and nearly always tied, and B adds a definition and fixtures for that corner. A9 stays **C** with its widened condition.
+
 ## D252 — Research 07's C1 and C2: a table's representation and the missing-value marker
 
 **Raised 2026-11-16** by `docs/research/07-statistical-research.md`
