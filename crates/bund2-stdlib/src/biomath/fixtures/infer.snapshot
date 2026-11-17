@@ -1,0 +1,49 @@
+t1 df 4022000000000000
+t1 method One Sample t-test
+t1 p 3fe56856a2bc5e28
+t1 statistic 3fdc48251d87489d
+t2 df 4032000000000000
+t2 method Two Sample t-test
+t2 p 3fb445949bd5cbcc
+t2 statistic bffdc5e457acff8e
+welch df 4031c6c6f7e6325f
+welch method Welch Two Sample t-test
+welch p 3fb4532ca399480c
+welch statistic bffdc5e457acff8e
+paired df 4022000000000000
+paired method Paired t-test
+paired p 3f67350058079297
+paired statistic c0103f9e66413557
+chisq df 4010000000000000
+chisq method Chi-squared test for given probabilities
+chisq p 3fcb858c939882a8
+chisq statistic 40172dc813b41571
+chisq.counts df 4010000000000000
+chisq.counts method Chi-squared test for given probabilities
+chisq.counts p 3fcbc8faee2b08e4
+chisq.counts statistic 40171386aa2fb2c4
+chisq.table df 4000000000000000
+chisq.table method Pearson's Chi-squared test
+chisq.table p 3e93d23a429f79aa
+chisq.table statistic 403e11f54a881c3c
+fisher.tea method Fisher's Exact Test for Count Data
+fisher.tea p 3fdf15f15f15f1aa
+fisher.tea statistic 4008000000000000
+fisher.big method Fisher's Exact Test for Count Data
+fisher.big p 3f7339245425750e
+fisher.big statistic 4028000000000000
+binom method Exact binomial test
+binom p 3fd87abde0d7c23c
+binom statistic 4085500000000000
+binom.low method Exact binomial test
+binom.low p 3f651c0000000060
+binom.low statistic 4008000000000000
+mannwhitney method Wilcoxon rank sum test with continuity correction
+mannwhitney p 3fb1bf73b532ca4a
+mannwhitney statistic 4039800000000000
+ks2 method Asymptotic two-sample Kolmogorov-Smirnov test
+ks2 p 3fd9a15144e0acf8
+ks2 statistic 3fd999999999999a
+mannwhitney.mean method Wilcoxon rank sum test with continuity correction
+mannwhitney.mean p 3ff0000000000000
+mannwhitney.mean statistic 4000000000000000

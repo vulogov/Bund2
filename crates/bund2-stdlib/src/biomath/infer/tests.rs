@@ -350,3 +350,46 @@ fn mannwhitney_at_the_mean_of_w_answers_p_1() {
     assert_eq!(floats(&m["statistic"]), [2.0]);
     assert_eq!(floats(&m["p"]), [1.0]);
 }
+
+// RFC-0016 criterion 3: the plain tests' answers, every key, each number's
+// f64 bits, recorded from the code before RFC-0016 moved any (cae380d).
+
+const SNAPSHOT: &str = include_str!("../fixtures/infer.snapshot");
+
+/// Each program's answer as lines `label key value`, a number as its f64
+/// bits in hex and a STRING as itself.
+fn snapshot() -> String {
+    let mut progs = programs();
+    progs.push((
+        "mannwhitney.mean",
+        "[ 1.0 4.0 ] [ 2.0 3.0 ] stat.test.mannwhitney".into(),
+    ));
+    let mut out = String::new();
+    for (label, src) in progs {
+        for (k, v) in map(&src) {
+            let shown = match v.as_str() {
+                Some(s) => s,
+                None => format!("{:016x}", floats(&v)[0].to_bits()),
+            };
+            out.push_str(&format!("{label} {k} {shown}\n"));
+        }
+    }
+    out
+}
+
+#[test]
+fn the_plain_tests_answer_the_snapshot_bit_for_bit() {
+    assert_eq!(snapshot(), SNAPSHOT);
+}
+
+/// Writes the snapshot. Run once, before RFC-0016's first change, with
+/// `cargo test -p bund2-stdlib write_the_snapshot -- --ignored`.
+#[test]
+#[ignore = "writes the snapshot; run only to record it"]
+fn write_the_snapshot() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/biomath/fixtures/infer.snapshot"
+    );
+    std::fs::write(path, snapshot()).unwrap();
+}
