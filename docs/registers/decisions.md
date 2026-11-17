@@ -17211,8 +17211,10 @@ The reasoning for each is in the RFC, under the section the marker names.
 - Status: **RESOLVED**. Ruled by the repository owner, 2026-11-16: "all
   as recommended"; A2 re-ruled C and A9 raised and ruled A the same day
   (the amendment below); A7's wording confirmed, A9 re-ruled C in its k,
-  A3 confirmed on a corrected premise and C's exact branch widened, all
-  the same day (the later amendments below). *(Was: OPEN; then RESOLVED except A9.)* A1–A8 are each **A**. The rulings were given after the
+  A3 confirmed on a corrected premise and C's exact branch widened, the
+  floor's shortfall corrected and accepted (A), and its figures corrected
+  again after the fifth review without a new ruling, all the same day
+  (the later amendments below). *(Was: OPEN; then RESOLVED except A9.)* A1–A8 are each **A**. The rulings were given after the
   owner was shown every option with its recommendation and reason. Ruling
   these does not accept the RFC; that is the owner's separate step.
   *(Was: OPEN. RFC-0016 is written against each recommended option and
@@ -17283,6 +17285,8 @@ The estimate (the Hodges–Lehmann median), the order-statistic interval and the
 | 0.95 and 0.99, two-sided; 0.99 one-sided | none: conservative |
 
 It falls with s (1.6·10⁻³ at s = 20, 3.8·10⁻⁴ at s = 66). The options shown were **A** accept and record the figure, **B** make the fallback conservative, by a wider integer, an f64 count, or a correction term. **A**: the shortfall is at most half a percentage point at levels rarely reported, the sizes are rare and nearly always tied, and B adds a definition and fixtures for that corner. A9 stays **C** with its widened condition.
+
+*Noted 2026-11-16, after RFC-0016's fifth review (N1, N4, N7, N9)*, corrections to the figures above; no ruling changes. In the table, 90% two-sided is 8.1·10⁻⁴ (8.147·10⁻⁴), not 8.2. "Each at n = 7, m = 1 080 104" is a plateau: s = 7 gives the same shortfall to four digits from l = 1 080 104 to the cap. At s = 66 the shortfall at 80% two-sided is 4.65·10⁻⁴, not 3.8·10⁻⁴, and at s = 67 4.58·10⁻⁴ (the fifth review, scratch `rev6_floor2.py`). The third amendment's "every n ≤ 5" is a lower bound, superseded by "every min(n, m) ≤ 6": the condition is symmetric in n and m. The worst case on which **A** was ruled, 4.7·10⁻³ at 80% two-sided, is unchanged.
 
 ## D252 — Research 07's C1 and C2: a table's representation and the missing-value marker
 

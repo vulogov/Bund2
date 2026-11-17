@@ -1,17 +1,18 @@
 # RFC-0016: Statistical inference — intervals, effect sizes, correlation tests, rounding and resampling primitives
 
-- Status: **Draft**, revision 5 (2026-11-16), on the owner's "RFC for
+- Status: **Draft**, revision 6 (2026-11-16), on the owner's "RFC for
   Phase A", after `docs/research/07-statistical-research.md`. Revisions
-  2 to 5 answer `docs/rfc/reviews/RFC-0016-review-2026-11-16.md`,
-  `…-2.md`, `…-3.md` and `…-4.md`; §Revision 2 to §Revision 5 map each
-  finding to the change it made. Its owner
+  2 to 6 answer `docs/rfc/reviews/RFC-0016-review-2026-11-16.md`,
+  `…-2.md`, `…-3.md`, `…-4.md` and `…-5.md`; §Revision 2 to §Revision 6
+  map each finding to the change it made. Its owner
   questions are D251's A1–A9, **RESOLVED 2026-11-16**: A1 and A3–A8 as
   recommended (**A**), A2 re-ruled **C** after the first review's B1, A9,
   raised for its B2, ruled **A** and then re-ruled **C** in its k after
   the second review's S1, and A7's wording confirmed after that review's
   S7; after the third review, A3 confirmed on a corrected premise (B1) and
   A9's exact branch widened (S1); after the fourth, the floor's shortfall
-  corrected and accepted (S1) (D251's amendments). Every passage that rests on one is marked
+  corrected and accepted (S1); after the fifth, D251's figures corrected
+  without a new ruling (D251's amendments). Every passage that rests on one is marked
   **[A*n*]**.
 - Depends on: RFC-0015 (the `biomath` family: its operand readers, S3's
   forms, S8's generator, S11's refusals), RFC-0004 (effects)
@@ -174,7 +175,15 @@ with rustc 1.95.0, by the author and the review). No crate is added.
   `Registry::resolve_uncached`, `lambda` before `native`);
   `:math.abs { 42 } register -2.5 math.abs` answers 42 (probed).
 - **Refusals** are RFC-0015 §S11's codes and texts; no new code. B12
-  holds: no word answers NaN or ±∞ from finite operands.
+  holds: no word answers NaN or ±∞ from finite operands. An estimate, an
+  interval end or a statistic that is not finite from finite operands is
+  E114, as RFC-0015's tests refuse a non-finite statistic (`infer.rs`,
+  `statistic`) and its other words a non-finite result (`operand.rs`,
+  `finite`): a Hodges–Lehmann difference (1e308 − (−1e308)), a t end, or
+  `oddsratio`'s ad/(bc) can overflow. A key left out is only ever an
+  infinite end **[A3]**, never an overflowed one. The refusal is the
+  whole word's, as E111's is, so an `.opts` word that refuses answers no
+  p either.
 - **Forms** follow RFC-0015 §S3 **[B10]**: one-series words in four
   forms, other consumers plain and `.`, the `.` form taking from the
   workbench the operand the plain word has on top (D111's "anything else"
@@ -294,13 +303,18 @@ infinite end left out **[A3]**.
   the upper end are infinite and are left out **[A3]**.
 - **Mann–Whitney [A9]:** with D₍₁₎ ≤ … ≤ D₍ₙₘ₎ the sorted differences
   aᵢ − bⱼ (n = |a|, m = |b|), the estimate is their median, the mean of
-  D₍ₙₘ/₂₎ and D₍ₙₘ/₂₊₁₎ when nm is even, and the two-sided interval is
+  D₍ₙₘ/₂₎ and D₍ₙₘ/₂₊₁₎ when nm is even, formed as (D₍ₙₘ/₂₎ +
+  D₍ₙₘ/₂₊₁₎)/2 when that sum is finite and as D₍ₙₘ/₂₎/2 + D₍ₙₘ/₂₊₁₎/2
+  when it is not, so that a finite median of finite differences is never
+  refused (1.5e308 and 1.6e308 give 1.55e308), and the two-sided interval is
   [D₍ₖ₎, D₍ₙₘ₊₁₋ₖ₎]. Its k is:
   - **exact** when the n + m values of a and b, before any `mu` shift,
     have no ties, equality being f64 `==` (so −0.0 and 0.0 tie, and
-    values one ulp apart do not), and C(n + m, n) < 2¹²⁸ (every n ≤ 6 up
-    to the cap on n·m; n = 7 from m = 1 080 104 is not; a balanced n = m
-    up to 65): the largest k with P(U ≤ k − 1) ≤ (α/2)·(1 + 10⁻⁷), U the
+    values one ulp apart do not), and C(n + m, n) < 2¹²⁸ (every
+    min(n, m) ≤ 6 up to the cap on n·m; min(n, m) = 7 from a larger
+    sample of 1 080 104 is not, whichever operand it is; a balanced
+    n = m up to 65): the largest k in 0 … nm + 1 with
+    P(U ≤ k − 1) ≤ (α/2)·(1 + 10⁻⁷), U the
     count of pairs with aᵢ > bⱼ under H₀. The factor is Fisher's `REL_ERR` (`infer.rs`), so that a
     level read from a decimal, 0.9 whose f64 half-complement is just below
     1/20, still admits P(U ≤ 0) = 1/20 at n = m = 3; the coverage it gives
@@ -312,9 +326,9 @@ infinite end left out **[A3]**.
     and then a stride l + i difference, **descending** (the
     multiplication); an ascending difference divides by 1 + q^{l+i}
     instead and goes wrong from u = 22 at n = m = 10. Above ⌊nm/2⌋ the
-    counts are read by symmetry, c(u) = c(nm − u), so the lower-tail count
-    at u > ⌊nm/2⌋ is C(n + m, n) minus the count at nm − u − 1, exact in
-    `u128`: a one-sided `conf` below ½ selects such a k (n = m = 3,
+    counts are read by symmetry, c(u) = c(nm − u), so the lower-tail
+    count L(u) = Σ_{v ≤ u} c(v) at u > ⌊nm/2⌋ is C(n + m, n) −
+    L(nm − u − 1), with L(−1) = 0 at u = nm, exact in `u128`: a one-sided `conf` below ½ selects such a k (n = m = 3,
     "greater", conf 0.3: k = 6). Every intermediate is a count
     of at most C(n + m, n), so `u128` holds it exactly, and no
     intermediate is negative (checked against the recurrence
@@ -327,11 +341,13 @@ infinite end left out **[A3]**.
     that branch is wide. Where it is used without ties, a sample of 7 to
     66 values against one large enough to leave the exact branch, its
     coverage falls short of conf by up to 4.7·10⁻³ at 80% two-sided,
-    4.0·10⁻³ at 80% one-sided, 2.3·10⁻³ at 90% one-sided, 8.2·10⁻⁴ at 90%
-    two-sided and 4.1·10⁻⁴ at 95% one-sided, each worst at n = 7,
-    m = 1 080 104; it is conservative at 95% and 99% two-sided and 99%
-    one-sided; and the shortfall falls with min(n, m), to about 2·10⁻⁴
-    from 67 (D251's amendment, accepted). With ties no exact distribution
+    4.0·10⁻³ at 80% one-sided, 2.3·10⁻³ at 90% one-sided, 8.1·10⁻⁴ at 90%
+    two-sided and 4.1·10⁻⁴ at 95% one-sided, each worst at s = 7, the
+    same to four digits from m = 1 080 104 to the cap; it is conservative
+    at 95% and 99% two-sided and 99% one-sided; and the shortfall falls
+    with s, at 80% two-sided to about 4.6·10⁻⁴ at s = 66 and 67, 3·10⁻⁴
+    at 100 and 1·10⁻⁴ at 300 (D251's amendments; the fifth review's
+    figures, scratch `rev6_floor2.py`; accepted). With ties no exact distribution
     applies. The √ has no tie
     term, unlike the test's σ (`infer.rs`, `mannwhitney`): the interval is
     defined over the differences, not the ranks.
@@ -362,7 +378,7 @@ the whole word's, so above the cap a one-sided p has no word either
 (§Alternatives). Its exact k takes at most s·(⌊nm/2⌋ + 1) `u128`
 additions and as many subtractions, s ≤ 65 and nm ≤ 10⁷, so below
 3.3·10⁸ of each, and holds ⌊nm/2⌋ + 1 `u128`, 80 MB at its largest
-(s = 6, l = 1 666 666), beside the 80 MB of differences. `fisher.opts` finds up to three roots, ψ̂ and the two
+(nm = 10⁷, which is exact for s = 1, 2, 4 and 5), beside the 80 MB of differences. `fisher.opts` finds up to three roots, ψ̂ and the two
 ends, each by its two starting ends, at most 64 doublings and 200
 bisection steps, each evaluation one sum over the support: at most 798
 times the plain word's work (266 per root), whose
@@ -481,10 +497,13 @@ O(n²): above 10⁴ p-values (10⁸ steps) it is E111 before it starts (D39).
   for df ≤ 200, and above that by the series Γ(z + ½)/Γ(z) =
   √z·(1 − 1/(8z) + 1/(128z²) + 5/(1024z³) − 21/(32768z⁴)) with
   z = (df − 1)/2, divided by √(df/2). The lgamma difference cancels as df
-  grows, erratically: 1.2e-10 relative at df 400 000, 4.6e-10 at
-  399 998. The series does not (below 1e-14 from df 398 up; 5e-12 at
-  df 100). Measured against mpmath (scratch, by the author and the
-  second and third reviews).
+  grows, erratically: with §S4's `lgamma`, which is `statrs` 0.18.0's
+  `ln_gamma` (`special.rs`, `lgamma`), 3.5e-10 relative at df 400 000
+  and 4.6e-10 at 399 998, and at most 3.3e-13 (df 69) up to df 200. The
+  series does not (below 1e-14 from df 398 up; 5e-12 at df 100).
+  Measured against mpmath (scratch, by the author and the second, third
+  and fifth reviews; the df 69 and 400 000 figures recomputed with
+  `statrs` itself).
 - **The ratios' intervals** are exp(`log` ∓ z₁₋α/₂·`se`) at conf 0.95.
 - **Two odds ratios.** `stat.effect.oddsratio`'s is the sample ratio;
   `stat.test.fisher.opts`'s `estimate` is the conditional MLE. They differ
@@ -558,8 +577,8 @@ O(n²): above 10⁴ p-values (10⁸ steps) it is E111 before it starts (D39).
 | `rng.choice.weighted` | list weights k | k elements with replacement, element i with probability wᵢ/Σw |
 
 - **Draws** come from the VM's generator (`with_rng`; a VM that keeps
-  none falls back to its thread's, seeded from entropy, as RFC-0015 §S8
-  has it, and criterion 11 assumes a VM that keeps one), so reseeding with
+  none falls back to a thread-local `StdRng`, as RFC-0015 §S8 has it,
+  seeded from entropy (`rng.rs`, `with_rng`, `StdRng::from_entropy`), and criterion 11 assumes a VM that keeps one), so reseeding with
   the same `rng.seed` repeats them within one Bund2 version, as RFC-0015
   §S8 says of every drawing word.
 - **Algorithms**, which fix the streams, over `rand` 0.8's `StdRng`:
@@ -703,13 +722,20 @@ interval end that is a quantile, since the polish bounds |cdf(x) − p| at
    outside (0, 1), an INTEGER `conf`, a non-STRING `alternative`); S2's
    E110 and E111; S5's and S7's listed refusals, an empty `list` with
    k = 1 for `rng.choice.replace` and weights summing to ∞ among them;
-   `1.7976931348623157e308 1 math.signif` is E114. No operand from a palette of NaN, ±∞, wrong
+   `1.7976931348623157e308 1 math.signif` is E114; so is
+   `mannwhitney.opts` on a = [1e308 1.0 2.0 3.0], b = [−1e308 1.5 2.5
+   3.5] at 95% (k = 1, D₍₁₆₎ = ∞), which the plain word answers; and on
+   a = [1.7e308 1.6e308 1.5e308 0.0], b = [0.0 0.1 0.2 0.3] the estimate
+   is 1.55e308, not E114. No operand from a palette of NaN, ±∞, wrong
    types, empty and ragged values aborts, for every name and form.
 3. **Plain words unchanged.** M1's first commit, before any code moves,
    records each of RFC-0015's ten tests' answers on RFC-0015's fixtures as
    a snapshot, every key and the f64 bits of every number, taken from the
    code as it stands before this RFC (after cae380d). Every milestone, M1
-   included, answers that snapshot bit for bit, `method` included. `[ 1.0 4.0 ] [ 2.0 3.0 ]
+   included, answers that snapshot bit for bit, `method` included. An
+   `.opts` word's default `statistic`, `p` and `df` equal its plain
+   word's wherever both answer; where the `.opts` word refuses an
+   overflowing estimate or end (S1), the plain word still answers. `[ 1.0 4.0 ] [ 2.0 3.0 ]
    stat.test.mannwhitney` answers p = 1. With the defaults, each `.opts`
    word's `statistic`, `p` and `df` equal its plain word's bit for bit.
 4. **t intervals.** On `sleep`, `t2.opts`, `welch.opts`, `paired.opts`
@@ -754,18 +780,33 @@ interval end that is a quantile, since the polish bounds |cdf(x) − p| at
      "less" answers only `upper` and the lower tail; with `mu` 0.5 the p
      is the fixture's for a − 0.5 against b, and the estimate and ends are
      unchanged.
-   - **A wide exact case:** n = 2, m = 52 at 90%, no ties, takes the
-     exact k = 15, not the floor's 16.
-   - **A large exact case:** a = [1.0 2.0 … 65.0] and b = a + 0.5, n = m =
-     65, no ties, C(130, 65) < 2¹²⁸, at 95% two-sided: k = 1692, with the
-     fixture's ends. It exercises the descending difference and `u128`
-     near its limit; n = m = 66 is past it and takes the floor.
-   - **The floor's documented shortfall:** a = [1.0 … 20.0], b 691 values
-     no two equal and none equal to a's, at 80% two-sided: C(711, 20) ≥
-     2¹²⁸, so the floor's k = 5749, where the exact k would be 5746.
-   - **Low one-sided levels:** on a = [1.0 2.0 3.0], b = [1.5 2.5 3.5],
-     "greater" at conf 0.3 answers `lower` = D₍₆₎ (k = 6, past ⌊nm/2⌋, read
-     by symmetry); on a = [1.0 2.0 3.0], b = [1.0 2.5 3.5] (a tie, the
+   - The cases below take bⱼ = 1.001·j + 0.5 for j = 0 … m − 1, so that
+     no value is pooled twice and all nm differences are distinct: the
+     k each asserts and the wrong k each is there to catch select
+     different ends. The ends are f64 values as Python prints them
+     (scratch `rev6v.py`).
+   - **A wide exact case:** a = [1.0 2.3], m = 52, at 90%: the exact
+     k = 15, ends −43.245 and −5.505999999999999; the floor's 16 would
+     give −42.54299999999999 and −6.207999999999999.
+   - **A large exact case:** a = [1.0 2.0 … 65.0], m = 65, C(130, 65) <
+     2¹²⁸, at 95% two-sided: k = 1692, ends −6.525999999999996 and
+     7.462000000000003. The floor's 1691 would give −6.5269999999999975
+     and 7.463000000000001, and an ascending difference (k = 1535)
+     −9.514999999999999 and 10.451000000000008.
+   - **Past the bound:** a = [1.0 … 66.0], m = 66, C(132, 66) ≥ 2¹²⁸, at
+     95%: the floor's k = 1747, ends −6.529999999999998 and
+     7.465000000000003, where the exact 1748 would give
+     −6.528999999999996 and 7.464000000000006.
+   - **The floor's documented shortfall:** a = [1.0 … 20.0], m = 691, at
+     80% two-sided: C(711, 20) ≥ 2¹²⁸, so the floor's k = 5749, ends
+     −393.895 and −276.79499999999996, where the exact 5746 would give
+     −393.89799999999997 and −276.792.
+   - **Low one-sided levels:** on a = [1.0 2.0 3.0], b = [1.1 2.3 3.6]
+     (all nine differences distinct), "greater" at conf 0.3 answers
+     `lower` = D₍₆₎ = −0.10000000000000009 (k = 6, past ⌊nm/2⌋, read by
+     symmetry); truncated counts would give k = 5 and
+     −0.2999999999999998. On the same data at conf 10⁻⁸, the exact k is
+     10 > 9, E101. On a = [1.0 2.0 3.0], b = [1.0 2.5 3.5] (a tie, the
      floor), "greater" at conf 0.005 is E101 (k = 10 > 9).
 
    k < 1 at a level too high for n = m = 2 is E101; n·m above 10⁷ is
@@ -837,7 +878,7 @@ Each ends with criterion 12.
 | **A6** | Ties in rounding to places | **A** the exact binary value, ties to even. **B** half away from zero | **A** |
 | **A7** | Reference values | **A** mpmath fixtures from the definitions, plus R's printed help-page outputs; worded "R's printed output where a source is committed; where none is, the fixture alone is the check" by D251's amendment, confirmed by the owner. **B** install R | **A** |
 | **A8** | Which build | **A** the default build. **B** a feature | **A** |
-| **A9** | `mannwhitney.opts`'s estimate and interval | **A** the Hodges–Lehmann median and the order-statistic interval, n·m capped at 10⁷, k by the normal approximation, floored. **B** R's asymptotic estimate and interval. Re-ruled after the second review on k: **A** the floor always, **B** rounded to nearest, **C** exact without ties and n, m < 50, the floor otherwise; C's condition widened after the third review to C(n + m, n) < 2¹²⁸ | **A**, then **C** in its k, widened (D251's amendments) |
+| **A9** | `mannwhitney.opts`'s estimate and interval | **A** the Hodges–Lehmann median and the order-statistic interval, n·m capped at 10⁷, k by the normal approximation, floored. **B** R's asymptotic estimate and interval. Re-ruled after the second review on k: **A** the floor always, **B** rounded to nearest, **C** exact without ties and n, m < 50, the floor otherwise; C's condition widened after the third review to C(n + m, n) < 2¹²⁸; after the fourth, the floor's shortfall recorded: **A** accept, **B** make the fallback conservative | **A**, then **C** in its k, widened; the shortfall accepted, **A** (D251's amendments) |
 
 ## Open questions
 
@@ -985,3 +1026,23 @@ Revision 5 answers `docs/rfc/reviews/RFC-0016-review-2026-11-16-4.md`.
 | N12 an empty LIST in S6 | answers an empty LIST |
 | N13 "10 of 128" | superseded by D251's amendment, which states the new figures |
 | N14 `with_rng`'s fallback | noted in S7, and criterion 11's assumption |
+
+## Revision 6
+
+Revision 6 answers `docs/rfc/reviews/RFC-0016-review-2026-11-16-5.md`.
+Every value it states was recomputed for this revision (scratch
+`rev6v.py`; the Hedges' J figures with `statrs` 0.18.0 itself).
+
+| Finding | Change |
+|---|---|
+| S1 criterion 6's data cannot see k | bⱼ = 1.001·j + 0.5 throughout, every difference distinct, each case's ends and the wrong k's ends stated; n = 2, m = 52 given data; n = m = 66 added past the bound; the exact branch's E101 at conf 10⁻⁸ added |
+| S2 overflow from finite operands | E114 for a non-finite estimate, end or statistic, stated in S1; the even-nm median formed without overflow; criterion 2 adds both; criterion 3 says where the equality holds |
+| N1 the shortfall's tail | about 4.6·10⁻⁴ at s = 66 and 67, 3·10⁻⁴ at 100, 1·10⁻⁴ at 300; D251's amendment corrects its 3.8·10⁻⁴ |
+| N2 the symmetry identity | stated for the lower-tail count L, with L(−1) = 0 |
+| N3 the k search | bounded to 0 … nm + 1 |
+| N4 8.2·10⁻⁴ | 8.1·10⁻⁴; the worst case a plateau at s = 7 |
+| N5 S5's lgamma figures | Bund2's `lgamma` (`statrs`): 3.5e-10 at df 400 000, 3.3e-13 at most up to df 200 |
+| N6 the table's largest size | nm = 10⁷ |
+| N7 n ≤ 6 | min(n, m) ≤ 6; D251's amendment notes its third amendment's n ≤ 5 is superseded |
+| N8 entropy seeding | cited to `with_rng`, not to RFC-0015 §S8 |
+| N9 the record of the fourth amendment | the A9 row and D251's Status line name it |
