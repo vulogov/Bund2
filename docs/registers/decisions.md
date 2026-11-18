@@ -17356,6 +17356,16 @@ a LIST would still mean one thing to a series word and another to a
 frame word. The ruling (C2 C) does not rest on the `+` claim and is
 unchanged.
 
+**Note, 2026-11-17 (RFC-0017's fourth review, S9; owner: "as
+recommended").** "A word that accepts NONE takes the `na` option" is read
+as: a word that *computes* from cells takes it (RFC-0017's
+`frame.aggregate` and `frame.matrix`). A word that only moves, tests,
+counts or produces NONE takes none: `frame.take`, `frame.sort`,
+`frame.join` and the other moving words carry NONE, `na.is`,
+`na.count`, `na.omit` and `na.fill` exist to handle it, and
+`frame.csv.parse` makes it. An `na` option on those would have nothing to
+decide.
+
 ## D253 — RFC-0017's questions, P1–P12: frames, factors and missing values
 
 **Raised 2026-11-17** by `docs/rfc/RFC-0017-frames-and-missing-values.md`,
@@ -17533,3 +17543,10 @@ S2), on revision 2.
 | **B1** | A one-column frame's NONE is written as an empty line, which `csv-core` skips (`csv-core-0.1.13/src/reader.rs:94`; `x\n1\n\n3\n` through `csv` reads two rows, probed) | **The frame reader counts every line as a record.** In a one-column frame an empty line is one empty field, NONE; in a wider frame it is a short row, E102 naming the row. Only the text's final line terminator ends it. P6 (NONE written empty) stands. A multi-column file with a stray blank line is refused where `csv` skips it |
 | **B2** | `"mean"` copies `stat.mean.arithmetic`, which answers `inf` from finite cells (`[ 1.0e308 1.0e308 ] stat.mean.arithmetic` prints `inf`, probed), against B12 | Each statistic's answer is checked; a non-finite one is E114 naming the group and statistic, refusing the word. `"sum"` is `vec.sum`'s code (D256's note). A finite answer stays bit for bit the named word's |
 | **S2** | An integer field beyond i64 (`99999999999999999999` through `csv` is `could not parse … as dtype i64`, probed by the review) | E101 naming the field, its row and its column. Like D255: refused, not silently changed |
+
+**Note, 2026-11-17 (RFC-0017's fourth review, S3; owner: "as
+recommended").** S2's refusal applies in a column inferred INTEGER or
+FLOAT only, as D255's note scoped the non-finite rule. In a string column
+such a field is an ordinary STRING: a column holding `A1` and
+`99999999999999999999` reads through `csv` as `[ A1 ::
+99999999999999999999 :: ]` (probed), and the frame reader reads it alike.
