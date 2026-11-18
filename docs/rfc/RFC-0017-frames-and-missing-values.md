@@ -1,7 +1,8 @@
 # RFC-0017: Frames, factors and missing values
 
-- Status: **Draft, revision 8** (2026-11-18). Revised after eight reviews
-  (`docs/rfc/reviews/RFC-0017-review-2026-11-18.md` of revision 7,
+- Status: **Draft, revision 9** (2026-11-18). Revised after nine reviews
+  (`docs/rfc/reviews/RFC-0017-review-2026-11-18-2.md` of revision 8,
+  `docs/rfc/reviews/RFC-0017-review-2026-11-18.md` of revision 7,
   `docs/rfc/reviews/RFC-0017-review-2026-11-17-7.md` of revision 6,
   `docs/rfc/reviews/RFC-0017-review-2026-11-17-6.md` of revision 5,
   `docs/rfc/reviews/RFC-0017-review-2026-11-17-5.md` of revision 4,
@@ -209,9 +210,12 @@ Bund2 has none of the three:
   refusal is listed with its text in S8 **[D256 S3]**. A row is named
   1-based **[D257 B3]**, counting data rows (row 1 is the first after a
   header), not lines of text **[author]**.
-- **Options MAPs** follow RFC-0016 §S1: keys are STRINGs, and an unknown
+- **Options MAPs** follow RFC-0016 §S1's rules: keys are STRINGs, and an unknown
   key, a key the word does not take, or a value of the wrong type or
-  range is E101 naming the key. An `opts` operand is always required; an
+  range is E101 naming the key. The frame words read them with a reader
+  of their own, since RFC-0016's (`biomath/infer/opts.rs`, `read`) is
+  private to its module and knows only `alternative`, `conf` and `mu`;
+  S8 gives its texts **[author]**. An `opts` operand is always required; an
   empty `dict` takes every default **[author]**. (A trailing optional MAP would make
   the effect depend on the top operand, which RFC-0016 rejected for the
   same reason, `docs/rfc/RFC-0016-statistical-inference.md:670-672`.) The key `na` means a LIST of strings to
@@ -255,7 +259,10 @@ NONE:
 
 A column named in `levels` is a factor whatever its cells, all NONE or
 no rows included; "no kind" is for a column outside `levels` only
-**[author]**. NONE may stand in any column. A cell that is not a scalar (a LIST, a MAP,
+**[author]**. NONE may stand in any column. Every NONE a frame word
+makes (a CSV `na` field, a `"left"` join's unmatched cell; a NONE a
+word is given is kept as it is) has q 0.0, as `na`'s and JSON's
+NONE have, not `BundValue::none()`'s 100.0 **[author]**. A cell that is not a scalar (a LIST, a MAP,
 any value but INTEGER, FLOAT, BOOL, STRING and NONE) is E101 in any
 column, a numeric one included, so E103 is kept for a STRING or BOOL among
 numbers **[author]**, narrowing D256 S3's "a numeric column's non-number
@@ -371,10 +378,10 @@ are outside the option **[D256 S7]**. The words that only move cells
   do; a lambda reads cells by name.
 - **Sorting** compares numbers as numbers (an INTEGER with an INTEGER
   exactly, and with a FLOAT by exact value, as D33 compares them; a
-  FLOAT with a FLOAT by value, so `-0.0` and `0.0` compare equal and the
-  stable sort keeps their row order, not `total_cmp`'s order, which puts
-  `-0.0` first **[author]**; NaN never reaches it, the frame check
-  having refused it),
+  FLOAT with a FLOAT by value, as D108's rank 1 orders numbers, so
+  `-0.0` and `0.0` compare equal and the stable sort keeps their row
+  order, not `total_cmp`'s order, which puts `-0.0` first; NaN never
+  reaches it, the frame check having refused it),
   STRINGs by UTF-8 bytes, which is code-point order (D106), BOOLs false
   first **[author]** (D108 gives BOOLs no order; this is `frame.sort`'s
   own), a factor by its level order. NONE sorts last whether the column
@@ -451,7 +458,7 @@ are outside the option **[D256 S7]**. The words that only move cells
   refuses the word **[author]**; `amean`'s own refusal text and
   `math.min`'s NaN on an empty series are never reached.
 - **The order of `frame.aggregate`'s refusals** **[author]**: the
-  operand and option checks first (S8's E101 rows for `by`, `stats` and
+  frame check first, then the operand and option checks (S8's E101 rows for `by`, `stats` and
   `opts`, result names included), then the frame's cells under `na`;
   then the groups in the answer's order, and within a group the `stats`
   entries in order, each checked for size before it is computed and for
@@ -687,10 +694,12 @@ per module, as RFC-0016's modules have.
 
 Each row is RFC-0015 §S11's code with its template filled, `<w>` the
 word and the operand named. In the frame check's rows, `frame` stands
-for the operand the check reads: `left` or `right` for `frame.join`,
-`columns` for the frame `frame.new` builds, `list` for the column
-`frame.with` adds **[author]**. `frame.csv.parse`'s answer is built
-valid and not checked.
+for the operand the faulty part came from **[author]**: `left` or
+`right` for `frame.join`; for `frame.new`, `names` for a name fault and
+`columns` for a column or cell fault; for `frame.with`, `name` for the
+new name and `list` for its cells; for `frame.csv.parse`, `text`, since
+its answer is checked like any frame (a quoted number in a numeric
+column is E103, S6).
 
 **Bounded texts [author].** Every value a text interpolates from the
 program (a cell, a CSV field, a column, header, level or result name,
@@ -701,20 +710,27 @@ truncates a STRING but does not escape it (`crates/bund2-value/src/lib.rs`,
 
 1. **Escape** the text: `\` as `\\`, `"` as `\"`, a line feed as
    `\n`, a carriage return as `\r`, a tab as `\t`, and any other
-   control character as `\u{…}` in hex.
-2. **Truncate** the escaped text to `WIDTH` − 2 characters
-   (`biomath/operand.rs`, `WIDTH`, 40), ending it with `…` when cut;
-   escaping comes first so the bound holds on what prints.
+   control character as `\u{` and its code point in lower-case hex and
+   `}` (ESC as `\u{1b}`).
+2. **Truncate** the escaped text to at most `WIDTH` − 2 characters
+   (`biomath/operand.rs`, `WIDTH`, 40), the last of them `…` when cut;
+   the cut falls between escapes, never inside one, so a shorter text is
+   kept rather than a split `\`; escaping comes first so the bound holds
+   on what prints.
 3. **Quote** it in double quotes.
 
 A number, a BOOL and NONE print as `summary` prints them: NONE as
-`none`, as RFC-0015's texts show it. So no refusal is unbounded and none
-breaks across lines (`CLAUDE.md`'s rule on reports, D36). `summary`
-itself is unchanged, so no existing word's text moves. The one
-exception is inherited: the options rows' texts are RFC-0016 §S1's
-shared reader's (`biomath/infer/opts.rs`), which escapes an unknown key but does
-not truncate it; bounding that is a change to RFC-0016's words, outside
-this RFC.
+`none`, as RFC-0015's texts show it. So no interpolated value is
+unbounded or breaks a line (`CLAUDE.md`'s rule on reports, D36). A
+group text is bounded per key, so it grows with the number of `by`
+columns, which the program chooses; every key is still shown.
+
+**`<summary>`** in a row is `summary(WIDTH)` of the whole operand, as in
+RFC-0015's texts: bounded, but not escaped, so a STRING operand holding
+a line break prints it (probed by the ninth review through `vec.scale`).
+Escaping inside `summary` would change every word that uses it and is
+left to a change of its own; `summary` itself is unchanged here, so no
+existing word's text moves.
 
 The frame check runs in the order of its first eleven rows and stops at
 the first that fails.
@@ -740,7 +756,7 @@ the first that fails.
 | `frame.factor`, `frame.factor.levels` or `factors` on a numeric or logical column | E101 | `<operand> is outside <w>'s domain: column "x" is numeric`, `<operand>` being `name` or `opts` |
 | `frame.factor.levels`'s `levels` not a non-empty LIST of distinct STRINGs, or a cell not among them | E101 | `levels is outside <w>'s domain: <summary>` / `"a" given twice` / `"c" at row 3 is not one of the levels` |
 | `na.count`, `na.omit`, `na.fill` on a non-LIST | E101 | `list is outside <w>'s domain: <summary>` |
-| a NONE under `"refuse"` | E101 | `frame is outside <w>'s domain: column "x" row 3 is NONE (na "refuse")` |
+| a NONE under `"refuse"` | E101 | `frame is outside <w>'s domain: column "x" row 3 is none (na "refuse")` |
 | a statistic unknown, malformed, or on a non-numeric column; `stats` empty | E101 | `stats is outside <w>'s domain: "mode" is not a statistic` / `"mean" of column "g", a factor` / `no statistics` |
 | a group with too few cells | E101 | `stats is outside <w>'s domain: group [ "a" ] has 1 value for "var"` (`0 values`, the noun agreeing with the count) |
 | a non-finite statistic | E114 | `the answer overflows a FLOAT: "x.mean" of group [ "a" ]` |
@@ -755,9 +771,9 @@ the first that fails.
 | a non-finite CSV field | E101 | `text is outside <w>'s domain: field "NaN" at row 3, column "x" is not finite; list it in the na option to read it as missing` |
 | an integer field beyond i64 | E101 | `text is outside <w>'s domain: field "99999999999999999999" at row 3, column "x" does not fit an INTEGER` |
 | a CSV header name empty or repeated | E101 | `text is outside <w>'s domain: header name 2 is empty` / `a repeated header name "x"` |
-| `sep` not one ASCII byte, or `"`, CR, LF | E101 | as RFC-0016 §S1, naming `sep` |
+| `sep` not one ASCII byte, or `"`, CR, LF | E101 | `opts is outside <w>'s domain: sep is <value>` |
 | text above 10⁸ bytes, a join above 10⁸ rows | E111 | `<what> exceeds its cap of 100000000` |
-| an options key unknown, or its value wrong | E101 | as RFC-0016 §S1 |
+| an options key unknown, or its value wrong | E101 | `opts is outside <w>'s domain: <summary>` (not a MAP) / `an unknown key "k"` / `a key "k" <w> does not take` / `<key> is <value>`, the key and a STRING value rendered as the preamble says |
 
 ## Preservation analysis
 
@@ -880,7 +896,9 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
      `"` and a line break shows it escaped, then bounded, on one line,
      exactly as S8's renderer gives it; a NONE key shows as `none`; a
      group failing E101 for `"var"` before another failing E114 for
-     `"mean"` refuses with the E101, by S5's order.
+     `"mean"` refuses with the E101, and a group failing E114 before
+     another failing E101 refuses with the E114, by S5's order; every
+     NONE the word makes has q 0.0.
    - `frame.join` inner and left on one and on two keys, with a left row
      matching two right rows, a factor key, an INTEGER key matching a
      FLOAT, a NONE key matching nothing, and a left row with no match
@@ -896,7 +914,8 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
      rows with E101.
 6. **CSV.**
    - `frame.csv.parse` on a text with a header, an empty field, an `NA`,
-     a quoted `"NA"`, a quoted `"007"`, a quoted comma, a quoted line
+     a quoted `"NA"`, a quoted `"007"` (in a numeric column E103, the
+     frame check naming `text`'s column and row), a quoted comma, a quoted line
      break, a BOOL column and a column of `1` and `2.5`: each column's
      kind and each cell's type as S6 gives, NONE in place; `"NA"` kept as
      a STRING when `na` is `[ "" ]`; a FLOAT first at row 150 of an
@@ -1039,12 +1058,13 @@ Choices this revision makes that no ruling names, each marked
 - `by` values are one group when `frame.sort` compares them equal, `1`
   and `1.0` included, the group's cell its first in row order (S5);
 - every interpolated value in a refusal escaped, then truncated to
-  `WIDTH`, then quoted, by the frame words' own renderer; NONE shown as
-  `none`; the options rows' unknown key inherited unbounded from
-  RFC-0016 (S8);
-- the frame check names the operand it reads, not always `frame` (S8);
-- `frame.sort` compares FLOATs by value, `-0.0` equal to `0.0`, keeping
-  row order (S4);
+  `WIDTH` − 2 between escapes, then quoted, by the frame words' own
+  renderer; NONE shown as `none`; `<summary>` bounded but not escaped,
+  as RFC-0015's; a group text bounded per key (S8);
+- the frame words' own options reader, with S8's texts (S1, S8);
+- the frame check names the operand the fault came from, not always
+  `frame` (S8);
+- every NONE a frame word makes has q 0.0 (S2);
 - `frame.aggregate`'s refusals in a stated order, the first failure
   winning (S5);
 - a non-scalar or non-finite cell in a factor column keeps rows 8 and 9
