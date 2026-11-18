@@ -17550,3 +17550,10 @@ FLOAT only, as D255's note scoped the non-finite rule. In a string column
 such a field is an ordinary STRING: a column holding `A1` and
 `99999999999999999999` reads through `csv` as `[ A1 ::
 99999999999999999999 :: ]` (probed), and the frame reader reads it alike.
+
+**Note, 2026-11-17 (RFC-0017's fifth review, S2; owner: "as
+recommended").** B1's "an empty line is one empty field, NONE" holds under
+the default `na` strings, `[ "" "NA" ]`. A program whose `na` leaves out
+`""` asks for empty fields to stay empty, and RFC-0017 reads every empty
+unquoted field so, an empty line in a one-column frame included: an empty
+STRING. Recorded here so the reading is the owner's to overrule.

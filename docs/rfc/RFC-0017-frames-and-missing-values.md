@@ -1,10 +1,12 @@
 # RFC-0017: Frames, factors and missing values
 
-- Status: **Draft, revision 4** (2026-11-17). Revised after four reviews
-  (`docs/rfc/reviews/RFC-0017-review-2026-11-17.md` and
+- Status: **Draft, revision 5** (2026-11-17). Revised after five reviews
+  (`docs/rfc/reviews/RFC-0017-review-2026-11-17-5.md` of revision 4,
+  `docs/rfc/reviews/RFC-0017-review-2026-11-17.md` and
   `docs/rfc/reviews/RFC-0017-review-2026-11-17-2.md` of the first draft,
   `docs/rfc/reviews/RFC-0017-review-2026-11-17-3.md` of revision 2,
   `docs/rfc/reviews/RFC-0017-review-2026-11-17-4.md` of revision 3).
+  Q64 is answered from R's source (§Differences from R).
   Every owner question is ruled: D253's P1–P12 (all A), D254 (a quoted
   CSV field is text; a mixed numeric column keeps each cell's type), D255
   (a non-finite CSV field is refused), D256 (the first review's S1–S8),
@@ -23,7 +25,7 @@
   (§S1's options-MAP rules, D251), RFC-0004 (effects)
 - Decisions consumed: **D252** (C1 ruled B, C2 ruled C, and its three
   dated notes), **D253**–**D258** (with the dated notes beside D254, D255,
-  D256 and D258), D21, D24, D32, D33, D36, D37, D39, D51, D72, D106, D108, D111,
+  D256, and two beside D258), D21, D24, D32, D33, D36, D37, D39, D51, D72, D106, D108, D111,
   D119, D250 (B12, B15), F76.
 - Reference SHA: `reference/rust_multistackvm`
   4605832678d4792c2b8e0564b7757d5aee1539a4; `reference/Bund`
@@ -101,8 +103,8 @@ Bund2 has none of the three:
 - **`csv` is the reference's word over the `csv` crate** (D51), which
   infers each column's type as polars 0.46 does: a case-insensitive
   `true`/`false`, then polars' float pattern (which takes `inf` and `NaN`
-  with an optional sign, `is_float`), then an integer (digits only,
-  `is_int`), else a string; a column that saw one kind keeps it, integers
+  with an optional sign, `is_float`), then an integer (an optional `-` and
+  digits, `is_int`), else a string; a column that saw one kind keeps it, integers
   with floats are floats, anything else is a string, judged over the first
   100 rows (`crates/bund2-stdlib/src/data.rs`, the module doc, `infer`,
   `column_kind` and `read_frame`). The `csv` crate removes a field's
@@ -243,7 +245,7 @@ NONE:
 | logical | BOOL | |
 | string | STRING, the column not in `levels` | |
 | factor | STRING, each one of the column's `levels` | a level with no cell is allowed |
-| (any) | all NONE, or no rows | takes no kind until a cell says one |
+| (any) | all NONE, or no rows | takes no kind until a cell says one; accepted wherever a kind is asked for **[author]** |
 
 NONE may stand in any column. A cell that is not a scalar (a LIST, a MAP,
 any value but INTEGER, FLOAT, BOOL, STRING and NONE) is E101 in any
@@ -295,7 +297,10 @@ directly.
 `na.count`, `na.omit` and `na.fill` refuse an operand that is not a LIST
 with E101. These words, and every word that only moves cells, take no
 `na` option: D252's "a word that accepts NONE takes the `na` option"
-means a word that computes from cells (D252's third dated note). `na.is` exists because `==` refuses NONE (§Current behaviour).
+means a word that computes from cells (D252's third dated note): the
+`"refuse"`/`"omit"` option. `frame.csv.parse`'s key `na` is another
+thing, P6's list of missing strings. `na.is` exists because `==` refuses
+NONE (§Current behaviour).
 `na.omit` hands *one* column to a word of the statistics family, which
 refuses NONE: `"dose" frame.column na.omit stat.mean`. Two columns used
 together are made complete together, with `frame.complete` (S4), never
@@ -354,8 +359,12 @@ are outside the option **[D256 S7]**. The words that only move cells
   is ascending or descending **[P11]**. A name in `descending` that is
   not among `names` is E101.
 - **`frame.factor`** takes a string column, or a factor column, whose
-  levels it recomputes from its cells, dropping unused ones. A numeric or
-  logical column is E101 naming it **[author]**.
+  levels it recomputes from its cells, dropping unused ones, or a column
+  of no kind, which becomes a factor with no levels. A numeric or logical
+  column is E101 naming it **[author]**. `frame.factor.levels` takes the
+  same columns and refuses alike; its `levels` must be a non-empty LIST of
+  distinct STRINGs, and a cell not among them is E101 naming the `levels`
+  operand and the row **[author]**.
 - **`frame.rows` and `frame.filter`** build one MAP per row; their work
   is bounded by the frame's size, which the program already holds.
 
@@ -380,7 +389,7 @@ are outside the option **[D256 S7]**. The words that only move cells
   | `"mean"` | `stat.mean.arithmetic` (`series.rs`, `amean`) | FLOAT |
   | `"var"`, `"sd"` | `stat.var`, `stat.sd` (`describe.rs`), n − 1 | FLOAT |
   | `"median"` | `stat.median` (`describe.rs`) | FLOAT |
-  | `"min"`, `"max"` | the smallest and largest cell, compared as numbers, never folding from NaN | FLOAT |
+  | `"min"`, `"max"` | the smallest and largest cell, compared as numbers, never folding from NaN; of cells comparing equal (`0.0`, `-0.0`, INTEGER `0`), the first in row order **[author]** | FLOAT |
 
   Each answer is checked: a non-finite one (the `"mean"` of two cells of
   1e308) is E114 naming the group and the statistic, and refuses the word
@@ -388,17 +397,26 @@ are outside the option **[D256 S7]**. The words that only move cells
   else E101 naming the column and the statistic. An unknown statistic
   name, or a `stats` entry that is not a two-item LIST of STRINGs, is
   E101; an empty `stats` is E101; an empty `by` makes one group of every
-  row **[author]**.
-- **The checks come first.** `frame.aggregate` checks a group's size
-  before computing, and calls the shared arithmetic, not the words'
-  checking wrappers: `vec.sum`'s sum, `describe.rs`'s `variance` and its
-  square root, `stat.median`'s median, `amean`'s sum over count. It then
-  checks each answer itself, so S8's E101 and E114 texts are the only
-  ones a program sees, never `Σ xᵢ`, `the variance` or `a series of 1
-  value`, and a finite answer is still the named word's bit for bit.
-  INTEGER cells convert to f64 as the named words convert them, so an
-  INTEGER above 2⁵³ is not exact in `"sum"`, `"mean"`, `"min"` or
-  `"max"`, nor in `frame.matrix`.
+  row **[author]**. On a frame of no rows the answer is a frame of no
+  rows, an empty `by` included, and a statistic's column of no kind is
+  accepted **[author]**.
+- **The checks come first [author].** `frame.aggregate` checks a group's
+  size before computing, and computes with the very functions the named
+  words use, not with their checking wrappers. Three of them are inline
+  today, so they are factored out as crate-internal functions over
+  `&[f64]`, each word then calling its own: `vec.sum`'s sum
+  (`biomath/vector.rs`, `sum`), `stat.median`'s median
+  (`biomath/describe.rs`, `median`), and `amean`'s sum over count
+  (`series.rs`, `amean`, which reads the VM first). `describe.rs`'s
+  `variance` is already one, its square root `"sd"`. The words' behaviour
+  and tests do not change (§Preservation analysis). `frame.aggregate`
+  then checks each answer itself, so S8's E101 and E114 texts are the
+  only ones a program sees, never `Σ xᵢ`, `the variance` or `a series of
+  1 value`, and a finite answer is the named word's bit for bit by
+  construction. INTEGER cells convert to f64 as the named words convert
+  them, so an INTEGER above 2⁵³ is not exact in any statistic but
+  `"count"`, nor in `frame.matrix` (`[ 9007199254740993 ] vec.sum`
+  prints `9007199254740992.0`, probed by the fifth review).
 - **A group with no cells for a statistic** (all dropped under
   `"omit"`), or too few (`"var"` of one), is E101 naming the group, and
   refuses the word **[author]**; `amean`'s own refusal text and
@@ -473,7 +491,8 @@ instead (S3).
   matter here (§Current behaviour). Its rules, each the RFC's own
   **[author]** except where marked:
   - **Quoting.** A field is quoted when its first byte is `"`; a doubled
-    `""` inside it is a quote; it may hold the separator and line breaks;
+    `""` inside it is a quote; it may hold the separator and line breaks,
+    kept as written (a CRLF inside stays CRLF);
     it ends at a `"` followed by the separator, a line terminator or the
     end of the text. A byte after the closing quote other than those
     (`"a"b`), and a `"` anywhere in an unquoted field (`a"b`, or ` "a"`
@@ -481,9 +500,11 @@ instead (S3).
     unterminated quote, where `csv-core` would swallow the rest of the
     text (`reader.rs:86-87`).
   - **Lines [D258 B1].** CR, LF and CRLF each end a line, as in
-    `csv-core`. Every line is a record; only the text's final line
-    terminator ends the text. In a one-column frame an empty line is one
-    empty field **[D258 B1]**. In a wider frame an empty line is a short
+    `csv-core`. Every line outside a quoted field ends a record; only the
+    text's final line terminator ends the text. In a one-column frame an
+    empty line is one empty field **[D258 B1]**, read as any empty field
+    is: NONE under the default `na`, an empty STRING when `na` leaves out
+    `""` (D258's second note) **[author]**. In a wider frame an empty line is a short
     row, E102 naming the row **[D258 B1]**, and so is any row longer or
     shorter than the header **[author]**, where `csv`'s reader is
     flexible (`data.rs`, `read_frame`, `.flexible(true)`) and skips
@@ -494,6 +515,10 @@ instead (S3).
     to match `csv-core`, which removes it (Q65).
   - **Size.** Text above 10⁸ bytes is E111. Empty text is a frame of no
     columns and no rows.
+  - **The header row.** A fault in the header row (a quote, the width)
+    names `the header` where a data row names `row <n>` **[author]**.
+    With `header` false the width is the first row's, and a wrong width
+    names `row 1's` in place of `the header's`.
   - **Sharing.** `infer`, its `Kind`, `is_int` and `column_kind` are
     shared from `data.rs` by a visibility change only, and `data.rs`'s
     tests stay as they are.
@@ -514,7 +539,8 @@ instead (S3).
     NONE, in its place, before inference.
   - **An empty unquoted field** that the `na` strings do not name is an
     empty STRING and takes part in inference, which makes its column a
-    string column **[author]**. Under the default `na` it is NONE.
+    string column **[author]**, narrowing D258 B1's NONE to the default
+    `na` (D258's second note). Under the default `na` it is NONE.
   - **Every other unquoted field** is inferred as `csv` infers it
     (`data.rs`, `infer`, and `column_kind`'s merge), with four
     differences from `csv`, each the frame reader's own rule:
@@ -567,13 +593,17 @@ instead (S3).
       kind is left-aligned.
     - A column is as wide as its widest printed cell or its header,
       counted in characters (Unicode scalar values), not in `len`'s bytes.
-    - Padding is never added at a line's end, but a STRING's own trailing
-      spaces are kept.
+    - Padding is never added at a line's end, nor the separator before
+      an empty last cell, but a STRING's own trailing spaces are kept.
+    - A STRING holding a line break prints it, breaking the table's row;
+      the width counts each character of the STRING, the break included.
+      Accepted, as "neither truncated nor escaped" asks.
   - **Cells.**
     - A FLOAT prints as Bund prints it.
     - NONE prints as `NA` **[P12]**, so a STRING cell `NA` prints alike.
     - A STRING prints as it is, neither truncated nor escaped.
-  - **Length.** At most 20 rows print, then a line `… <n> more rows`. A
+  - **Length.** At most 20 rows print, then a line `… <n> more rows`
+    (`… 1 more row` for one). A
     frame of no columns prints the empty STRING.
 
   For the frame `columns [ "x" "group" ]`, `x` the cells INTEGER `1`,
@@ -622,7 +652,7 @@ first eleven rows and stops at the first that fails.
 | `data` not a MAP, or its keys not `columns` | E101 | `frame is outside <w>'s domain: data has no column "x"` / `data has a key "y" not in columns` |
 | a column not a LIST | E101 | `frame is outside <w>'s domain: column "x" is <summary>` |
 | unequal lengths | E102 | `the lengths of "a" and "b" do not agree: 5 and 4` |
-| `levels` not a MAP, a key not a column, levels not distinct STRINGs | E101 | `frame is outside <w>'s domain: levels of "g": <what>` |
+| `levels` not a MAP, a key not a column, levels not distinct STRINGs | E101 | `frame is outside <w>'s domain: levels is <summary>` / `levels has a key "g" not in columns` / `levels of "g" repeat "a"` (or `hold <summary>`, not a STRING) |
 | a cell that is not a scalar | E101 | `frame is outside <w>'s domain: column "x" row 3 is a LIST` |
 | a NaN or ±∞ cell (B12) | E101 | `frame is outside <w>'s domain: column "x" row 3 is NaN` |
 | a number with a STRING or BOOL | E103 | `column "x" is not a LIST of numbers: "abc" at row 3` |
@@ -632,18 +662,19 @@ first eleven rows and stops at the first that fails.
 | an index or count | E101 | `rows is outside <w>'s domain: row 7 of a frame of 5 rows` / `n is outside <w>'s domain: -1` |
 | a name absent or repeated | E101 | `<operand> is outside <w>'s domain: no column "dose"` / `"x" given twice`, `<operand>` being `name`, `names`, `by` or `opts` as the word takes it |
 | `descending` naming a column not sorted by | E101 | `opts is outside <w>'s domain: descending names "z", not among names` |
-| `frame.factor` or `factors` on a numeric or logical column | E101 | `name is outside <w>'s domain: column "x" is numeric` |
+| `frame.factor`, `frame.factor.levels` or `factors` on a numeric or logical column | E101 | `<operand> is outside <w>'s domain: column "x" is numeric`, `<operand>` being `name` or `opts` |
+| `frame.factor.levels`'s `levels` not a non-empty LIST of distinct STRINGs, or a cell not among them | E101 | `levels is outside <w>'s domain: <summary>` / `"a" given twice` / `"c" at row 3 is not one of the levels` |
 | `na.count`, `na.omit`, `na.fill` on a non-LIST | E101 | `list is outside <w>'s domain: <summary>` |
 | a NONE under `"refuse"` | E101 | `frame is outside <w>'s domain: column "x" row 3 is NONE (na "refuse")` |
 | a statistic unknown, malformed, or on a non-numeric column; `stats` empty | E101 | `stats is outside <w>'s domain: "mode" is not a statistic` / `"mean" of column "g", a factor` / `no statistics` |
 | a group with too few cells | E101 | `stats is outside <w>'s domain: group [ "a" ] has 1 value for "var"` |
-| a non-finite statistic | E114 | `the answer overflows a FLOAT: x.mean of group [ "a" ]` |
+| a non-finite statistic | E114 | `the answer overflows a FLOAT: x.mean of group [ "a" ]`, the group being `BundValue::summary` of its key LIST (`[ "a" NONE ]` for two `by` columns, `[ ]` for an empty `by`) |
 | a result name colliding | E101 | `stats is outside <w>'s domain: result name "x.mean" repeats a by column` |
 | a join key of two kinds, a shared non-key name, an empty `by` | E101 | `by is outside <w>'s domain: key "id" is numeric in left and string in right` / `"dose" is in both frames` / `no keys` |
 | `frame.matrix` on another kind, no names, no rows | E101 | `names is outside <w>'s domain: column "g" is a factor` / `no columns` / `frame is outside <w>'s domain: no rows` |
 | `frame.filter`'s lambda leaving a non-BOOL | E112 | `the model lambda left an INTEGER, where a BOOL was required` |
 | CSV text not a STRING | E101 | `text is outside <w>'s domain: <summary>` |
-| a CSV row of the wrong width, an empty line in a wider frame | E102 | `row 7's fields and the header's do not agree: 3 and 4` |
+| a CSV row of the wrong width, an empty line in a wider frame | E102 | `row 7's fields and the header's do not agree: 3 and 4` (`row 1's` with `header` false); a fault in the header row says `the header` for `row <n>` |
 | an unterminated quote, a byte after a closing quote, a quote in an unquoted field | E101 | `text is outside <w>'s domain: a quote opened at row 7 is not closed` / `row 7 has "b" after a closing quote` / `row 7 has a quote inside an unquoted field` |
 | a non-finite CSV field | E101 | `text is outside <w>'s domain: field "NaN" at row 3, column "x" is not finite; list it in the na option to read it as missing` |
 | an integer field beyond i64 | E101 | `text is outside <w>'s domain: field "99999999999999999999" at row 3, column "x" does not fit an INTEGER` |
@@ -658,6 +689,7 @@ first eleven rows and stops at the first that fails.
 |---|---|
 | `csv` and its conditional, run with or without `column` (`conditional_csv.rs:9-173`; `data.rs`): its 100-row window, its quote removal, its merging of integers with floats, its NaN and `inf` cells, its dropped nulls, its skipped empty lines | **Preserved exactly** (D51, D252). `frame.csv.parse` shares `infer` and `is_int` and departs only by its own rules (S6) |
 | `data.rs`'s `infer`, `Kind`, `is_int` and `column_kind` made visible to the frame reader | **Changed by design**, visibility only; `data.rs`'s tests unchanged |
+| `vec.sum`'s sum (`vector.rs`), `stat.median`'s median (`describe.rs`) and `amean`'s sum over count (`series.rs`) factored into crate-internal functions over `&[f64]` (S5) | **Changed by design**, a move only: each word calls the function its code now sits in; its answers, refusals and tests are unchanged |
 | `csv`'s `is_header` beside `frame.csv.parse`'s `header` | **Changed by design**: two spellings in one language, deliberate (S6) |
 | `json.to_value`'s `null` → NONE, `json.from_value`'s NONE → `null` (`cast_json_to_value.rs:38-39`; `json.rs`, `to_value`; `to_json`) | **Preserved exactly**; this RFC gives that NONE its meaning |
 | NONE's printing (`NONE` in a LIST, `None` as a type) and the wire format | **Preserved exactly** |
@@ -670,7 +702,7 @@ first eleven rows and stops at the first that fails.
 | `--noio` (D119) | **Preserved exactly**: no new word touches the file system |
 | A program that defines a `frame.` or `na` name itself | **Preserved**: a program's word is found before a native of the same name (`crates/bund2-api/src/lib.rs`, `Registry::resolve_uncached`, as RFC-0016 §S1 cites and probes) |
 | A program asking `?stdlib`/`?word` of one of the new names | **Changed by design**: the answer becomes true |
-| `bund2 words`' listing | **Changed by design**: the new names and forms appear |
+| `bund2 words`' and `bund2 effects`' listings | **Changed by design**: the new names, forms and effects appear |
 | `PROMOTABLE.txt` | **Regenerated**; no existing line moves |
 | `UNVARIED: [&str; 63]` in `lib.rs`'s tests | **Changed by design**: S7's twelve names join, 63 to 75 |
 | conform 143/159, CEILING 143/159; IMPLEMENTED 597/602, COVERAGE 577/602 | **Preserved exactly** (D72) |
@@ -740,14 +772,16 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
      NONE with `na.is`), `.complete` (with named columns, and with an
      empty `names`), `.sort` (two keys, one descending, NONE last in both,
      stable; a factor key by level order; a BOOL key false first),
-     `.factor` (a numeric column E101) and
-     `.factor.levels` answer frames equal to ones written out in the
+     `.factor` (a numeric column E101; an all-NONE column a factor with
+     no levels) and `.factor.levels` (a cell not among the levels, and a
+     repeated level, E101) answer frames equal to ones written out in the
      test, cells keeping their types and q; each answer passes
      `frame.check`. `frame.filter` with a lambda leaving `1` is E112.
 5. **Summaries.**
    - `frame.aggregate` by a factor and a string column, with every
      statistic: each group's answer equal bit for bit to the named
-     word's on its cells (S5's table), groups in `frame.sort`'s order,
+     word's on its cells (S5's table; for `"min"` and `"max"`, the
+     smallest and largest cell as a FLOAT, the first of a tie), groups in `frame.sort`'s order,
      a NONE group last; under `"omit"`, `.dropped` counts; under
      `"refuse"`, a NONE is E101 naming column and row; a group of two
      1e308 cells is E114 for `"mean"`, `"sum"` and `"var"`, with S8's
@@ -755,7 +789,9 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
      S8's text; an emptied group, a `"mean"` of a string column, an
      unknown statistic, a repeated `by` name and a colliding result name
      are E101; an empty `by` answers one group; a NONE in a `"count"`
-     column is neither refused nor dropped for.
+     column is neither refused nor dropped for; a frame of no rows
+     answers a frame of no rows, with an empty `by` too; a tie of `0.0`
+     and `-0.0` in `"min"` answers the first.
    - `frame.join` inner and left on one and on two keys, with a left row
      matching two right rows, a factor key, an INTEGER key matching a
      FLOAT, a NONE key matching nothing, and a left row with no match
@@ -781,7 +817,10 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
      column of `inf` and `ctl` read as STRINGs; `nan` making a string
      column; `99999999999999999999` E101 in an integer column and a
      STRING in a column with `A1`; an empty field under `na` `[ "NA" ]`
-     an empty STRING; an unterminated quote, `"a"b` and `a"b` E101; CR
+     an empty STRING, and an empty line in a one-column text an empty
+     STRING under it; an unterminated quote, `"a"b` and `a"b` E101, in a
+     data row and in the header row (`the header`); a quoted CRLF kept as
+     written; CR
      and CRLF terminators; a leading byte-order mark removed; a header
      named `NA` kept as a name; text above 10⁸ bytes E111; `sep` `";"`, and `sep` `"\""`
      E101; `header` false naming `column_1`, …; a repeated and an empty
@@ -800,8 +839,10 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
    decode.base64`, is equal to itself and passes `frame.check`.
 8. **Text.** `frame.text` of S6's example frame prints exactly S6's text;
    25 rows print 20 and `… 5 more rows`; a zero-column frame prints the
-   empty STRING; a column holding `µg` is padded by characters, and a
-   last-column STRING ending in a space keeps it.
+   empty STRING; a column holding `µg` is padded by characters, a
+   last-column STRING ending in a space keeps it, an empty last cell
+   leaves no separator at the line's end, and 21 rows end `… 1 more
+   row`.
 9. **No abort.** Every name and form, on a palette of NaN, ±∞, wrong
    types, empty, ragged, NONE-filled and malformed frames, answers or
    refuses with an E1nn, a shallow-stack error or a bridge error.
@@ -842,8 +883,8 @@ Every owner question is ruled:
 - **D257**: 1-based indices; `frame_eq`; `frame.join`'s rules;
   `frame.text`'s layout; `sep` and unknown `factors` names.
 - **D258**: every line a record; a non-finite statistic E114 and
-  `"sum"` as `vec.sum`; an integer beyond i64 E101; its note: in a
-  numeric column only.
+  `"sum"` as `vec.sum`; an integer beyond i64 E101; its notes: in a
+  numeric column only, and B1's NONE under the default `na` only.
 - **D252's third note**: the `na` option belongs to words that compute
   from cells; words that move, test, count or make NONE take none.
 
@@ -870,8 +911,15 @@ Choices this revision makes that no ruling names, each marked
   cells refuses the whole word; `"count"`'s column is not read; a
   result name may not repeat another, nor a `by` column `.dropped`
   under `"omit"` (S5);
-- `frame.aggregate` checks first and calls the shared arithmetic, not
-  the words' checking wrappers, so S8's texts are the only ones (S5);
+- `frame.aggregate` checks first and computes with the named words' own
+  functions, three of them factored out of their wrappers, so S8's texts
+  are the only ones (S5);
+- `frame.aggregate` on a frame of no rows answers no rows; `"min"` and
+  `"max"` take the first of a tie (S5);
+- a column of no kind is accepted wherever a kind is asked for, and
+  `frame.factor` makes it a factor with no levels; `frame.factor.levels`
+  refuses as `frame.factor` does, with its own `levels` refusals (S2,
+  S4);
 - `frame.join`: `"inner"` by default; an empty `by` is E101; a factor and
   a string key are one kind, and a key of no kind agrees with any; a
   shared non-key name is E101; a `right` factor column stays a factor
@@ -884,14 +932,44 @@ Choices this revision makes that no ruling names, each marked
   (S6);
 - `sep` narrowed from "one character" (D257 S10) to one ASCII byte other
   than `"`, CR and LF (S6);
+- a fault in the header row names `the header`; with `header` false a
+  wrong width names `row 1's` (S6);
+- a quoted line break kept as written (S6);
 - a header field never matched against `na` nor inferred; an empty
-  unquoted field not in `na` an empty STRING; every header name written
+  unquoted field not in `na` an empty STRING, an empty line in a
+  one-column frame included, narrowing D258 B1 (D258's second note);
+  every header name written
   quoted; a zero-column frame written and printed as the empty STRING
   (S6);
 - `frame.text`'s alignment per column, a column of no kind left-aligned,
-  width in characters over the printed rows, no padding at a line's end
-  but a STRING's own trailing spaces kept (S6, extending D257 S9).
+  width in characters over the printed rows, no padding or separator at
+  a line's end but a STRING's own trailing spaces kept, a STRING's line
+  break printed as it is, `… 1 more row` (S6, extending D257 S9).
 
-Open in `docs/registers/open-questions.md`: Q64 (whether R's defaults are
-what P6, P7 and P11 cite). Q63 is answered (D257 B3), and Q65 (the
-byte-order mark) by the third review.
+None is open in `docs/registers/open-questions.md` for this RFC: Q63 is
+answered (D257 B3), Q65 (the byte-order mark) by the third review, and
+Q64 (R's defaults) from R's source, below.
+
+### Differences from R
+
+P6, P7 and P11 cite R as reasoning, not as a reference this RFC must
+match. Read from R 4.4.2's source (Q64, which cites each line through
+the `wch/r-source` mirror at the tag `R-4-4-2`):
+
+- **P11 matches R.** `order`'s default is `na.last = TRUE`, missing
+  values last (`src/library/base/R/sort.R:192`).
+- **P6 differs on blanks in text columns.** R's `read.table`, and so
+  `read.csv`, defaults to `na.strings = "NA"`
+  (`src/library/utils/R/readtable.R:68`, `:297-300`), and treats a blank
+  field as missing only in logical, integer, numeric and complex columns
+  (`src/library/utils/man/read.table.Rd:124-127`): a blank in a text
+  column stays `""`. Here `""` is among the default `na` strings, so a
+  blank is NONE in every column, as polars reads it; a program wanting
+  R's reading of a text column passes `{ na: [ "NA" ] }` and accepts
+  that a gap then makes its numeric column a string column.
+- **P7 differs on collation.** R's `factor` sorts its levels
+  (`src/library/base/R/factor.R:24-28`), but a character vector is
+  ordered by the locale's collation (`src/library/base/man/factor.Rd:180-182`,
+  `src/library/base/man/sort.Rd:61-63`). Here levels sort by UTF-8 bytes,
+  which is code-point order (D106), the same on every machine and the
+  same as `frame.sort`.
