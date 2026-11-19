@@ -105,7 +105,10 @@ fn every_word_is_registered_with_its_effect() {
         .into_iter()
         .filter(|n| n.starts_with("frame."))
         .count();
-    assert_eq!(ours, WORDS.len() + super::reshape::WORDS.len());
+    assert_eq!(
+        ours,
+        WORDS.len() + super::reshape::WORDS.len() + super::csv::WORDS.len()
+    );
 }
 
 /// Criterion 1: one `.` form of each effect shape.

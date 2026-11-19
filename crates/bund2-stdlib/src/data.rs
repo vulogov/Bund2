@@ -58,7 +58,7 @@ fn csv_word(vm: &mut dyn Vm) -> Result<(), Error> {
 
 /// A column's type, in polars' test order.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-enum Kind {
+pub(crate) enum Kind {
     Bool,
     Float,
     Int,
@@ -98,11 +98,11 @@ fn is_float(s: &str) -> bool {
 }
 
 /// polars' `INTEGER_RE`: `^-?(\d+)$`.
-fn is_int(s: &str) -> bool {
+pub(crate) fn is_int(s: &str) -> bool {
     digits(s.strip_prefix('-').unwrap_or(s))
 }
 
-fn infer(s: &str) -> Kind {
+pub(crate) fn infer(s: &str) -> Kind {
     if is_bool(s) {
         Kind::Bool
     } else if is_float(s) {
@@ -116,7 +116,7 @@ fn infer(s: &str) -> Kind {
 
 /// polars' `finish_infer_field_schema`: one kind stays, integers with floats
 /// are floats, anything else, including no evidence at all, is a string.
-fn column_kind(seen: &BTreeSet<Kind>) -> Kind {
+pub(crate) fn column_kind(seen: &BTreeSet<Kind>) -> Kind {
     match (seen.len(), seen.iter().next()) {
         (1, Some(k)) => *k,
         (2, _) if seen.contains(&Kind::Int) && seen.contains(&Kind::Float) => Kind::Float,

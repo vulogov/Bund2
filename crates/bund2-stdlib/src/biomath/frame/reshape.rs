@@ -361,13 +361,14 @@ fn frame_sort(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
-/// The column `i` for `frame.factor` and `frame.factor.levels`: a string
-/// column, a factor or one of no kind; a numeric or logical one is E101.
-fn factorable(word: &str, f: &Frame, i: usize) -> Result<Kind, Error> {
+/// The column `i` for `frame.factor`, `frame.factor.levels` and
+/// `frame.csv.parse`'s `factors`: a string column, a factor or one of no
+/// kind; a numeric or logical one is E101 naming `op`.
+pub(super) fn factorable(word: &str, op: &str, f: &Frame, i: usize) -> Result<Kind, Error> {
     match f.kind(i) {
         k @ (Kind::Numeric | Kind::Logical) => {
             let n = f.names.get(i).map_or(String::new(), |n| render::text(n));
-            Err(domain(word, "name", format!("column {n} is {}", k.word())))
+            Err(domain(word, op, format!("column {n} is {}", k.word())))
         }
         k => Ok(k),
     }
@@ -392,8 +393,17 @@ fn frame_factor(vm: &mut dyn Vm) -> Result<(), Error> {
     let v = operands(vm, W, 2)?;
     let mut f = check::check(W, "frame", &v[0])?;
     let i = column_of(W, &f, &v[1])?;
-    let kind = factorable(W, &f, i)?;
-    let used: Vec<String> = strings(&f, i).map(|(_, s)| s).collect();
+    let kind = factorable(W, "name", &f, i)?;
+    make_factor(&mut f, i, kind);
+    vm.push(f.to_value());
+    Ok(())
+}
+
+/// Make column `i`, of `kind` (not numeric or logical), a factor: a factor
+/// keeps its used levels in order, any other column takes its distinct
+/// STRINGs sorted by bytes.
+pub(super) fn make_factor(f: &mut Frame, i: usize, kind: Kind) {
+    let used: Vec<String> = strings(f, i).map(|(_, s)| s).collect();
     let name = f.names.get(i).cloned().unwrap_or_default();
     let levels = match kind {
         Kind::Factor => f
@@ -409,8 +419,6 @@ fn frame_factor(vm: &mut dyn Vm) -> Result<(), Error> {
         }
     };
     f.levels.insert(name, levels);
-    vm.push(f.to_value());
-    Ok(())
 }
 
 /// `frame.factor.levels` (`frame name levels -- frame`): the column made a
@@ -420,7 +428,7 @@ fn frame_factor_levels(vm: &mut dyn Vm) -> Result<(), Error> {
     let v = operands(vm, W, 3)?;
     let mut f = check::check(W, "frame", &v[0])?;
     let i = column_of(W, &f, &v[1])?;
-    factorable(W, &f, i)?;
+    factorable(W, "name", &f, i)?;
     let lv = &v[2];
     let items = match lv.as_list() {
         Some(xs) if lv.dt() == LIST && !xs.is_empty() => xs,

@@ -11,12 +11,14 @@
 //! repeated names; the first bad key is the refusal. The second, the checks
 //! against the columns, is the word's own, after this answers.
 //!
-//! M2 reads `descending` (`frame.sort`). The other keys are known, so that
+//! M2 reads `descending` (`frame.sort`); M3 reads `frame.csv.parse`'s
+//! `header`, `na`, `factors` and `sep`. The other keys are known, so that
 //! one given to the wrong word is "a key the word does not take"; their
-//! values are read in the milestones that add the words taking them.
+//! values are read in the milestone that adds the words taking them.
+//! `na` means a LIST of strings to `frame.csv.parse` only.
 
 use bund2_api::Error;
-use bund2_value::{BundValue, LIST, MAP, STRING};
+use bund2_value::{BOOL, BundValue, LIST, MAP, STRING};
 
 use super::render;
 use crate::biomath::operand::{WIDTH, domain};
@@ -29,6 +31,49 @@ const KEYS: [&str; 6] = ["descending", "factors", "header", "how", "na", "sep"];
 pub(crate) struct Opts {
     /// `descending`: the names to sort descending, in the order given.
     pub descending: Option<Vec<String>>,
+    /// `header` (`frame.csv.parse`).
+    pub header: Option<bool>,
+    /// `na` (`frame.csv.parse`): the strings read as NONE.
+    pub na: Option<Vec<String>>,
+    /// `factors` (`frame.csv.parse`): the columns to make factors.
+    pub factors: Option<Vec<String>>,
+    /// `sep` (`frame.csv.parse`): one ASCII byte, not `"`, CR or LF.
+    pub sep: Option<u8>,
+}
+
+/// The word whose `na` is a LIST of strings.
+const CSV: &str = "frame.csv.parse";
+
+/// A LIST of STRINGs, repeats allowed (`na`).
+fn strings(word: &str, key: &str, v: &BundValue) -> Result<Vec<String>, Error> {
+    let items = match v.as_list() {
+        Some(xs) if v.dt() == LIST => xs,
+        _ => return Err(refuse(word, format!("{key} is {}", render::value(v)))),
+    };
+    items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| match item.as_str() {
+            Some(s) if item.dt() == STRING => Ok(s),
+            _ => Err(refuse(
+                word,
+                format!("{key} item {} is {}", i + 1, render::value(item)),
+            )),
+        })
+        .collect()
+}
+
+/// `sep`: a STRING of one ASCII byte other than `"`, CR and LF.
+fn sep(word: &str, v: &BundValue) -> Result<u8, Error> {
+    let bad = || refuse(word, format!("sep is {}", render::value(v)));
+    let s = match v.as_str() {
+        Some(s) if v.dt() == STRING => s,
+        _ => return Err(bad()),
+    };
+    match s.as_bytes() {
+        [b] if b.is_ascii() && !matches!(b, b'"' | b'\r' | b'\n') => Ok(*b),
+        _ => Err(bad()),
+    }
 }
 
 /// E101 on the `opts` operand.
@@ -80,6 +125,13 @@ pub(crate) fn read(word: &str, v: &BundValue, takes: &[&str]) -> Result<Opts, Er
         }
         match k.as_str() {
             "descending" => o.descending = Some(names(word, k, x)?),
+            "factors" => o.factors = Some(names(word, k, x)?),
+            "header" => match x.unboxed() {
+                BundValue::Bool(b, _) if x.dt() == BOOL => o.header = Some(*b),
+                _ => return Err(refuse(word, format!("header is {}", render::value(x)))),
+            },
+            "na" if word == CSV => o.na = Some(strings(word, k, x)?),
+            "sep" => o.sep = Some(sep(word, x)?),
             _ => {
                 return Err(Error::internal(format!(
                     "{word} takes the key {k:?}, which the frame options reader \

@@ -34,6 +34,15 @@
   list of any length when the frame has no columns, so the new column
   sets the row count"). S4's row, its paragraph on names, S8's length
   row and criterion 4 say so; nothing else moves.
+- Note (2026-11-19, after acceptance, during M3): a frame does not
+  round-trip through JSON, by the owner's ruling ("option 1"). S2 said
+  `json.from_value` writes a frame as an object; it refuses one, since
+  `columns` is a LIST of STRINGs and the reference's converter has no
+  STRING arm, falling to `This Dynamic type is not supported for JSON`
+  (`reference/rust_dynamic/src/cast_value_to_json.rs:9-84`), which
+  Bund2 preserves (`crates/bund2-stdlib/src/json.rs`, `from_value`).
+  S2's paragraph and criterion 7 say so; `json.from_value` is unchanged,
+  and nothing else moves.
 - Drafted 2026-11-17 on the owner's `/rfc-draft 0017`, after RFC-0016
   (research 07's Phase A) landed. The scope is research 07's Phase B
   (`docs/research/07-statistical-research.md:217`, §3.1 at `:85-107`):
@@ -311,14 +320,17 @@ its operand without a separate validated type (D252's ruling made a frame
 a plain MAP) **[author]**. A program that loops `frame.column` over n
 columns pays O(n × cells).
 
-**A frame is a plain MAP** (D252): `json.from_value` writes it as an
-object and `json.to_value` reads it back; `encode.base64` and
+**A frame is a plain MAP** (D252): `encode.base64` and
 `decode.base64` carry it with its NONEs (probed: `{ a=[ 1 ::  NONE ::  2.5 :: ] :: }` comes back as it went).
 Printing it with `println` prints the MAP, its keys sorted; `frame.text`
 (S6) prints the table. A frame's column is reached in plain Bund as
 `"data" get "dose" get`; `"dose" get` on the frame itself is `get`'s
 missing-key error (`reference/rust_dynamic/src/get.rs:10-12`, with the
 prefix from `reference/rust_multistackvm/src/stdlib/values/value_dict.rs:67`).
+`json.from_value` refuses a frame: its `columns` holds STRINGs, which
+the reference's converter does not take
+(`reference/rust_dynamic/src/cast_value_to_json.rs:84`; Note,
+2026-11-19).
 
 **Equality, for tests [D257 B2].** Neither `==` nor `BundValue`'s
 equality can say a frame came back unchanged (§Current behaviour). The
@@ -986,8 +998,9 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
    - The same file through `csv` with `column` set answers that column
      with the empty cell dropped, unchanged.
 7. **Round trips.** A frame with NONE and a factor through
-   `json.from_value json.to_value`, and through `encode.base64
-   decode.base64`, is equal to itself and passes `frame.check`.
+   `encode.base64 decode.base64` is equal to itself and passes
+   `frame.check`; `json.from_value` of it is refused with `This Dynamic
+   type is not supported for JSON: 4` (Note, 2026-11-19).
 8. **Text.** `frame.text` of S6's example frame prints exactly S6's text;
    25 rows print 20 and `… 5 more rows`; a zero-column frame prints the
    empty STRING; a column holding `µg` is padded by characters, a

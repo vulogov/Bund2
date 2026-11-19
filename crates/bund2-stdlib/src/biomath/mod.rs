@@ -94,7 +94,8 @@
 //!
 //! Its M2 adds the rest of §S4, in [`frame::reshape`]: `frame.with`,
 //! `.select`, `.take`, `.head`, `.filter`, `.complete`, `.sort`, `.factor`
-//! and `.factor.levels`.
+//! and `.factor.levels`. Its M3 adds §S6, in [`frame::csv`]:
+//! `frame.csv.parse`, `frame.csv.text` and `frame.text`.
 
 pub mod align;
 pub mod describe;
