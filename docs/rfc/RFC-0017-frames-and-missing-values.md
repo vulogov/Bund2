@@ -40,9 +40,35 @@
   `columns` is a LIST of STRINGs and the reference's converter has no
   STRING arm, falling to `This Dynamic type is not supported for JSON`
   (`reference/rust_dynamic/src/cast_value_to_json.rs:9-84`), which
-  Bund2 preserves (`crates/bund2-stdlib/src/json.rs`, `from_value`).
+  Bund2 preserves (`crates/bund2-value/src/lib.rs`, `to_json`, the `_`
+  arm, which `json.from_value` calls).
   S2's paragraph and criterion 7 say so; `json.from_value` is unchanged,
   and nothing else moves.
+- Note (2026-11-19, after M4, on the twelfth review's SF2–SF4 and N1–N5,
+  `docs/rfc/reviews/RFC-0017-review-2026-11-19.md`): wording only, and
+  the code is unchanged. Changes:
+  - S8 gains the texts M4 wrote that no row gave. These are a `stats`
+    entry malformed or naming no column, a result name repeating
+    another, a statistic or `frame.matrix` on a string or logical
+    column, and the join cap's `<what>` (SF2).
+  - S5 states `frame.join`'s and `frame.matrix`'s refusal order, and
+    which NONE `"refuse"` names first (SF3).
+  - Criterion 10 and the Preservation row say no *name* line of
+    `PROMOTABLE.txt` moves, since its count line changes with every
+    name added (SF4).
+  - Criterion 7 says the refusal *ends with* the quoted text (N1).
+  - Criterion 5 names the factor in its no-rows case as the `by` column
+    (N2).
+  - S5 drops the clause on a result name equal to `.dropped`, which
+    cannot occur (N3).
+  - §Current behaviour is marked as the tree before this RFC (N4).
+  - It is recorded that M3's commit (672f453) left `PROMOTABLE.txt`
+    stale, so criterion 10 held again only at M4's (9b71007) (N5).
+
+  The ruling behind S1's "every refusal is listed in S8" is unchanged;
+  the table now meets it. The review's SF1, a dated note on D252 that
+  `json` does not carry a frame, is the owner's to record in
+  `docs/registers/decisions.md`.
 - Drafted 2026-11-17 on the owner's `/rfc-draft 0017`, after RFC-0016
   (research 07's Phase A) landed. The scope is research 07's Phase B
   (`docs/research/07-statistical-research.md:217`, §3.1 at `:85-107`):
@@ -99,6 +125,11 @@ Bund2 has none of the three:
   (research 07 §3.2, Phase C).
 
 ## Current behaviour
+
+This section describes the tree this RFC was drafted against, before M1.
+Two of its statements about Bund2 no longer hold at M4 (9b71007), both
+by design. M4 corrected `describe.rs`'s module doc on the two means
+(S5), and the `frame.` and `na` words now exist (Note, 2026-11-19).
 
 ### What the reference does
 
@@ -504,12 +535,19 @@ are outside the option **[D256 S7]**. The words that only move cells
   then the groups in the answer's order, and within a group the `stats`
   entries in order, each checked for size before it is computed and for
   finiteness after. The first failure is the refusal.
+- **`"refuse"` names the first NONE** in the order the word reads its
+  columns: for `frame.aggregate`, the `stats` columns in entry order,
+  each column once and `"count"`'s left out; for `frame.matrix`, the
+  `names` order. Each column is read from row 1 **[author]** (Note,
+  2026-11-19).
 - **`"count"`'s column is not read**: a NONE in it is neither refused nor
   dropped for, since `"count"` counts rows **[author]**.
 - **Result names** are `<column>.<statistic>`, after the `by` columns; a
-  result name that equals a `by` column or `.dropped` is E101 at entry,
-  naming it **[D256 S7]**, as is one that equals another result name, or
-  a `by` column named `.dropped` under `"omit"` **[author]**.
+  result name that equals a `by` column is E101 at entry, naming it
+  **[D256 S7]**, as is one that equals another result name, or a `by`
+  column named `.dropped` under `"omit"` **[author]**. (No result name
+  can equal `.dropped` itself: a column name is never empty, and no
+  statistic is called `dropped`; Note, 2026-11-19.)
 - **Groups** are ordered by the `by` columns as `frame.sort` orders them
   (a factor by its levels, NONE last), not by first appearance. Two rows
   are in one group when `frame.sort` compares each of their `by` cells
@@ -543,6 +581,17 @@ are outside the option **[D256 S7]**. The words that only move cells
   nothing, as in SQL. `right`'s factor columns keep their levels.
 - **The cap:** the output's row count is computed before allocating;
   above 10⁸ is E111 (D39).
+- **The order of `frame.join`'s refusals [author]** (Note, 2026-11-19).
+  The first failure is the refusal, in this order:
+  1. the check of `left`, then of `right`;
+  2. `by`'s type and its items' types;
+  3. an empty `by`;
+  4. each `by` name in turn: absent from `left`, given twice, absent
+     from `right`;
+  5. `opts`;
+  6. each key's kinds;
+  7. each of `right`'s non-key names held by `left` too;
+  8. the cap.
 
 **`frame.matrix` [D256 S6].** Numeric columns only: a logical, string or
 factor column is E101 naming it (coding a factor is Phase C's
@@ -551,7 +600,16 @@ does. An empty `names`, and zero rows before or after `"omit"`, are E101
 naming the cause. Under `"omit"` the word reads its `names` columns and
 answers `{ matrix, dropped }` in place of the bare MATRIX **[P8]**; a
 program whose `y` comes from another column uses `frame.complete` first
-instead (S3).
+instead (S3). Its refusals come in this order, the first failure winning
+**[author]** (Note, 2026-11-19):
+1. the frame check;
+2. `names`, each item's type, then each name's presence and repetition;
+3. an empty `names`;
+4. each named column's kind;
+5. `opts`;
+6. a frame of no rows;
+7. the cells under `na`;
+8. no rows left after `"omit"`.
 
 ### S6. CSV and text [P6] [P12] [D254] [D255] [D258]
 
@@ -799,13 +857,13 @@ the first that fails.
 | `frame.factor.levels`'s `levels` not a non-empty LIST of distinct STRINGs, or a cell not among them | E101 | `levels is outside <w>'s domain: <summary>` / `"a" given twice` / `"c" at row 3 is not one of the levels` |
 | `na.count`, `na.omit`, `na.fill` on a non-LIST | E101 | `list is outside <w>'s domain: <summary>` |
 | a NONE under `"refuse"` | E101 | `frame is outside <w>'s domain: column "x" row 3 is none (na "refuse")` |
-| a statistic unknown, malformed, or on a non-numeric column; `stats` empty | E101 | `stats is outside <w>'s domain: "mode" is not a statistic` / `"mean" of column "g", a factor` / `no statistics` |
+| a statistic unknown, malformed, or on a non-numeric column; `stats` empty | E101 | `stats is outside <w>'s domain: "mode" is not a statistic` / `"mean" of column "g", a factor` (`, a string column`, `, a logical column`) / `no statistics` / `item 2 is <value>` for an entry that is not a two-item LIST of STRINGs / `no column "zz"` (Note, 2026-11-19) |
 | a group with too few cells | E101 | `stats is outside <w>'s domain: group [ "a" ] has 1 value for "var"` (`0 values`, the noun agreeing with the count) |
 | a non-finite statistic | E114 | `the answer overflows a FLOAT: "x.mean" of group [ "a" ]` |
 | how a group is named, in the two rows above | — | `group [ <k1> <k2> … ]`, each `by` value in `by` order, separated by one space, each rendered as the preamble says (a STRING or factor level escaped, bounded and quoted; NONE as `none`), every key shown, each bounded; an empty `by`'s one group is `group (all rows)` **[author]** |
-| a result name colliding | E101 | `stats is outside <w>'s domain: result name "x.mean" repeats a by column` |
+| a result name colliding | E101 | `stats is outside <w>'s domain: result name "x.mean" repeats a by column` / `result name "x.mean" repeats another` (Note, 2026-11-19) |
 | a join key of two kinds, a shared non-key name, an empty `by` | E101 | `by is outside <w>'s domain: key "id" is numeric in left and string in right` / `"dose" is in both frames` / `no keys` |
-| `frame.matrix` on another kind, no names, no rows | E101 | `names is outside <w>'s domain: column "g" is a factor` / `no columns` / `frame is outside <w>'s domain: no rows` |
+| `frame.matrix` on another kind, no names, no rows | E101 | `names is outside <w>'s domain: column "g" is a factor` (`is string`, `is logical`; Note, 2026-11-19) / `no columns` / `frame is outside <w>'s domain: no rows` |
 | `frame.filter`'s lambda leaving a non-BOOL | E112 | `the model lambda left an INTEGER, where a BOOL was required` |
 | CSV text not a STRING | E101 | `text is outside <w>'s domain: <summary>` |
 | a CSV row of the wrong width, an empty line in a wider frame | E102 | `row 7's fields and the header's do not agree: 3 and 4` (`row 7's fields and row 1's` with `header` false) |
@@ -814,7 +872,7 @@ the first that fails.
 | an integer field beyond i64 | E101 | `text is outside <w>'s domain: field "99999999999999999999" at row 3, column "x" does not fit an INTEGER` |
 | a CSV header name empty or repeated | E101 | `text is outside <w>'s domain: header name 2 is empty` / `a repeated header name "x"` |
 | `sep` not one ASCII byte, or `"`, CR, LF | E101 | `opts is outside <w>'s domain: sep is <value>` |
-| text above 10⁸ bytes, a join above 10⁸ rows | E111 | `<what> exceeds its cap of 100000000` |
+| text above 10⁸ bytes, a join above 10⁸ rows | E111 | `<what> exceeds its cap of 100000000`, `<what>` being `text` or `the join's row count` (Note, 2026-11-19) |
 | an options key unknown, or its value wrong | E101 | `opts is outside <w>'s domain: <summary>` (not a MAP) / `an unknown key "k"` / `the key "k", which this word does not take`, as RFC-0016's reader words it (`biomath/infer/opts.rs`, `read`) / `<key> is <value>`, a scalar value rendered as the preamble says; for a LIST value, the first bad item, `<key> item 2 is <value>`, rendered alike, or `<key> is a LIST of <n>` when the LIST itself is wrong (`sep`'s one byte aside, which names the value); the key leads the text, where RFC-0016's reader names it after the value **[author]** |
 
 ## Preservation analysis
@@ -838,7 +896,7 @@ the first that fails.
 | A program that calls a new name without defining it | **Changed by design**: today it fails as an unregistered word (`na` refused as not registered, and `bund2 check` stops at `frame.nrow`, probed by the eighth review); it now runs the native |
 | A program asking `?stdlib`/`?word` of one of the new names | **Changed by design**: the answer becomes true |
 | `bund2 words`' and `bund2 effects`' listings | **Changed by design**: the new names, forms and effects appear |
-| `PROMOTABLE.txt` | **Regenerated**; no existing line moves |
+| `PROMOTABLE.txt` | **Regenerated**; no existing name line moves; the count line at its head changes with every name added (Note, 2026-11-19) |
 | `UNVARIED: [&str; 63]` in `lib.rs`'s tests | **Changed by design**: S7's twelve names join, 63 to 75 |
 | conform 143/159, CEILING 143/159; IMPLEMENTED 597/602, COVERAGE 577/602 | **Preserved exactly** (D72) |
 
@@ -934,8 +992,9 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
      are E101; an empty `by` answers one group; a NONE in a `"count"`
      column is neither refused nor dropped for; a frame of no rows
      answers a frame of no rows, with an empty `by` too; a tie of `0.0`
-     and `-0.0` in `"min"` answers the first; a frame of no rows with a
-     factor column under `"mean"` answers no rows; a `by` column holding
+     and `-0.0` in `"min"` answers the first; a frame of no rows grouped
+     by a factor column, under `"mean"` of a numeric column, answers no
+     rows (Note, 2026-11-19); a `by` column holding
      INTEGER `1` then FLOAT `1.0` answers one group whose cell is INTEGER
      `1`, and one holding `0.0` then `-0.0` one group whose cell is
      `0.0`; a group refusal on a STRING key of 200 characters holding a
@@ -999,8 +1058,8 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
      with the empty cell dropped, unchanged.
 7. **Round trips.** A frame with NONE and a factor through
    `encode.base64 decode.base64` is equal to itself and passes
-   `frame.check`; `json.from_value` of it is refused with `This Dynamic
-   type is not supported for JSON: 4` (Note, 2026-11-19).
+   `frame.check`; `json.from_value` of it is refused with a text ending
+   `This Dynamic type is not supported for JSON: 4` (Notes, 2026-11-19).
 8. **Text.** `frame.text` of S6's example frame prints exactly S6's text;
    25 rows print 20 and `… 5 more rows`; a zero-column frame prints the
    empty STRING; a column holding `µg` is padded by characters, a
@@ -1012,7 +1071,7 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
    refuses with an E1nn, a shallow-stack error or a bridge error.
 10. **Health.** `cargo xtask conform` and `coverage` print §Preservation
     analysis's numbers; clippy and `cargo deny` are clean;
-    `PROMOTABLE.txt` is regenerated with no existing line moved; the
+    `PROMOTABLE.txt` is regenerated with no existing name line moved; the
     `UNVARIED` audit passes with S7's twelve names; the `csv` tests in
     `data.rs`, and the tests of `vector.rs`, `describe.rs` and
     `series.rs`, pass unchanged, which is the check that S5's move moved
