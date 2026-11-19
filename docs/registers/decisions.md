@@ -17366,6 +17366,25 @@ counts or produces NONE takes none: `frame.take`, `frame.sort`,
 `frame.csv.parse` makes it. An `na` option on those would have nothing to
 decide.
 
+**Note, 2026-11-19 (RFC-0017's M3; owner: "option 1"; twelfth review,
+SF1).** "A frame is a plain MAP and stays one, so `json`, the wire format
+and `vm.spawn` carry it unchanged" is wrong for `json`. A frame's
+`columns` is a LIST of STRINGs, and the reference's converter has arms
+for INTEGER, FLOAT, BOOL, NONE, LIST and MAP only, so a STRING falls to
+`This Dynamic type is not supported for JSON: 4`
+(`reference/rust_dynamic/src/cast_value_to_json.rs:9-84`; STRING is tag 4,
+`reference/rust_dynamic/src/types.rs:19`). Bund2 preserves this
+(`crates/bund2-value/src/lib.rs`, `to_json`, the `_` arm, which
+`json.from_value` calls), so `json.from_value` refuses every frame
+(probed; pinned by `crates/bund2-stdlib/src/biomath/frame/csv/tests.rs`,
+`value_round_trips`). The owner ruled that a frame does not round-trip
+through JSON and `json.from_value` is unchanged; RFC-0017's S2 and
+criterion 7 say so (its dated note of 2026-11-19, during M3). The wire
+format's base64 round trip carries a frame unchanged, as criterion 7
+checks. `vm.spawn` was not probed and the claim about it is unverified
+(the twelfth review's A6). The rulings (C1 B, C2 C) do not rest on the
+`json` claim and are unchanged.
+
 ## D253 — RFC-0017's questions, P1–P12: frames, factors and missing values
 
 **Raised 2026-11-17** by `docs/rfc/RFC-0017-frames-and-missing-values.md`,
