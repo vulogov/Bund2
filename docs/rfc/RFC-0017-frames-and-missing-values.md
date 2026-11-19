@@ -1,7 +1,16 @@
 # RFC-0017: Frames, factors and missing values
 
-- Status: **Draft, revision 9** (2026-11-18). Revised after nine reviews
-  (`docs/rfc/reviews/RFC-0017-review-2026-11-18-2.md` of revision 8,
+- Status: **Accepted** (2026-11-18) by the repository owner ("go-ahead
+  for revision 11, then marking it Accepted"), at revision 11.
+  Accepting means D253–D258 as ruled, with their dated notes; S1–S8 as
+  specified, each **[author]** choice listed under §Open questions
+  included; the milestones M1–M4 built in order, each gated by its
+  criteria and by criteria 9 and 10; and S3–S6's names as Bund2's own
+  (D72), as RFC-0015's and RFC-0016's families are.
+- Revision 11 (2026-11-18). Revised after eleven reviews
+  (`docs/rfc/reviews/RFC-0017-review-2026-11-18-4.md` of revision 10,
+  `docs/rfc/reviews/RFC-0017-review-2026-11-18-3.md` of revision 9,
+  `docs/rfc/reviews/RFC-0017-review-2026-11-18-2.md` of revision 8,
   `docs/rfc/reviews/RFC-0017-review-2026-11-18.md` of revision 7,
   `docs/rfc/reviews/RFC-0017-review-2026-11-17-7.md` of revision 6,
   `docs/rfc/reviews/RFC-0017-review-2026-11-17-6.md` of revision 5,
@@ -215,7 +224,17 @@ Bund2 has none of the three:
   range is E101 naming the key. The frame words read them with a reader
   of their own, since RFC-0016's (`biomath/infer/opts.rs`, `read`) is
   private to its module and knows only `alternative`, `conf` and `mu`;
-  S8 gives its texts **[author]**. An `opts` operand is always required; an
+  S8 gives its texts **[author]**. The keys it knows are those of S4–S6:
+  `header`, `na`, `factors` and `sep` (`frame.csv.parse`), `na`
+  (`frame.aggregate`, `frame.matrix`), `how` (`frame.join`) and
+  `descending` (`frame.sort`); any of them given to another of these
+  words is "a key the word does not take", any other key unknown. Keys
+  are checked in two passes **[author]**. First, in the MAP's sorted
+  key order, each key for being known and taken, and its value for
+  type, range and repeated names; the first bad key is the refusal.
+  Second, after the parse, the checks against the columns: a `factors`
+  name that is no column, or names a numeric or logical column. So
+  `{ factors: [ "zz" ] header: 1 }` is refused for `header`. An `opts` operand is always required; an
   empty `dict` takes every default **[author]**. (A trailing optional MAP would make
   the effect depend on the top operand, which RFC-0016 rejected for the
   same reason, `docs/rfc/RFC-0016-statistical-inference.md:670-672`.) The key `na` means a LIST of strings to
@@ -234,7 +253,7 @@ Bund2 has none of the three:
   INTEGER stays an INTEGER, and a cell's q is the one it had (D32). A
   factor column keeps its levels through each of them. Cells a word
   makes (a statistic, a parsed field, `na`) carry q as their constructor
-  gives it.
+  gives it, except a NONE, whose q is S2's 0.0.
 
 ### S2. The frame [P2] [P3] [P4]
 
@@ -378,7 +397,8 @@ are outside the option **[D256 S7]**. The words that only move cells
   do; a lambda reads cells by name.
 - **Sorting** compares numbers as numbers (an INTEGER with an INTEGER
   exactly, and with a FLOAT by exact value, as D33 compares them; a
-  FLOAT with a FLOAT by value, as D108's rank 1 orders numbers, so
+  FLOAT with a FLOAT by value, as D108's rank 1 orders numbers and `sort`
+  already compares them (`sort.rs`, `float_order`), so
   `-0.0` and `0.0` compare equal and the stable sort keeps their row
   order, not `total_cmp`'s order, which puts `-0.0` first; NaN never
   reaches it, the frame check having refused it),
@@ -696,8 +716,7 @@ Each row is RFC-0015 §S11's code with its template filled, `<w>` the
 word and the operand named. In the frame check's rows, `frame` stands
 for the operand the faulty part came from **[author]**: `left` or
 `right` for `frame.join`; for `frame.new`, `names` for a name fault and
-`columns` for a column or cell fault; for `frame.with`, `name` for the
-new name and `list` for its cells; for `frame.csv.parse`, `text`, since
+`columns` for a column or cell fault; for `frame.with`, `list` for its cells; for `frame.csv.parse`, `text`, since
 its answer is checked like any frame (a quoted number in a numeric
 column is E103, S6).
 
@@ -710,8 +729,9 @@ truncates a STRING but does not escape it (`crates/bund2-value/src/lib.rs`,
 
 1. **Escape** the text: `\` as `\\`, `"` as `\"`, a line feed as
    `\n`, a carriage return as `\r`, a tab as `\t`, and any other
-   control character as `\u{` and its code point in lower-case hex and
-   `}` (ESC as `\u{1b}`).
+   control character (`char::is_control`, Unicode's Cc), and U+2028 and
+   U+2029, which some terminals break lines on, as `\u{` and its code
+   point in lower-case hex and `}` (ESC as `\u{1b}`).
 2. **Truncate** the escaped text to at most `WIDTH` − 2 characters
    (`biomath/operand.rs`, `WIDTH`, 40), the last of them `…` when cut;
    the cut falls between escapes, never inside one, so a shorter text is
@@ -750,6 +770,7 @@ the first that fails.
 | any other mixture outside `levels`; in a column in `levels`, any cell not among its levels, a number or BOOL included | E101 | `frame is outside <w>'s domain: column "ok" row 3 is a STRING; the column is logical` / `column "g" row 3 is "c", not one of its levels` |
 | `frame.new`'s counts | E102 | `names and columns do not agree: 3 and 2` |
 | `frame.with`'s length | E102 | `the list and the frame's rows do not agree: 4 and 5` |
+| an operand of the wrong type (`names`, `by`, `rows`, `stats`, `levels`, `columns`, `frame.with`'s `list` not a LIST; `name` not a STRING; `frame.filter`'s `lambda` not a lambda); an item of a `names` or `by` LIST not a STRING; `frame.with`'s new name empty **[author]** | E101 | `<operand> is outside <w>'s domain: <summary>` / `<operand> is outside <w>'s domain: item 2 is <value>`, the value rendered as the preamble says / `name is outside <w>'s domain: an empty name` |
 | an index or count | E101 | `rows is outside <w>'s domain: row 7 of a frame of 5 rows` / `n is outside <w>'s domain: -1` |
 | a name absent or repeated | E101 | `<operand> is outside <w>'s domain: no column "dose"` (`no column "id" in right` for `frame.join`) / `"x" given twice`, `<operand>` being `name`, `names`, `by` or `opts` as the word takes it |
 | `descending` naming a column not sorted by | E101 | `opts is outside <w>'s domain: descending names "z", not among names` |
@@ -773,7 +794,7 @@ the first that fails.
 | a CSV header name empty or repeated | E101 | `text is outside <w>'s domain: header name 2 is empty` / `a repeated header name "x"` |
 | `sep` not one ASCII byte, or `"`, CR, LF | E101 | `opts is outside <w>'s domain: sep is <value>` |
 | text above 10⁸ bytes, a join above 10⁸ rows | E111 | `<what> exceeds its cap of 100000000` |
-| an options key unknown, or its value wrong | E101 | `opts is outside <w>'s domain: <summary>` (not a MAP) / `an unknown key "k"` / `a key "k" <w> does not take` / `<key> is <value>`, the key and a STRING value rendered as the preamble says |
+| an options key unknown, or its value wrong | E101 | `opts is outside <w>'s domain: <summary>` (not a MAP) / `an unknown key "k"` / `the key "k", which this word does not take`, as RFC-0016's reader words it (`biomath/infer/opts.rs`, `read`) / `<key> is <value>`, a scalar value rendered as the preamble says; for a LIST value, the first bad item, `<key> item 2 is <value>`, rendered alike, or `<key> is a LIST of <n>` when the LIST itself is wrong (`sep`'s one byte aside, which names the value); the key leads the text, where RFC-0016's reader names it after the value **[author]** |
 
 ## Preservation analysis
 
@@ -873,7 +894,10 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
      keeping that order, the unused level dropped) and `.factor.levels` (a cell not among the levels, and a
      repeated level, E101) answer frames equal to ones written out in the
      test, cells keeping their types and q; each answer passes
-     `frame.check`. `frame.filter` with a lambda leaving `1` is E112.
+     `frame.check`. `frame.filter` with a lambda leaving `1` is E112. `frame.select` with
+     `names` a STRING, `names` holding `1`, `frame.with` with `list` a
+     STRING or an empty name, and `frame.filter` with a STRING for its
+     lambda, refuse with S8's wrong-type texts.
 5. **Summaries.**
    - `frame.aggregate` by a factor and a string column, with every
      statistic: each group's answer equal bit for bit to the named
@@ -897,12 +921,11 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
      exactly as S8's renderer gives it; a NONE key shows as `none`; a
      group failing E101 for `"var"` before another failing E114 for
      `"mean"` refuses with the E101, and a group failing E114 before
-     another failing E101 refuses with the E114, by S5's order; every
-     NONE the word makes has q 0.0.
+     another failing E101 refuses with the E114, by S5's order.
    - `frame.join` inner and left on one and on two keys, with a left row
      matching two right rows, a factor key, an INTEGER key matching a
      FLOAT, a NONE key matching nothing, and a left row with no match
-     given NONE; a shared non-key name, an empty `by` and a repeated `by`
+     given NONE with q 0.0; a shared non-key name, an empty `by` and a repeated `by`
      name E101; the E111 cap.
    - The model path: a frame with a NONE in `x` at one row and in `y` at
      another, through `[ "x" "y" ] frame.complete`, then `frame.matrix`
@@ -914,8 +937,7 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
      rows with E101.
 6. **CSV.**
    - `frame.csv.parse` on a text with a header, an empty field, an `NA`,
-     a quoted `"NA"`, a quoted `"007"` (in a numeric column E103, the
-     frame check naming `text`'s column and row), a quoted comma, a quoted line
+     a quoted `"NA"`, a quoted `"007"`, a quoted comma, a quoted line
      break, a BOOL column and a column of `1` and `2.5`: each column's
      kind and each cell's type as S6 gives, NONE in place; `"NA"` kept as
      a STRING when `na` is `[ "" ]`; a FLOAT first at row 150 of an
@@ -935,7 +957,14 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
      and text that is only a byte-order mark, a frame of no columns and
      no rows; `"\n"` an empty header name E101 with `header` true and
      `column_1` holding one NONE with `header` false; `sep` `";"`, and
-     `sep` `"\""` and `sep` `";;"` E101; `header` false naming `column_1`, …; a repeated and an empty
+     `sep` `"\""` and `sep` `";;"` E101; a text of its own whose numeric
+     column holds a quoted `"007"` E103, naming `text`'s column and row;
+     each `na` field's NONE with q 0.0; options: an unknown key, `how`
+     given to `frame.csv.parse`, and `header` `1`, each E101 with S8's
+     text, and two bad keys refused for the first in sorted order
+     (`{ header: 1, sep: ";;" }` for `header`), a column check after
+     every key check (`{ factors: [ "zz" ] header: 1 }` for `header`);
+     `na` `[ "" 1 ]` refused naming item 2; `header` false naming `column_1`, …; a repeated and an empty
      header name E101; `factors` making a factor with sorted levels, and
      a name that is not a column E101.
    - `frame.csv.parse` of `frame.csv.text` of a frame of every kind, with
@@ -1061,7 +1090,15 @@ Choices this revision makes that no ruling names, each marked
   `WIDTH` − 2 between escapes, then quoted, by the frame words' own
   renderer; NONE shown as `none`; `<summary>` bounded but not escaped,
   as RFC-0015's; a group text bounded per key (S8);
-- the frame words' own options reader, with S8's texts (S1, S8);
+- the frame words' own options reader, with S8's texts, its known keys,
+  checked in two passes (keys in sorted order, then the column checks
+  after the parse), RFC-0016's "does not take" wording, a LIST value's
+  first bad item named, and the key leading the wrong-value text (S1,
+  S8);
+- the wrong-type row's operands, an item of `names` or `by` named by
+  its position, and `frame.with`'s empty name (S8);
+- a control character is `char::is_control`'s, U+2028 and U+2029
+  escaped too (S8);
 - the frame check names the operand the fault came from, not always
   `frame` (S8);
 - every NONE a frame word makes has q 0.0 (S2);
