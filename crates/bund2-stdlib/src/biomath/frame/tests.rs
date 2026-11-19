@@ -10,25 +10,29 @@ use super::WORDS;
 use crate::biomath::na::none;
 use crate::biomath::testkit::{frame_eq, run_on};
 
-fn s(x: &str) -> BundValue {
+pub(super) fn s(x: &str) -> BundValue {
     BundValue::str(x)
 }
 
-fn list(xs: Vec<BundValue>) -> BundValue {
+pub(super) fn list(xs: Vec<BundValue>) -> BundValue {
     BundValue::list(xs)
 }
 
-fn strs(xs: &[&str]) -> BundValue {
+pub(super) fn strs(xs: &[&str]) -> BundValue {
     list(xs.iter().map(|x| s(x)).collect())
 }
 
 /// A MAP of exactly the given keys.
-fn map(kv: Vec<(&str, BundValue)>) -> BundValue {
+pub(super) fn map(kv: Vec<(&str, BundValue)>) -> BundValue {
     BundValue::map(kv.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
 }
 
 /// A frame as a raw MAP, nothing checked.
-fn raw(names: &[&str], cols: Vec<BundValue>, levels: Vec<(&str, BundValue)>) -> BundValue {
+pub(super) fn raw(
+    names: &[&str],
+    cols: Vec<BundValue>,
+    levels: Vec<(&str, BundValue)>,
+) -> BundValue {
     let data = names
         .iter()
         .map(|n| n.to_string())
@@ -43,7 +47,7 @@ fn raw(names: &[&str], cols: Vec<BundValue>, levels: Vec<(&str, BundValue)>) -> 
 
 /// The fixed 5-row frame: an INTEGER column with a NONE, a FLOAT column,
 /// and a factor whose levels are not in sorted order.
-fn five() -> BundValue {
+pub(super) fn five() -> BundValue {
     raw(
         &["dose", "conc", "group"],
         vec![
@@ -62,12 +66,12 @@ fn five() -> BundValue {
 }
 
 /// Run `src` on `stack`; its error text, or its top.
-fn on(stack: &[BundValue], src: &str) -> Result<BundValue, String> {
+pub(super) fn on(stack: &[BundValue], src: &str) -> Result<BundValue, String> {
     let mut i = run_on(stack, None, src)?;
     i.pull().ok_or_else(|| format!("{src}: empty"))
 }
 
-fn fails(stack: &[BundValue], src: &str) -> String {
+pub(super) fn fails(stack: &[BundValue], src: &str) -> String {
     match on(stack, src) {
         Ok(v) => panic!("{src} answered {}", v.display()),
         Err(e) => e,
@@ -101,7 +105,7 @@ fn every_word_is_registered_with_its_effect() {
         .into_iter()
         .filter(|n| n.starts_with("frame."))
         .count();
-    assert_eq!(ours, WORDS.len());
+    assert_eq!(ours, WORDS.len() + super::reshape::WORDS.len());
 }
 
 /// Criterion 1: one `.` form of each effect shape.
@@ -432,7 +436,21 @@ fn operand_refusals() {
 /// types, empty, ragged, NONE-filled and malformed frames.
 #[test]
 fn no_operand_aborts() {
-    let palette = vec![
+    let palette = palette();
+    for w in WORDS.iter().filter(|w| !w.ends_with('.')) {
+        abort_free(w, &palette, true);
+    }
+}
+
+/// Whether an error is one criterion 9 allows: an E1nn, a shallow stack,
+/// or a bridge error.
+pub(super) fn ok_error(e: &str) -> bool {
+    e.contains(": E1") || e.contains("too shallow") || e.contains("returned")
+}
+
+/// Criterion 9's palette.
+pub(super) fn palette() -> Vec<BundValue> {
+    vec![
         BundValue::float(f64::NAN),
         BundValue::float(f64::NEG_INFINITY),
         BundValue::int(0),
@@ -449,23 +467,33 @@ fn no_operand_aborts() {
         raw(&["a"], vec![list(vec![none(), none()])], vec![]),
         raw(&["a"], vec![list(vec![BundValue::float(f64::NAN)])], vec![]),
         raw(&["g"], vec![strs(&["a"])], vec![("g", BundValue::int(1))]),
-    ];
-    let ok_error =
-        |e: &str| e.contains(": E1") || e.contains("too shallow") || e.contains("returned");
-    for w in WORDS.iter().filter(|w| !w.ends_with('.')) {
+    ]
+}
+
+/// `w`, and its `.` form when `bench`, on no operand and on one and two
+/// from `palette`.
+pub(super) fn abort_free(w: &str, palette: &[BundValue], bench: bool) {
+    {
         if let Err(e) = on(&[], w) {
             assert!(ok_error(&e), "{w}: {e}");
         }
-        for a in &palette {
-            for (stack, src) in [(vec![a.clone()], w.to_string()), (vec![], format!("{w}."))] {
+        for a in palette {
+            let mut runs = vec![(vec![a.clone()], w.to_string())];
+            if bench {
+                runs.push((vec![], format!("{w}.")));
+            }
+            for (stack, src) in runs {
                 let wb = (stack.is_empty()).then_some(a);
                 if let Err(e) = run_on(&stack, wb, &src).map(|_| ()) {
                     assert!(ok_error(&e), "{src} on {}: {e}", a.display());
                 }
             }
-            for b in &palette {
+            for b in palette {
                 if let Err(e) = on(&[a.clone(), b.clone()], w) {
                     assert!(ok_error(&e), "{w} on {} {}: {e}", a.display(), b.display());
+                }
+                if !bench {
+                    continue;
                 }
                 if let Err(e) =
                     run_on(std::slice::from_ref(a), Some(b), &format!("{w}.")).map(|_| ())

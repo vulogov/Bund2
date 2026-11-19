@@ -96,7 +96,12 @@ fn missing_values() {
 #[test]
 fn forms_use_the_workbench() {
     let list = BundValue::list(vec![super::none(), BundValue::int(1)]);
-    let mut i = run_on(std::slice::from_ref(&list), Some(&BundValue::int(9)), "na.fill.").unwrap();
+    let mut i = run_on(
+        std::slice::from_ref(&list),
+        Some(&BundValue::int(9)),
+        "na.fill.",
+    )
+    .unwrap();
     assert_eq!(shown(&i.pull_workbench().unwrap()), shown(&top("[ 9 1 ]")));
     let mut i = run_on(&[], Some(&list), "na.count.").unwrap();
     assert_eq!(shown(&i.pull_workbench().unwrap()), "1");

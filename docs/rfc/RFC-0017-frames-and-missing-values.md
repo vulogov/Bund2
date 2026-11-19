@@ -28,6 +28,12 @@
   it: **[P*n*]** for D253, **[D254]**–**[D258]** for the rest. A choice
   no ruling names is marked **[author]** and listed under §Open
   questions.
+- Note (2026-11-18, after acceptance, during M2): `frame.with` on a
+  frame of no columns takes a LIST of any length, and the new column
+  sets the row count, by the owner's ruling ("letting frame.with take a
+  list of any length when the frame has no columns, so the new column
+  sets the row count"). S4's row, its paragraph on names, S8's length
+  row and criterion 4 say so; nothing else moves.
 - Drafted 2026-11-17 on the owner's `/rfc-draft 0017`, after RFC-0016
   (research 07's Phase A) landed. The scope is research 07's Phase B
   (`docs/research/07-statistical-research.md:217`, §3.1 at `:85-107`):
@@ -364,7 +370,7 @@ are outside the option **[D256 S7]**. The words that only move cells
 | `frame.nrow`, `frame.ncol` | `frame -- n` | the counts; a frame with no columns has 0 rows **[author]** |
 | `frame.names` | `frame -- list` | `columns` |
 | `frame.column` | `frame name -- list` | one column's cells |
-| `frame.with` | `frame name list -- frame` | the column replaced, or appended last when new; a factor column replaced loses its levels **[author]** |
+| `frame.with` | `frame name list -- frame` | the column replaced, or appended last when new; a factor column replaced loses its levels **[author]**; on a frame of no columns, the new column sets the row count (Note, 2026-11-18) |
 | `frame.select` | `frame names -- frame` | those columns, in that order, with their levels |
 | `frame.take` | `frame rows -- frame` | the rows at the given **1-based** indices **[D257 B3]**, in that order, repeats allowed **[author]** |
 | `frame.head` | `frame n -- frame` | the first min(n, nrow) rows **[author]** |
@@ -386,7 +392,10 @@ are outside the option **[D256 S7]**. The words that only move cells
   `factors` or `descending` LIST (`frame.select`, `frame.sort`,
   `frame.complete`, `frame.matrix`, `frame.aggregate`, `frame.join`,
   `frame.csv.parse`) **[author]**. `frame.with`'s LIST must
-  have nrow cells (E102) and passes the column rules.
+  have nrow cells (E102), except on a frame of no columns, whose 0 rows
+  are a convention no column carries: there any length is taken and
+  sets the row count (Note, 2026-11-18). The LIST passes the column
+  rules.
 - **`frame.filter` runs its lambda** through the bridge, as `ode.rk4`
   runs its model: one row per call, on a scratch stack; a result other
   than a BOOL is E112. It calls the bridge itself (`kb/bridge.rs`,
@@ -769,7 +778,7 @@ the first that fails.
 | a number with a STRING or BOOL, outside `levels` | E103 | `column "x" is not a LIST of numbers: "abc" at row 3` |
 | any other mixture outside `levels`; in a column in `levels`, any cell not among its levels, a number or BOOL included | E101 | `frame is outside <w>'s domain: column "ok" row 3 is a STRING; the column is logical` / `column "g" row 3 is "c", not one of its levels` |
 | `frame.new`'s counts | E102 | `names and columns do not agree: 3 and 2` |
-| `frame.with`'s length | E102 | `the list and the frame's rows do not agree: 4 and 5` |
+| `frame.with`'s length, on a frame with a column | E102 | `the list and the frame's rows do not agree: 4 and 5` |
 | an operand of the wrong type (`names`, `by`, `rows`, `stats`, `levels`, `columns`, `frame.with`'s `list` not a LIST; `name` not a STRING; `frame.filter`'s `lambda` not a lambda); an item of a `names` or `by` LIST not a STRING; `frame.with`'s new name empty **[author]** | E101 | `<operand> is outside <w>'s domain: <summary>` / `<operand> is outside <w>'s domain: item 2 is <value>`, the value rendered as the preamble says / `name is outside <w>'s domain: an empty name` |
 | an index or count | E101 | `rows is outside <w>'s domain: row 7 of a frame of 5 rows` / `n is outside <w>'s domain: -1` |
 | a name absent or repeated | E101 | `<operand> is outside <w>'s domain: no column "dose"` (`no column "id" in right` for `frame.join`) / `"x" given twice`, `<operand>` being `name`, `names`, `by` or `opts` as the word takes it |
@@ -884,7 +893,8 @@ frames and `to_bits` for FLOATs, cell by cell in a LIST.
      out; `frame.nrow` of a zero-column frame is 0.
    - `frame.select` (a repeated name E101), `.take` (1-based, with a
      repeat; index 0 refused), `.head`, `.with` (replace and append;
-     a wrong length E102), `.filter` (a lambda on two columns guarding a
+     a wrong length E102; on a frame of no columns, a LIST of 3 cells
+     answering a frame of 3 rows), `.filter` (a lambda on two columns guarding a
      NONE with `na.is`), `.complete` (with named columns, and with an
      empty `names`), `.sort` (two keys, one descending, NONE last in both,
      stable; a factor key by level order; a BOOL key false first; a

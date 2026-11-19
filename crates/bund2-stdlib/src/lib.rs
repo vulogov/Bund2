@@ -854,7 +854,7 @@ mod honesty_tests {
         // `rng.choice.weighted`'s is `list`, the list drawn from, whose
         // values are moved and never read as names (§S7). Their forms' are
         // too.
-        const UNVARIED: [&str; 63] = [
+        const UNVARIED: [&str; 69] = [
             "bio.align",
             "bio.align.",
             "bio.align.score",
@@ -863,6 +863,12 @@ mod honesty_tests {
             "bio.pwm.scan.",
             "dist.hypergeometric",
             "dist.hypergeometric.",
+            "frame.factor.levels",
+            "frame.factor.levels.",
+            "frame.sort",
+            "frame.sort.",
+            "frame.with",
+            "frame.with.",
             "get,",
             "graph.maxflow",
             "graph.maxflow.",

@@ -1,7 +1,8 @@
 //! RFC-0017: frames, factors and missing values. M1 adds §S2's frame and
 //! its check, and §S4's first words: `frame.new`, `frame.check`,
 //! `frame.nrow`, `frame.ncol`, `frame.names`, `frame.column` and
-//! `frame.rows`.
+//! `frame.rows`. M2 adds the rest of §S4 in [`reshape`], with the options
+//! reader its `frame.sort` needs ([`opts`]).
 //!
 //! **A frame is a plain MAP** (D252) of exactly `columns`, `data` and
 //! `levels` (D253 P3): the names in order, each name to its LIST of cells,
@@ -15,7 +16,9 @@
 //! quoted, so no refusal breaks across lines.
 
 pub(crate) mod check;
+pub(crate) mod opts;
 pub(crate) mod render;
+pub mod reshape;
 
 use std::collections::BTreeMap;
 
@@ -165,9 +168,10 @@ pub fn register(r: &mut Registry) {
     word!("frame.names", frame_names, 1);
     word!("frame.column", frame_column, 2);
     word!("frame.rows", frame_rows, 1);
+    reshape::register(r);
 }
 
-/// M1's `frame.` words with their forms.
+/// M1's `frame.` words with their forms; M2's are [`reshape::WORDS`].
 pub const WORDS: [&str; 14] = [
     "frame.check",
     "frame.check.",

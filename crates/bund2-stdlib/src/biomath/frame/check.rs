@@ -59,8 +59,51 @@ impl Frame {
 
     /// The column called `name`, if there is one.
     pub fn column(&self, name: &str) -> Option<&[BundValue]> {
-        let i = self.names.iter().position(|n| n == name)?;
+        let i = self.index(name)?;
         self.cols.get(i).map(Vec::as_slice)
+    }
+
+    /// The position of the column called `name`.
+    pub fn index(&self, name: &str) -> Option<usize> {
+        self.names.iter().position(|n| n == name)
+    }
+
+    /// The kind of column `i`, read from its first non-NONE cell (§S2).
+    pub fn kind(&self, i: usize) -> Kind {
+        let Some(name) = self.names.get(i) else {
+            return Kind::Unknown;
+        };
+        if self.levels.contains_key(name) {
+            return Kind::Factor;
+        }
+        let first = self
+            .cols
+            .get(i)
+            .and_then(|c| c.iter().find(|x| x.dt() != NONE));
+        match first.map(BundValue::dt) {
+            Some(INTEGER | FLOAT) => Kind::Numeric,
+            Some(BOOL) => Kind::Logical,
+            Some(STRING) => Kind::Text,
+            _ => Kind::Unknown,
+        }
+    }
+
+    /// The frame of the given rows, in that order, levels kept. Each index
+    /// is below `nrow`; one that is not is a defect in the caller, and the
+    /// row is skipped rather than invented.
+    pub fn rows(&self, rows: &[usize]) -> Frame {
+        let cols: Vec<Vec<BundValue>> = self
+            .cols
+            .iter()
+            .map(|c| rows.iter().filter_map(|&r| c.get(r).cloned()).collect())
+            .collect();
+        let nrow = if self.names.is_empty() { 0 } else { rows.len() };
+        Frame {
+            names: self.names.clone(),
+            cols,
+            levels: self.levels.clone(),
+            nrow,
+        }
     }
 }
 
@@ -83,15 +126,41 @@ impl<'a> Who<'a> {
     }
 }
 
-/// How a cell's kind reads in a refusal.
-fn kind_of(v: &BundValue) -> String {
-    match v.dt() {
-        LIST => "a LIST".into(),
-        MAP => "a MAP".into(),
-        NODATA => "NODATA".into(),
-        STRING => "a STRING".into(),
-        BOOL => "a BOOL".into(),
-        _ => format!("a {}", v.type_name().to_uppercase()),
+/// How a value's type reads in a refusal: `a LIST`, `an INTEGER`.
+pub(crate) fn kind_of(v: &BundValue) -> String {
+    if v.dt() == NODATA {
+        return "NODATA".into();
+    }
+    let t = v.type_name().to_uppercase();
+    let article = if t.starts_with(['A', 'E', 'I', 'O', 'U']) {
+        "an"
+    } else {
+        "a"
+    };
+    format!("{article} {t}")
+}
+
+/// A column's kind (§S2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Kind {
+    Numeric,
+    Logical,
+    Text,
+    Factor,
+    /// All NONE, or no rows, outside `levels`.
+    Unknown,
+}
+
+impl Kind {
+    /// How the kind reads in a refusal.
+    pub fn word(self) -> &'static str {
+        match self {
+            Kind::Numeric => "numeric",
+            Kind::Logical => "logical",
+            Kind::Text => "string",
+            Kind::Factor => "a factor",
+            Kind::Unknown => "of no kind",
+        }
     }
 }
 
@@ -400,4 +469,10 @@ fn cells_ok(
         }
     }
     Ok(())
+}
+
+/// Rows 8 to 11 on a frame built from a checked one and new cells
+/// (`frame.with`), naming `who.cells` for a fault.
+pub(crate) fn cells(word: &str, who: Who, f: &Frame) -> Result<(), Error> {
+    cells_ok(word, who, &f.names, &f.cols, &f.levels)
 }
