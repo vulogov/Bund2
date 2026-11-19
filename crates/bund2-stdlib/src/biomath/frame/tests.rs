@@ -107,7 +107,10 @@ fn every_word_is_registered_with_its_effect() {
         .count();
     assert_eq!(
         ours,
-        WORDS.len() + super::reshape::WORDS.len() + super::csv::WORDS.len()
+        WORDS.len()
+            + super::reshape::WORDS.len()
+            + super::csv::WORDS.len()
+            + super::summary::WORDS.len()
     );
 }
 

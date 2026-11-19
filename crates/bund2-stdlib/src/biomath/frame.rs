@@ -3,7 +3,8 @@
 //! `frame.nrow`, `frame.ncol`, `frame.names`, `frame.column` and
 //! `frame.rows`. M2 adds the rest of §S4 in [`reshape`], with the options
 //! reader its `frame.sort` needs ([`opts`]). M3 adds §S6: the CSV reader
-//! and writer ([`csv`]) and `frame.text`'s table ([`table`]).
+//! and writer ([`csv`]) and `frame.text`'s table ([`table`]). M4 adds §S5:
+//! `frame.aggregate`, `frame.join` and `frame.matrix` ([`summary`]).
 //!
 //! **A frame is a plain MAP** (D252) of exactly `columns`, `data` and
 //! `levels` (D253 P3): the names in order, each name to its LIST of cells,
@@ -21,6 +22,7 @@ pub mod csv;
 pub(crate) mod opts;
 pub(crate) mod render;
 pub mod reshape;
+pub mod summary;
 pub(crate) mod table;
 
 use std::collections::BTreeMap;
@@ -173,10 +175,11 @@ pub fn register(r: &mut Registry) {
     word!("frame.rows", frame_rows, 1);
     reshape::register(r);
     csv::register(r);
+    summary::register(r);
 }
 
 /// M1's `frame.` words with their forms; M2's are [`reshape::WORDS`], M3's
-/// [`csv::WORDS`].
+/// [`csv::WORDS`], M4's [`summary::WORDS`].
 pub const WORDS: [&str; 14] = [
     "frame.check",
     "frame.check.",

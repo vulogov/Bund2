@@ -29,7 +29,12 @@ fn column_of(word: &str, f: &Frame, v: &BundValue) -> Result<usize, Error> {
 
 /// A `names` operand: a LIST of STRINGs, each a column, none twice. Every
 /// item's type is checked before any is looked up.
-fn names_of(word: &str, op: &str, f: &Frame, v: &BundValue) -> Result<Vec<usize>, Error> {
+pub(super) fn names_of(
+    word: &str,
+    op: &str,
+    f: &Frame,
+    v: &BundValue,
+) -> Result<Vec<usize>, Error> {
     let items = match v.as_list() {
         Some(xs) if v.dt() == LIST => xs,
         _ => return Err(domain(word, op, v.summary(WIDTH))),
@@ -262,7 +267,7 @@ fn frame_complete(vm: &mut dyn Vm) -> Result<(), Error> {
 /// Two non-NONE cells of one column, in §S4's order: numbers by exact
 /// value (`-0.0` equal to `0.0`), STRINGs by bytes, BOOLs false first, a
 /// factor's cells by their levels' order.
-fn cell_order(a: &BundValue, b: &BundValue, levels: Option<&[String]>) -> Ordering {
+pub(super) fn cell_order(a: &BundValue, b: &BundValue, levels: Option<&[String]>) -> Ordering {
     use BundValue::{Bool, Float, Int};
     match (a.unboxed(), b.unboxed()) {
         (Int(i, _), Int(j, _)) => i.cmp(j),

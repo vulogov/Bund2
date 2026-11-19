@@ -282,9 +282,12 @@ fn amean(vm: &mut dyn Vm, side: Side, mode: Mode, prefix: &str) -> Result<(), Er
             "{prefix} returned: Missing or insufficient data: amean: empty self vec"
         )));
     }
-    let n = source.len() as f64;
-    let sum: f64 = source.iter().sum();
-    side.push(vm, BundValue::float(sum / n));
+    // `describe.rs`'s `mean`: the same sum over the same count, shared so
+    // that `frame.aggregate`'s `"mean"` is this word's (RFC-0017 §S5).
+    side.push(
+        vm,
+        BundValue::float(crate::biomath::describe::mean(&source)),
+    );
     Ok(())
 }
 

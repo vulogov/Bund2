@@ -68,8 +68,14 @@ fn scale(word: &str, xs: &[f64], k: f64) -> Result<BundValue, Error> {
     finite_list(word, "a × k", xs.iter().map(|x| x * k).collect())
 }
 
+/// `vec.sum`'s sum, unchecked: `frame.aggregate`'s `"sum"` computes with
+/// it too (RFC-0017 §S5). Any n; the empty sum is 0.0.
+pub(crate) fn total(xs: &[f64]) -> f64 {
+    xs.iter().sum()
+}
+
 fn sum(word: &str, xs: &[f64]) -> Result<BundValue, Error> {
-    let y = finite(word, xs.iter().sum(), || "Σ xᵢ".into())?;
+    let y = finite(word, total(xs), || "Σ xᵢ".into())?;
     Ok(BundValue::float(y))
 }
 

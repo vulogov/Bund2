@@ -2,8 +2,9 @@
 //! quantiles, covariance and correlation.
 //!
 //! **Computed here, in f64, not through `rstats`** (§S6), so every answer
-//! comes from one place. `stat.var`'s mean is a sum over a count, as
-//! `stat.mean.arithmetic`'s is, but the two may differ in the last bit.
+//! comes from one place. `stat.var`'s mean is [`mean`], a sum over a
+//! count, and `stat.mean.arithmetic` calls the same function, so the two
+//! agree to the bit (RFC-0017 §S5).
 //!
 //! - `stat.var`, `stat.sd` and `stat.se` divide by n − 1, and refuse fewer
 //!   than two values, E101.
@@ -25,6 +26,8 @@ use super::operand::{
     at_least, domain, finite, four_forms, list, same_length, scalar_forms, two, two_forms,
 };
 
+/// The arithmetic mean, a sum over a count; any n, NaN at n = 0. Shared
+/// with `stat.mean.arithmetic` and `frame.aggregate` (RFC-0017 §S5).
 pub(crate) fn mean(xs: &[f64]) -> f64 {
     xs.iter().sum::<f64>() / xs.len() as f64
 }
@@ -59,16 +62,22 @@ fn sorted(xs: &[f64]) -> Vec<f64> {
     s
 }
 
-fn median(word: &str, xs: &[f64]) -> Result<BundValue, Error> {
-    at_least(word, xs, 1)?;
+/// `stat.median`'s median, unchecked: `frame.aggregate`'s `"median"`
+/// computes with it too (RFC-0017 §S5). The caller has checked n ≥ 1; at
+/// n = 0 the even arm would index below 0.
+pub(crate) fn median_of(xs: &[f64]) -> f64 {
     let s = sorted(xs);
     let n = s.len();
-    let y = if n % 2 == 1 {
+    if n % 2 == 1 {
         s[n / 2]
     } else {
         s[n / 2 - 1] / 2.0 + s[n / 2] / 2.0
-    };
-    Ok(BundValue::float(y))
+    }
+}
+
+fn median(word: &str, xs: &[f64]) -> Result<BundValue, Error> {
+    at_least(word, xs, 1)?;
+    Ok(BundValue::float(median_of(xs)))
 }
 
 fn mode(word: &str, xs: &[f64]) -> Result<BundValue, Error> {

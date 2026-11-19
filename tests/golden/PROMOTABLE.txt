@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 520 promotable of 529 reached, of 782 fixed-effect natives; 9 reached natives
+# 522 promotable of 531 reached, of 804 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -192,6 +192,8 @@ float.E
 float.NaN
 float.Pi
 fmt
+frame.csv.parse
+frame.csv.parse.
 frame.new
 frame.new.
 fs.cwd
@@ -604,6 +606,16 @@ vec.sub.
 # not reached: frame.check.
 # not reached: frame.column
 # not reached: frame.column.
+# not reached: frame.complete
+# not reached: frame.complete.
+# not reached: frame.csv.text
+# not reached: frame.csv.text.
+# not reached: frame.factor
+# not reached: frame.factor.
+# not reached: frame.factor.levels
+# not reached: frame.factor.levels.
+# not reached: frame.head
+# not reached: frame.head.
 # not reached: frame.names
 # not reached: frame.names.
 # not reached: frame.ncol
@@ -612,6 +624,16 @@ vec.sub.
 # not reached: frame.nrow.
 # not reached: frame.rows
 # not reached: frame.rows.
+# not reached: frame.select
+# not reached: frame.select.
+# not reached: frame.sort
+# not reached: frame.sort.
+# not reached: frame.take
+# not reached: frame.take.
+# not reached: frame.text
+# not reached: frame.text.
+# not reached: frame.with
+# not reached: frame.with.
 # not reached: generator
 # not reached: generator.sample
 # not reached: generator.sample*

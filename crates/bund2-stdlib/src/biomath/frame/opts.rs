@@ -12,10 +12,11 @@
 //! against the columns, is the word's own, after this answers.
 //!
 //! M2 reads `descending` (`frame.sort`); M3 reads `frame.csv.parse`'s
-//! `header`, `na`, `factors` and `sep`. The other keys are known, so that
-//! one given to the wrong word is "a key the word does not take"; their
-//! values are read in the milestone that adds the words taking them.
-//! `na` means a LIST of strings to `frame.csv.parse` only.
+//! `header`, `na`, `factors` and `sep`; M4 reads `na` for
+//! `frame.aggregate` and `frame.matrix`, and `how` for `frame.join`. Every
+//! key is known to every frame word, so one given to the wrong word is "a
+//! key the word does not take". `na` means a LIST of strings to
+//! `frame.csv.parse`, and `"refuse"` or `"omit"` to the others.
 
 use bund2_api::Error;
 use bund2_value::{BOOL, BundValue, LIST, MAP, STRING};
@@ -25,6 +26,24 @@ use crate::biomath::operand::{WIDTH, domain};
 
 /// Every key a frame word takes (§S1).
 const KEYS: [&str; 6] = ["descending", "factors", "header", "how", "na", "sep"];
+
+/// The `na` option of a word that computes from cells (§S3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Missing {
+    /// A NONE in a column the word reads is E101: the default.
+    Refuse,
+    /// Rows with a NONE in a column the word reads are dropped and counted.
+    Omit,
+}
+
+/// `frame.join`'s `how`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum How {
+    /// Only the matched rows: the default.
+    Inner,
+    /// Every row of `left`, an unmatched one given NONE.
+    Left,
+}
 
 /// The options a word asked for, each `None` when not given.
 #[derive(Debug, Default)]
@@ -39,6 +58,10 @@ pub(crate) struct Opts {
     pub factors: Option<Vec<String>>,
     /// `sep` (`frame.csv.parse`): one ASCII byte, not `"`, CR or LF.
     pub sep: Option<u8>,
+    /// `na` (`frame.aggregate`, `frame.matrix`).
+    pub missing: Option<Missing>,
+    /// `how` (`frame.join`).
+    pub how: Option<How>,
 }
 
 /// The word whose `na` is a LIST of strings.
@@ -74,6 +97,14 @@ fn sep(word: &str, v: &BundValue) -> Result<u8, Error> {
         [b] if b.is_ascii() && !matches!(b, b'"' | b'\r' | b'\n') => Ok(*b),
         _ => Err(bad()),
     }
+}
+
+/// A STRING option's text, for matching against its choices.
+fn choice(v: &BundValue) -> Option<&'static str> {
+    let s = v.as_str().filter(|_| v.dt() == STRING)?;
+    ["refuse", "omit", "inner", "left"]
+        .into_iter()
+        .find(|c| *c == s)
 }
 
 /// E101 on the `opts` operand.
@@ -131,6 +162,20 @@ pub(crate) fn read(word: &str, v: &BundValue, takes: &[&str]) -> Result<Opts, Er
                 _ => return Err(refuse(word, format!("header is {}", render::value(x)))),
             },
             "na" if word == CSV => o.na = Some(strings(word, k, x)?),
+            "na" => {
+                o.missing = Some(match choice(x) {
+                    Some("refuse") => Missing::Refuse,
+                    Some("omit") => Missing::Omit,
+                    _ => return Err(refuse(word, format!("na is {}", render::value(x)))),
+                });
+            }
+            "how" => {
+                o.how = Some(match choice(x) {
+                    Some("inner") => How::Inner,
+                    Some("left") => How::Left,
+                    _ => return Err(refuse(word, format!("how is {}", render::value(x)))),
+                });
+            }
             "sep" => o.sep = Some(sep(word, x)?),
             _ => {
                 return Err(Error::internal(format!(
