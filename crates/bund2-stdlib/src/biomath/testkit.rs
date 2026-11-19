@@ -70,3 +70,74 @@ pub(crate) fn fixture(text: &str, key: &str) -> Vec<f64> {
         .map(|v| v.parse().unwrap_or_else(|_| panic!("{line}")))
         .collect()
 }
+
+/// Run `src` over `stack`, pushed in order, and `wb` on the workbench.
+pub(crate) fn run_on(
+    stack: &[BundValue],
+    wb: Option<&BundValue>,
+    src: &str,
+) -> Result<Interp, String> {
+    let mut i = Interp::new();
+    crate::register_all(&mut i.registry);
+    for v in stack {
+        i.push(v.clone());
+    }
+    if let Some(v) = wb {
+        i.push_workbench(v.clone());
+    }
+    let stream = bund2_syntax::compile(src).map_err(|e| e.render(src))?;
+    i.eval(&stream).map_err(|e| {
+        e.0.rsplit_once(" returned error: ")
+            .map_or(e.0.clone(), |(_, m)| m.to_string())
+    })?;
+    Ok(i)
+}
+
+/// RFC-0017 §S2's `frame_eq` (D257 B2): the same `columns` in order, the
+/// same `levels`, and per cell the same type, INTEGERs equal, FLOATs equal
+/// by `to_bits`, STRINGs and BOOLs by content, NONE equal to NONE. q is not
+/// compared. Both operands are frames as a MAP; anything else is unequal.
+pub(crate) fn frame_eq(a: &BundValue, b: &BundValue) -> bool {
+    fn cell_eq(x: &BundValue, y: &BundValue) -> bool {
+        use bund2_value::{NONE, STRING};
+        if x.dt() != y.dt() {
+            return false;
+        }
+        match (x.unboxed(), y.unboxed()) {
+            (BundValue::Int(p, _), BundValue::Int(q, _)) => p == q,
+            (BundValue::Float(p, _), BundValue::Float(q, _)) => p.to_bits() == q.to_bits(),
+            (BundValue::Bool(p, _), BundValue::Bool(q, _)) => p == q,
+            _ if x.dt() == NONE => true,
+            _ if x.dt() == STRING => x.as_str() == y.as_str(),
+            _ => false,
+        }
+    }
+    fn list_eq(x: Option<&BundValue>, y: Option<&BundValue>) -> bool {
+        match (
+            x.and_then(BundValue::as_list),
+            y.and_then(BundValue::as_list),
+        ) {
+            (Some(p), Some(q)) => p.len() == q.len() && p.iter().zip(q).all(|(a, b)| cell_eq(a, b)),
+            _ => false,
+        }
+    }
+    let (Some(ma), Some(mb)) = (a.as_map(), b.as_map()) else {
+        return false;
+    };
+    if !list_eq(ma.get("columns"), mb.get("columns")) {
+        return false;
+    }
+    let maps = |m: &std::collections::BTreeMap<String, BundValue>, k: &str| {
+        m.get(k).and_then(BundValue::as_map).cloned()
+    };
+    let (Some(da), Some(db)) = (maps(ma, "data"), maps(mb, "data")) else {
+        return false;
+    };
+    let (Some(la), Some(lb)) = (maps(ma, "levels"), maps(mb, "levels")) else {
+        return false;
+    };
+    da.len() == db.len()
+        && da.iter().all(|(k, v)| list_eq(Some(v), db.get(k)))
+        && la.len() == lb.len()
+        && la.iter().all(|(k, v)| list_eq(Some(v), lb.get(k)))
+}

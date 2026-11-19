@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 509 promotable of 518 reached, of 759 fixed-effect natives; 9 reached natives
+# 520 promotable of 529 reached, of 782 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -192,6 +192,8 @@ float.E
 float.NaN
 float.Pi
 fmt
+frame.new
+frame.new.
 fs.cwd
 fs.is_file
 fs.ls
@@ -316,6 +318,15 @@ math.tanh.
 merge
 merge.
 metrics
+na
+na.count
+na.count.
+na.fill
+na.fill.
+na.is
+na.is.
+na.omit
+na.omit.
 nl
 nodata
 noop
@@ -589,6 +600,18 @@ vec.sub.
 # not reached: file.
 # not reached: fit.logistic
 # not reached: fit.logistic.
+# not reached: frame.check
+# not reached: frame.check.
+# not reached: frame.column
+# not reached: frame.column.
+# not reached: frame.names
+# not reached: frame.names.
+# not reached: frame.ncol
+# not reached: frame.ncol.
+# not reached: frame.nrow
+# not reached: frame.nrow.
+# not reached: frame.rows
+# not reached: frame.rows.
 # not reached: generator
 # not reached: generator.sample
 # not reached: generator.sample*

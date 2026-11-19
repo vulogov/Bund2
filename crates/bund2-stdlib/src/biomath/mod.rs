@@ -84,6 +84,13 @@
 //! - [`effect`]: §S5's effect sizes, `stat.effect.*`;
 //! - [`sample`]: §S7's shuffling and sampling, `rng.shuffle` and
 //!   `rng.choice*`.
+//!
+//! RFC-0017 adds frames, factors and missing values. Its M1 adds §S3 and
+//! the first of §S4:
+//!
+//! - [`na`]: `na`, `na.is`, `na.count`, `na.omit` and `na.fill`;
+//! - [`frame`]: §S2's frame and its check, and `frame.new`, `.check`,
+//!   `.nrow`, `.ncol`, `.names`, `.column` and `.rows`.
 
 pub mod align;
 pub mod describe;
@@ -91,8 +98,10 @@ pub mod dist;
 pub mod dynamics;
 pub mod effect;
 pub mod fit;
+pub mod frame;
 pub mod infer;
 pub mod linalg;
+pub mod na;
 pub(crate) mod operand;
 pub mod phylo;
 pub mod popgen;
@@ -122,6 +131,8 @@ pub fn register(r: &mut bund2_api::Registry) {
     round::register(r);
     effect::register(r);
     sample::register(r);
+    na::register(r);
+    frame::register(r);
 }
 
 #[cfg(test)]
