@@ -69,6 +69,23 @@
   the table now meets it. The review's SF1, a dated note on D252 that
   `json` does not carry a frame, is the owner's to record in
   `docs/registers/decisions.md`.
+- Note (2026-11-19, after M4, on the twelfth review's assumptions A1–A6,
+  `docs/rfc/reviews/RFC-0017-review-2026-11-19.md`): the code is
+  unchanged. Each behaviour below was there in M4 but not written down;
+  it is now stated where it applies, and each was probed again on
+  `target/debug/bund2` before writing.
+  - A1: a `by` column that a statistic also reads is read under `na` as
+    that statistic's column (S5, Groups).
+  - A2: a statistic's column of no kind is accepted with rows too, and so
+    is a `frame.matrix` column of no kind (S5).
+  - A3: BOOL keys match by value (S5, `frame.join`'s Keys).
+  - A4: `.dropped` is added under `"omit"` even when every statistic is
+    `"count"` (S5, `"omit"`).
+  - A5: a LIST literal cannot hold NONE (S3).
+  - A6: `vm.spawn` carrying a frame was never probed. It is not a claim
+    of this RFC, which names only `json` and the wire format (S2); the
+    claim is D252's, and D252's dated note of 2026-11-19 records it as
+    unverified.
 - Drafted 2026-11-17 on the owner's `/rfc-draft 0017`, after RFC-0016
   (research 07's Phase A) landed. The scope is research 07's Phase B
   (`docs/research/07-statistical-research.md:217`, §3.1 at `:85-107`):
@@ -389,6 +406,12 @@ means a word that computes from cells (D252's third dated note): the
 `"refuse"`/`"omit"` option. `frame.csv.parse`'s key `na` is another
 thing, P6's list of missing strings. `na.is` exists because `==` refuses
 NONE (§Current behaviour).
+A LIST literal cannot hold NONE: inside `[ ]`, `na` stays a word, as
+`true` and `false` do, so `[ "x" ] [ [ 1 na ] ] frame.new` is `E101
+columns is outside frame.new's domain: column "x" row 2 is a CALL`. A
+program puts NONE into a LIST with `+` (`[ 1 ] na +` is `[ 1 :: NONE ::
+]`), or gets it from JSON's `null` or `frame.csv.parse` **[author]**
+(Note, 2026-11-19; probed).
 `na.omit` hands *one* column to a word of the statistics family, which
 refuses NONE: `"dose" frame.column na.omit stat.mean`. Two columns used
 together are made complete together, with `frame.complete` (S4), never
@@ -503,7 +526,10 @@ are outside the option **[D256 S7]**. The words that only move cells
   E101; an empty `stats` is E101; an empty `by` makes one group of every
   row **[author]**. On a frame of no rows the answer is a frame of no
   rows, an empty `by` included, and a statistic's column of no kind is
-  accepted **[author]**.
+  accepted **[author]**. It is accepted with rows too: being all NONE, it
+  is E101 under `"refuse"` naming its first row, and under `"omit"`
+  every row is dropped, so each group has no cells for the statistic
+  (below) **[author]** (Note, 2026-11-19; probed).
 - **The checks come first [author].** `frame.aggregate` checks a group's
   size before computing, and computes with the very functions the named
   words use, not with their checking wrappers. `describe.rs`'s `mean` and
@@ -556,10 +582,16 @@ are outside the option **[D256 S7]**. The words that only move cells
   group's cell in the answer, and in a refusal's text, is the first of
   its rows' cells in row order, keeping its type **[author]**. NONE in a
   `by` column is a group of its own; `by` columns are outside the `na`
-  option.
+  option. A `by` column that a statistic also reads is read under `na`
+  as that statistic's column: under `"refuse"` its NONE is E101, and
+  under `"omit"` its row is dropped, so its NONE group never forms
+  **[author]** (Note, 2026-11-19; probed).
 - **`"omit"`** drops each row with a NONE in any column a statistic
   reads, and adds a column `.dropped`, the rows dropped per group, of
-  INTEGERs **[P8]**, as the last column **[author]**. A `by` column that is a factor stays a factor with its
+  INTEGERs **[P8]**, as the last column **[author]**. `.dropped` is
+  added whenever `na` is `"omit"`, even when every statistic is
+  `"count"` and its cells can only be 0 **[author]** (Note, 2026-11-19;
+  probed). A `by` column that is a factor stays a factor with its
   levels.
 
 **`frame.join` [D257 S6].**
@@ -576,7 +608,8 @@ are outside the option **[D256 S7]**. The words that only move cells
   factor and a string column counting as one kind **[author]**, else
   E101 naming it; a `by` column of no kind (all NONE, or no rows) agrees
   with any **[author]**. Numbers match
-  by value (1 matches 1.0, as `frame.sort` compares); factor keys match
+  by value (1 matches 1.0, as `frame.sort` compares), and so do BOOLs
+  (`true` matches `true`; Note, 2026-11-19; probed); factor keys match
   by level text, and the answer keeps `left`'s levels; NONE matches
   nothing, as in SQL. `right`'s factor columns keep their levels.
 - **The cap:** the output's row count is computed before allocating;
@@ -596,8 +629,10 @@ are outside the option **[D256 S7]**. The words that only move cells
 **`frame.matrix` [D256 S6].** Numeric columns only: a logical, string or
 factor column is E101 naming it (coding a factor is Phase C's
 `model.matrix`). INTEGER cells convert to FLOAT, as `stat.lm`'s `table`
-does. An empty `names`, and zero rows before or after `"omit"`, are E101
-naming the cause. Under `"omit"` the word reads its `names` columns and
+does. A column of no kind (all NONE) is accepted, and then is E101 under
+`"refuse"` or leaves no rows under `"omit"` **[author]** (Note,
+2026-11-19; probed). An empty `names`, and zero rows before or after
+`"omit"`, are E101 naming the cause. Under `"omit"` the word reads its `names` columns and
 answers `{ matrix, dropped }` in place of the bare MATRIX **[P8]**; a
 program whose `y` comes from another column uses `frame.complete` first
 instead (S3). Its refusals come in this order, the first failure winning
@@ -1201,6 +1236,23 @@ Choices this revision makes that no ruling names, each marked
   width in characters over the printed rows, no padding or separator at
   a line's end but a STRING's own trailing spaces kept, a STRING's line
   break printed as it is, `… 1 more row` (S6, extending D257 S9).
+
+Marked **[author]** after acceptance (Notes, 2026-11-19). M4 built each
+of these, and the twelfth review found them unstated. They are not
+among the choices accepted on 2026-11-18, and are listed for the owner
+to see:
+
+- `frame.join`'s and `frame.matrix`'s refusals in a stated order, and
+  `"refuse"` naming the first NONE in the order the word reads its
+  columns, each from row 1 (S5; SF3). The note applying SF3 marked
+  these without adding them here; they are added now;
+- a `by` column that a statistic also reads is read under `na` (S5; A1);
+- a column of no kind accepted with rows, by `frame.aggregate`'s
+  statistics and by `frame.matrix` (S5; A2);
+- `.dropped` added under `"omit"` even when every statistic is
+  `"count"` (S5; A4);
+- a LIST literal cannot hold NONE, so NONE enters a LIST by `+`, JSON's
+  `null` or `frame.csv.parse` (S3; A5).
 
 None is open in `docs/registers/open-questions.md` for this RFC: Q63 is
 answered (D257 B3), Q65 (the byte-order mark) by the third review, and
