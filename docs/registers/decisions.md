@@ -17737,3 +17737,107 @@ now compares an IRLS fit with §S4's own iteration, run at 50 digits and
 stopped by the same rule, rather than with the exact solution. K11's
 ruling is unchanged: R's rule and cap are kept, and so is K15's
 agreement with `fit.logistic`.
+
+## D262 — RFC-0018's [author] choices: models over frames
+
+**Raised 2026-11-20** by `docs/rfc/RFC-0018-models.md` (§Open
+questions), at 60cc0e1, after the RFC's third review
+(`docs/rfc/reviews/RFC-0018-review-2026-11-20-3.md`). D261 ruled K1–K16
+and left the RFC's **[author]** choices to the author, for the owner to
+see. The third revision added eleven to the twelve already listed. Two
+are new kinds of question rather than refinements of earlier ones:
+
+- **A non-integer Poisson `y`** (the review's SF9). R fits it, and its
+  AIC is +∞, because `dpois` answers 0 for a non-integer x (R 4.4.2's
+  `src/nmath/dpois.c:79`, `src/nmath/nmath.h:63`). B12 cannot answer
+  +∞. The choices were E101, as K12 does for the binomial; the fit with
+  `aic` and `bic` left out; or the continuous extension, which R does
+  not compute.
+- **A binomial weight that is not a count** (the review's SF8). R's
+  binomial AIC rounds the trials (`family.R:356-359`). Refusing such a
+  weight also refuses non-integer survey-style weights on a 0/1
+  response.
+
+- Blocks: RFC-0018's acceptance
+- Depends on: D250 (B12), D261 (K8, K11, K12, K15, K16)
+- Status: **RESOLVED** by the repository owner, 2026-11-20, ruling every
+  choice as written: "rule on the author choices: recommendations".
+
+| | Choice | Ruled, as written |
+|---|---|---|
+| 1 | Default residual type (§S5) | `"deviance"` |
+| 2 | A leverage of 1 (§S5) | refused, E114, when 1 − h ≤ 10⁻¹⁰, by `model.influence` and `model.residuals` `"standardized"` |
+| 3 | Nesting (§S7) | checked by family, link, `y`, `weights`, `offset` and names |
+| 4 | `model.anova`'s first row (§S7) | `(intercept)`, or `NULL` without one; `df`, `deviance`, `statistic` and `p` NONE |
+| 5 | Weights (§S2) | strictly positive; a 0 refused with a text pointing to `frame.filter` |
+| 6 | NONE order (§S2) | response, terms, `weights`, `offset`, each from row 1 |
+| 7 | `fit.lm`'s `opts` (§S3) | a MAP taking no key yet |
+| 8 | A constant `y` (§S3) | fitted without an intercept, refused with one |
+| 9 | Poisson rates numerically 0 (§S4) | refused below 10ε, where R warns |
+| 10 | Null-model refit not converging (§S4) | E110, where R warns |
+| 11 | First IRLS step out of range (§S4) | E101, as R stops |
+| 12 | Inverse Gaussian's valid μ (§S4) | μ > 0, where R accepts any μ |
+| 13 | Separation under `probit`, `cloglog`, `cauchit`, `log` (§S4) | refused at R's 10ε test, where R warns |
+| 14 | A group of zero Poisson counts (§S4) | answered with its large coefficient, as R answers it |
+| 15 | A non-integer Poisson `y` (§S4) | fitted, `aic` and `bic` left out |
+| 16 | A binomial weight more than 10⁻³ from an integer (§S4) | E101 |
+| 17 | A non-finite null deviance (§S4, §S7) | left out of the fit; `model.anova` E114 |
+| 18 | μ′ underflowing to 0 (§S4) | E114, where R drops the observation from the step |
+| 19 | Response among the terms, or named by `weights` or `offset`, or both naming one column (§S2) | E101 |
+| 20 | `model.matrix`'s order of refusals (§S2) | as §S2 lists it |
+| 21 | `model.predict`'s column kinds (§S6) | each as coded, else E101 |
+| 22 | `test` `"F"` under a fixed dispersion (§S7) | E101, where R warns |
+| 23 | A refusal while `model.anova` fits a row (§S7) | passed on, its text naming the row |
+
+What the ruling fixes:
+
+- **RFC-0018's text does not change** except its status lines: it was
+  written against these choices. The **[author]** marks stay, to show
+  where each ruling applies.
+- **Nothing in RFC-0018 is now open** except its acceptance, which
+  waits on a review of the third revision.
+
+## D263 — RFC-0018's [author] choices added by its fourth revision
+
+**Raised 2026-11-20** by `docs/rfc/RFC-0018-models.md` (§Open
+questions), revised after its fourth review
+(`docs/rfc/reviews/RFC-0018-review-2026-11-20-4.md`). The revision
+added six **[author]** choices after D262 ruled the earlier twenty-three.
+Each fills a case the review found undefined:
+
+- `model.anova` fits Gaussian identity rows by `fit.lm`'s computation,
+  which refuses a constant `y` because r² divides by 0 and a row does
+  not need r² (the review's SF4);
+- a `fit.glm` perfect fit under an estimated dispersion gives φ = 0 and
+  t = 0/0 (U4);
+- η = g(y) at the start overflows under `1/mu^2` for y below about
+  7·10⁻¹⁵⁵, where R stops with "cannot find valid starting values"
+  (R 4.4.2's `src/library/stats/R/glm.R:218-219`) (N1);
+- "unit weights and no offset", which selects `fit.logistic`'s
+  arithmetic, could be read from the values or from the options given
+  (U2);
+- z off that path could be formed from the clamped or the unclamped
+  linear predictor; R forms it from the unclamped one
+  (`glm.R:244-248`) (U7);
+- R codes a logical column as a two-level factor
+  (`src/library/stats/R/models.R:652`), and K7 codes it as one column
+  (SF2).
+
+- Blocks: RFC-0018's acceptance
+- Depends on: D250 (B12), D261 (K7, K15), D262
+- Status: **RESOLVED** by the repository owner, 2026-11-20, ruling every
+  choice as written: "rule on the author choices: recommendations".
+
+| | Choice | Ruled, as written |
+|---|---|---|
+| 1 | `model.anova`'s Gaussian identity rows (§S7) | §S3's constant-`y` refusal not applied to a row; a full model of deviance 0 refused with the perfect-fit text |
+| 2 | A `fit.glm` perfect fit under an estimated dispersion (§S4) | E101 with §S3's perfect-fit text, not E114 |
+| 3 | A start with a non-finite η (§S4) | E101 naming the row, as R stops |
+| 4 | What selects the `fit.logistic` path (§S4) | the values: every weight exactly 1.0 and every offset exactly 0.0 |
+| 5 | z off that path (§S4) | from the unclamped linear predictor, μ and μ′ through the clamp, as R forms it |
+| 6 | A logical column (§S2) | one column, never fully coded; the difference from R stated, `frame.factor` for R's model |
+
+What the ruling fixes:
+
+- **RFC-0018's text does not change** except its status lines.
+- **Nothing in RFC-0018 is open** except its acceptance.

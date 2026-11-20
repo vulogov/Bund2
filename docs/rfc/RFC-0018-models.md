@@ -11,7 +11,7 @@
   refusals E101–E115, the operand readers, `stat.lm` and `fit.logistic`),
   RFC-0016 (§S1's options-MAP rules), RFC-0017 (the frame, its check, its
   kinds and levels, NONE and the `na` option), RFC-0004 (effects)
-- Decisions consumed: **D261** (K1–K16, as recommended), **D260** (C3 A, C4 D, C5 C, C6 C, C7 B, C8 A),
+- Decisions consumed: **D263** (the fourth revision's [author] choices, as written), **D262** (the [author] choices, as written), **D261** (K1–K16, as recommended), **D260** (C3 A, C4 D, C5 C, C6 C, C7 B, C8 A),
   D250 (B5, B10, B11, B12, B15), D251 (A3, A4), D252 (C1 B, C2 C, and its
   notes), D253 (P2, P8, P9), D256 (S6), D259, D21, D36, D37, D39, D72.
 - Reference SHA: `reference/rust_multistackvm`
@@ -115,6 +115,29 @@ the marks now show where each ruling applies (§Open questions).
 - **N1–N10** are applied.
 - **U1–U10** of that review, and **U1–U6** of the second, are stated
   in §S1–§S7.
+- **The [author] choices**, all twenty-three, were ruled as written
+  (D262).
+
+**Revised, 2026-11-20, fourth review**
+(`docs/rfc/reviews/RFC-0018-review-2026-11-20-4.md`).
+- **B1.** `model.predict` codes new rows by the spec's columns and
+  levels. Of §S2's refusals it applies the frame check, the kinds, NONE
+  and the cells, and from step 7 only "no rows left" and the cap. A
+  one-row prediction joins criterion 5.
+- **SF1.** `fit.lm` and `fit.glm` join `fit.rs`'s `WORDS`, so
+  `fit/tests.rs`'s registration test counts them unchanged.
+- **SF2.** A logical column is one column, where R codes a logical as a
+  two-level factor. The difference without an intercept is stated
+  (`models.R:652`, `model.c`).
+- **SF3.** Contrast coding inside an interaction matches R's only where
+  the lower-order margins are earlier terms. The three-way case is
+  stated (`model.c`, `TermCode`).
+- **SF4.** `model.anova`'s F takes the full model's residual df, and F
+  under a fixed dispersion is refused. Its Gaussian identity rows'
+  refusals are stated.
+- **SF5.** On the `fit.logistic` path, `aic` is deviance + 2k.
+- **N1–N10 and U1–U7** are applied. Six new **[author]** choices are
+  listed apart (§Open questions), and were ruled as written (D263).
 
 ## Summary
 
@@ -383,7 +406,8 @@ for `fit.glm` (`07-statistical-research.md:122`, "own IRLS, as
   `"omit"` (D252 C2, its third note). Every other word here reads a
   design or a fit, which hold no NONE.
 - **Printing.** A fit and every answer over it hold only FLOATs,
-  INTEGERs, STRINGs, BOOLs, LISTs and MAPs, so `println` shows them
+  INTEGERs, STRINGs, BOOLs, LISTs and MAPs, and `model.anova`'s frame
+  NONE in its first row as well, so `println` shows them
   whole. A covariance matrix is a LIST of row LISTs. Only the design
   holds a MATRIX, for `linalg.` words and refits; `println` of a design
   leaves the MATRIX out (§Current behaviour).
@@ -400,7 +424,8 @@ interaction (D260 C3).
 
 **Columns, in order [K6].** The intercept, when `intercept` is true;
 then each term's columns in the order the terms are given. A term may
-not repeat, and an interaction's every column must appear as a term of
+not repeat, where R silently drops a repeated term
+(`src/library/stats/src/model.c:1415-1430`, `TrimRepeats`); and an interaction's every column must appear as a term of
 its own before it (E101 naming it), so no column is coded except as a
 main effect or a product of main effects already present. Only the
 members are required: a three-way interaction needs its three columns as
@@ -414,7 +439,7 @@ order is the order `model.anova` adds terms in.
 | numeric | one, its cells as FLOATs (B15) | `dose` |
 | logical | one, 1.0 for `true`, 0.0 for `false` | `treated.true` |
 | factor, levels ℓ₁ … ℓₘ | m − 1, treatment coding: column j is 1.0 where the cell is ℓⱼ₊₁, the first level the baseline (R's `contr.treatment`) | `site.north`, `site.south` |
-| factor, no intercept, the first factor term | m: every level its own column, as R codes it | `site.east`, `site.north`, `site.south` |
+| factor, no intercept, the first factor term | m: every level its own column, as R codes the first factor it finds (`model.c:461-475`) | `site.east`, `site.north`, `site.south` |
 | string, or no kind | refused: E101 naming the column; `frame.factor` makes a string column a factor | |
 
 An interaction's columns are the products of its members' columns, the
@@ -425,14 +450,39 @@ without an intercept, `[ "dose" "site" [ "dose" "site" ] ]` codes
 `dose`, `site.east`, `site.north`, `site.south`, `dose:site.north` and
 `dose:site.south`, six columns of full rank. The fully coded factor's
 three products would sum to `dose`, and the design would be singular.
-K6 has every member as an earlier term, so the contrast columns lose
-nothing. The intercept's column is all 1.0 and is named
+
+Where every lower-order margin of an interaction is an earlier term, as
+in any two-way interaction under K6, the contrast columns lose nothing,
+and R codes the same columns: its `TermCode` contrast-codes a factor
+when the term without it is contained in one earlier term
+(`model.c:1715-1749`). For an interaction of three or more members
+without its lower-order interactions, which K6 allows, the two differ.
+In `[ "a" "b" "c" [ "a" "b" "c" ] ]` of three factors, removing `a`
+leaves {b, c}, which no single earlier term contains, so R codes each
+factor of the three-way term by its dummies, and its columns reach every
+cell mean. §S2 codes them by contrasts, a smaller model. This is K6's
+option B, which was not ruled; a program that wants R's model adds the
+two-way interactions first.
+
+**A logical column is not a factor here, and is in R.** R's
+`model.matrix` treats a logical as a two-level factor
+(`src/library/stats/R/models.R:652`; `nlevs` 2, `model.c:439-443`), so
+without an intercept it may be the first factor R codes in full
+(`model.c:461-475`). §S2 codes a logical as one column always **[K7]**.
+With an intercept the two span the same space. Without one they
+differ: `[ "treated" ]` is one column here, so the `false` group's mean
+is fitted at 0, and two in R; `[ "treated" "site" ]` spans the same
+space as R's but R fully codes `treated` where §S2 fully codes `site`.
+A program that wants R's model makes the column a factor with
+`frame.factor`.
+
+The intercept's column is all 1.0 and is named
 `(intercept)`.
 
 **Response, weights and offset.** A term may not read the response's
 column, and `weights` and `offset` may not name the response, nor both
 name one column (E101 naming it) **[author]**. R drops a response that
-appears among the terms. Here it is refused, because a model of y on y
+appears among the terms, with a warning (`model.c:547-548`). Here it is refused, because a model of y on y
 is a mistake in the call.
 
 **Unused levels.** A factor is coded from the levels that occur in the
@@ -447,8 +497,7 @@ its term with no columns, and that is E101 naming the term.
 
 **Names are unique.** Two columns with the same name, such as a column
 `site.north` beside the factor `site`'s level `north`, or a column named
-`(intercept)`, are E101 naming both sources **[K4]**. R allows the
-duplicate. Here `model.compare` tests nesting by name (§S7), and a
+`(intercept)`, are E101 naming both sources **[K4]**. Here `model.compare` tests nesting by name (§S7), and a
 duplicate name would defeat that test.
 
 **The response** must be numeric or logical (logical read as 1.0 and
@@ -466,8 +515,10 @@ its own null model without a fit word (§S7).
 
 **The order of refusals [author].** `model.matrix` checks its operands
 in this order, and refuses at the first failure:
+0. `frame`: RFC-0017's check of the frame, its texts unchanged.
 1. `opts`: its keys and their types (§S1).
-2. `response`: a STRING naming a column.
+2. `response`: a STRING naming a column. Then `weights` and `offset`,
+   each naming a column.
 3. `terms`: item by item, each a STRING or a LIST of two or more
    STRINGs, naming a column, not repeated, its members earlier. Then no
    columns at all, `intercept` false with no terms.
@@ -485,9 +536,11 @@ in this order, and refuses at the first failure:
 Each refusal of criterion 1 is produced by an input that fails only
 that check.
 
-**A logical column** is not a factor and has no unused level to drop. If
-it holds one value in the rows kept, its column duplicates the intercept,
-and the design is E106 naming it (§S3).
+**A logical column** has no unused level to drop. If it holds only
+`true` in the rows kept, its column is all 1.0: with an intercept it
+duplicates it, and the design is E106 naming it (§S3); without one it is
+a valid fit. If it holds only `false`, its column is all 0.0, and the
+design is E106 naming it with or without an intercept.
 
 **The answer** is a MAP, the design:
 
@@ -604,10 +657,13 @@ is negative and the working weight √(w·μ′²/V) is not a number. Here a
 step to μ ≤ 0 is halved, as for the Gamma.
 
 Every family's `mustart` is valid under each of its links, given this
-table's response ranges and R's `initialize` rules (§Current behaviour).
-So R's check of the starting values, "cannot find valid starting values"
-(`glm.R:218-219`), has no case here, and no refusal stands for it (N2
-of the second review).
+table's response ranges and R's `initialize` rules (§Current behaviour),
+except at the edges of the FLOATs, where η = g(μ_start) is not finite:
+under `1/mu^2`, 1/y² overflows for y below about 7·10⁻¹⁵⁵, and under
+`inverse`, 1/y overflows for a subnormal y. R's `valideta` needs a
+finite η (`family.R:115`, `:121`), and R stops there with "cannot find
+valid starting values" (`glm.R:218-219`). Here a start with a non-finite
+η is E101 naming the row (§S8), before any step.
 
 **The iteration [K11].** Start from the family's `mustart` (R's, above)
 and η = g(μ_start). Each step is R's: z and w as at `glm.R:244-248`,
@@ -706,7 +762,18 @@ So when any `y` is more than 10⁻⁹·max(1, |y|) from an integer, R's test
 (`nmath.h:63`), `aic` and `bic` are left out of the fit, and every other
 key is answered **[author]**. The alternatives are E101, as K12 does for
 the binomial, or the continuous extension y ln μ − μ − ln Γ(y + 1),
-which R does not compute.
+which R does not compute. A `y` within that test of an integer is
+rounded to it for the AIC, as `dpois` rounds x by `R_forceint`
+(`dpois.c:83`; `nearbyint`, or `round` where that is missing,
+`nmath.h:57-59`). Within 10⁻⁹ of an integer no half arises, so the two
+agree.
+
+**A perfect fit [author].** Under the Gaussian, Gamma and inverse
+Gaussian, whose dispersion is estimated, a deviance of 0 makes φ 0, so
+`se` is 0 and t is 0/0, and the Gamma and inverse Gaussian AICs take
+ln 0. Such a fit is E101 with §S3's perfect-fit text, as `fit.lm`
+refuses it, not E114. Under the binomial and Poisson φ is 1, and a
+deviance of 0 is answered.
 
 **Where IRLS stops [K11].** Iteration stops by R's rule, the one
 `fit.logistic` uses (`fit.rs`, `DEVIANCE_TOL`). Under a canonical link
@@ -742,11 +809,21 @@ whatever the family; a Gaussian identity fit that needs them is
 | `family`, `link` | the STRINGs used |
 
 For the binomial under `logit` on a 0/1 response with unit weights and
-no offset, `fit.glm` takes `fit.logistic`'s arithmetic:
+no offset, `fit.glm` takes `fit.logistic`'s arithmetic. "Unit weights
+and no offset" is read from the values: every weight exactly 1.0 and
+every offset exactly 0.0, however the design was made. On that path:
 - W = μ(1 − μ) rather than μ′²/V;
 - z from the clamped η;
 - the deviance from η by `fit.logistic`'s softplus form (`fit.rs`,
-  `deviance`) rather than from μ.
+  `deviance`) rather than from μ;
+- `aic` = deviance + 2k, as `fit.logistic` takes it (`fit.rs`,
+  `fit_logistic`, the `aic` line). On 0/1 data with unit weights this
+  equals R's binomial AIC, since every saturated term is 0. Computed
+  through μ instead, −2 ln(1 − μ) at a 0 with η = 15 is already
+  1.5·10⁻¹¹ off relative, outside the 10⁻¹² below.
+Off that path, under `logit` as under every link, z is formed as R forms
+it (`glm.R:244-248`): from the linear predictor as solved, with μ and μ′
+taken through the link's clamp.
 The deviance sequence, and so the stopping iteration, is then
 `fit.logistic`'s. The coefficients, standard errors, deviance and AIC
 agree to a relative 10⁻¹² (criterion 3). They are not promised bit for
@@ -760,7 +837,8 @@ one of `"response"` (y − μ), `"pearson"` ((y − μ)√w/√V(μ)), `"devianc
 (sign(y − μ)√dᵢ, dᵢ the observation's deviance contribution),
 `"working"` ((y − μ)/μ′(η)), `"standardized"` (the deviance residual
 over √(φ(1 − hᵢ)), R's `rstandard.glm`). The default is `"deviance"`,
-R's for a GLM, which for an unweighted `fit.lm` is y − μ **[author]**.
+R's for a GLM (`glm.R:860-862`, `residuals.glm`), which for an
+unweighted `fit.lm` is y − μ **[author]**.
 
 `fit model.influence` answers a MAP of three LISTs of n FLOATs: `hat`,
 `std.residuals` (the deviance residual standardised as above), and
@@ -798,8 +876,22 @@ logical column logical, and a factor a factor, else E101 naming the
 column and both kinds. A factor's cells are checked by their level's
 value against the spec's levels, so a frame whose `levels` list for the
 column differs, by order or by levels no cell uses, is coded the same.
-The order of refusals is §S2's, from step 5 on, with the response not
-read.
+The new rows are coded with the spec's columns and levels, whatever
+levels they use: a factor whose new cells use one level, or a frame of
+one row, is coded and predicted. Of §S2's checks, `model.predict`
+applies, after its own check of `fit` and `opts`:
+- RFC-0017's check of `frame`;
+- step 5, each column's kind as coded (above), the response not read;
+- step 6, NONE under `"refuse"`, then the cells of `offset` and
+  `weights`;
+- from step 7, only "no rows left" and the cap.
+It does not refuse a level the new rows leave unused, a factor with one
+used level, or fewer rows than the fit has coefficients.
+
+The `weights` option names a numeric column of `frame`. It is read as
+`model.matrix` reads its `weights` column: NONE under `na` as any other
+column it reads, and a cell not finite and positive E101 naming the
+row.
 
 The answer is a MAP:
 - `fit`, a LIST of predictions;
@@ -817,8 +909,9 @@ both ends are mapped through the inverse link **[author]**. `lower` is
 the smaller of the two mapped ends and `upper` the larger, since
 `inverse` and `1/mu^2` are decreasing. A prediction interval adds σ̂²/wᵢ to the
 variance, wᵢ the new row's weight, and is for `fit.lm`, and `fit.glm`
-under `gaussian` and `identity`, only; elsewhere E101. Under `"omit"`, `dropped` counts the
-rows left out.
+under `gaussian` and `identity`, only; elsewhere E101. The answer
+always holds `dropped`, an INTEGER: the rows left out under `"omit"`,
+and 0 under `"refuse"`, as the design's `dropped`.
 
 ### S7. Comparing models
 
@@ -837,11 +930,16 @@ link and can be compared. Their deviances are each word's own, equal to
 rounding.
 
 - **A negative Δdeviance** is taken as 0, as R's `anova.glm` takes it
-  (`glm.R:520-521`), so the statistic is 0 and p is 1. Between nested
-  fits it can be negative only by rounding, as when the larger model
-  adds nothing: Dobson's `treatment` (criterion 6). R's `stat.anova`
-  answers `NA` there instead (`anova.R:34`, `:43`); B12 has no `NA` to
-  answer, and 0 is what the clamp already gives.
+  in its sequential table (`glm.R:520-521`). The answer's `deviance` is
+  then 0, the statistic 0 and p 1. Between nested fits Δdeviance can be
+  negative only by rounding, as when the larger model adds nothing:
+  Dobson's `treatment` (criterion 6). R's two-model comparison,
+  `anova.glmlist`, does not clamp (`glm.R:631-632`), and its
+  `stat.anova` answers `NA` for a negative statistic (`anova.R:34`,
+  `:43`). B12 has no `NA` to answer, so both words here clamp, as
+  `anova.glm` does.
+- **Equality.** "The same `y`, `weights` and `offset`" is exact FLOAT
+  equality, element by element, and equal lengths.
 - **F under a fixed dispersion.** `test` `"F"` on a binomial or Poisson
   pair is E101 **[author]**. R computes it with an infinite denominator
   df and warns that it is inappropriate (`glm.R:660-661`, `:670-675`).
@@ -866,6 +964,16 @@ design's terms one at a time, in order, by `assign`. It takes
 and `link` defaults to the family's canonical link. Under `"gaussian"`
 and `"identity"` each model is fitted by `fit.lm`'s computation, closed
 form; otherwise by `fit.glm`'s IRLS.
+- **Tests.** Each row's test uses the full model's dispersion, and an F
+  test the full model's residual df as its denominator df, as R's
+  `anova.glm` does (`glm.R:548-551`). `test` `"F"` under a fixed
+  dispersion is E101, as in `model.compare`.
+- **Gaussian identity rows [author].** A row needs only RSS, so §S3's
+  refusal of a constant `y − offset` with an intercept, which is about
+  r², does not apply to a row. A full model whose deviance is 0 is
+  refused with §S3's perfect-fit text, since every F statistic would
+  divide by a dispersion of 0. A constant `y` therefore meets that
+  refusal, and not the constant one.
 
 A refusal while fitting a row is passed on with its code, and its text
 ends `, fitting the model through term "treatment"` (or `, fitting the
@@ -885,8 +993,7 @@ every later row's difference would be infinite. It answers a frame
 joined by `:`), `df` and `resid.df` (INTEGER columns), `deviance`,
 `resid.deviance`, `statistic` and `p` (numeric columns). The first row
 has no earlier model, so its `df`, `deviance`, `statistic` and `p` are
-NONE, as R's are `NA` (`glm.R:520-521`). Each row's test uses the full model's
-dispersion, as R's `anova.glm` does. This is R's type I table; types II
+NONE, as R's are `NA` (`glm.R:520-521`). This is R's type I table; types II
 and III are not in this RFC **[K1]**.
 
 ### S8. Refusals
@@ -917,8 +1024,10 @@ escaped, bounded, quoted.
 | a non-integer binomial weight | E101 | `design is outside <w>'s domain: weights row 3 is 2.5, not a count of trials` |
 | an unknown family, or a link the family does not take | E101 | `opts is outside <w>'s domain: link is "sqrt", not a binomial link` |
 | a singular design | E106 | RFC-0015's text, then `: column "dose:site.south" depends on those before it` (the first column whose pivot fails `stat.lm`'s rank test). `stat.lm`'s and `fit.logistic`'s texts are unchanged |
-| IRLS or step halving past 100 | E110 | RFC-0015's text, method `IRLS` / `IRLS step halving` / `IRLS (null model)` |
-| the first IRLS step out of range | E101 | `design is outside <w>'s domain: the first IRLS step leaves the gamma family's valid range, with no earlier coefficients to halve towards` |
+| IRLS or step halving past 100 | E110 | RFC-0015's text, method `IRLS` / `IRLS step halving` / `IRLS (null model)`. For `IRLS step halving` the template's "iterations" counts the halvings of one step |
+| a start with a non-finite η | E101 | `design is outside <w>'s domain: y row 3 is 1e-200, whose starting η under the 1/mu^2 link is not finite` |
+| the first IRLS step out of range | E101 | `design is outside <w>'s domain: the first IRLS step leaves the gamma family's valid range, with no earlier coefficients to halve towards`, or `the sqrt link's valid range` when the failing test is η's |
+| a perfect fit under an estimated dispersion (`fit.glm`, and `model.anova`'s full model) | E101 | §S3's text, `a perfect fit, its residual variance 0` |
 | Poisson rates numerically 0 | E101 | `design is outside <w>'s domain: fitted rate numerically 0 at row 4` |
 | separation | E101 | `design is outside <w>'s domain: fitted probabilities numerically 0 or 1: X separates y` |
 | a perfect fit (`fit.lm`) | E101 | `design is outside <w>'s domain: a perfect fit, its residual variance 0` |
@@ -948,8 +1057,14 @@ file, `varied_of`): `model.matrix` and
 `model.predict.`, `model.compare` and `model.compare.` (three and
 two); each with the operands the palette leaves at 7. The audit
 compares the array with the registry's order (`assert_eq!`), so the six
-names go where `declared_effects` lists them. A counting test per
-module, as RFC-0016's and RFC-0017's modules have.
+names go where `declared_effects` lists them. `fit.lm` and `fit.glm`
+are registered beside `fit.logistic`, and their four names join
+`fit.rs`'s `WORDS`. `fit/tests.rs` counts every registered name that
+starts with `fit.` against `WORDS` (its registration test), so that
+unchanged test becomes their counting test, and a module of their own
+with its own `WORDS` would fail it. The `model.` words are a module of
+their own, with a counting test as RFC-0016's and RFC-0017's modules
+have.
 
 ## Preservation analysis
 
@@ -1092,17 +1207,20 @@ below 10⁻⁶ is compared to an absolute 10⁻¹².
    one row is refused by `model.influence` and by `model.residuals`
    `"standardized"` with §S8's text, and its other residual types are
    answered.
-5. **Prediction.** For the Poisson and the Gaussian fits: `fit` and `se`
-   on both scales and confidence intervals, and for the Gaussian
-   prediction intervals, against the fixture, a Gamma fit under
-   `inverse` among them (every `se` positive, every `lower` below its
-   `upper`), criterion 2's weighted fit
-   among them with and without `weights` for the new rows; an unseen
-   level and a
-   prediction interval on the Poisson fit refused with their texts.
+5. **Prediction.** The fits are criterion 3's Poisson fit, its Gamma
+   fit under `inverse`, criterion 2's Gaussian fit, and criterion 2's
+   weighted fit. For each, against the fixture: `fit` and `se` on both
+   scales and confidence intervals. For the Gamma fit, every `se` is
+   positive and every `lower` below its `upper`. For the Gaussian and
+   weighted fits, prediction intervals too, the weighted fit's with and
+   without `weights` for the new rows. A prediction at one new row of
+   criterion 1's factor design, its `site` cell a single level, is
+   answered. An unseen level and a prediction interval on the Poisson
+   fit are refused with their texts.
 6. **Comparison.** `model.compare` of the Dobson model without and with
    `treatment` gives the LR test by default, and of two Gamma fits the F
-   test by default, each against the fixture; the first has
+   test by default, each against the fixture, and `model.anova` of a
+   Gamma design gives F on the full model's residual df; the first has
    `deviance` and `statistic` 0 within the absolute floor and `p` 1.
    `model.anova` of the Dobson design (`"outcome"` then `"treatment"`,
    Poisson) answers this frame, its numbers against the fixture:
@@ -1163,7 +1281,8 @@ grows with each milestone.
 **Ruled 2026-11-20 (D261):** the owner accepted every recommendation,
 "rule on K1–K16: recomendations". The "Recommended" column below is what
 was ruled. The **[author]** choices that follow were not part of that
-ruling and remain the author's, for the owner to see.
+ruling. The owner ruled them as written on 2026-11-20 (D262), "rule on
+the author choices: recommendations".
 
 | | Question | Options | Recommended |
 |---|---|---|---|
@@ -1184,7 +1303,7 @@ ruling and remain the author's, for the owner to see.
 | **K15** | `stat.lm` and `fit.logistic` | **A** both unchanged; `fit.lm` shares `stat.lm`'s computation, bit for bit; `fit.glm` agrees with `fit.logistic` to 10⁻¹². **B** `fit.logistic` rewritten on `fit.glm` | **A** |
 | **K16** | Intervals from `model.predict` | **A** confidence intervals on the link scale mapped through the inverse link; prediction intervals for Gaussian identity fits only. **B** no intervals, `se` only, as R's `predict.glm` | **A**: an interval is what a program wants from a prediction. A weighted fit's prediction interval takes each new row's weight from a `weights` column, default 1.0, as R's `predict.lm` assumes (§S6) |
 
-Choices marked **[author]** where they stand, for the owner to see:
+Choices marked **[author]** where they stand, ruled as written (D262):
 
 - the default residual type `"deviance"` (§S5);
 - a leverage of 1 refused, where R answers NaN (§S5);
@@ -1208,8 +1327,8 @@ Choices marked **[author]** where they stand, for the owner to see:
 - a group of zero Poisson counts answered with its large coefficient,
   as R answers it, the rate refusal catching only a μ below 10ε (§S4);
 - a non-integer Poisson `y` fitted with `aic` and `bic` left out,
-  rather than E101 or the continuous extension (§S4) — the third
-  review's SF9, new for the owner;
+  rather than E101 or the continuous extension (§S4), the third
+  review's SF9;
 - a binomial weight more than 10⁻³ from an integer refused (§S4);
 - a non-finite null deviance left out of the fit, and `model.anova`
   refusing it with E114 (§S4, §S7);
@@ -1223,9 +1342,26 @@ Choices marked **[author]** where they stand, for the owner to see:
 - a refusal while `model.anova` fits a row passed on, naming the row
   (§S7).
 
-On acceptance, ERRATA also records one refinement of research 07 beside
-K1's six narrowings: §3.2 says `model.matrix` answers "a design MATRIX"
-(`07-statistical-research.md:111`), and §S2 answers a MAP holding one.
+Added by the fourth revision, after D262, and ruled as written on 2026-11-20 (D263):
+- `model.anova`'s Gaussian identity rows: §S3's constant-`y` refusal
+  not applied, a full model of deviance 0 refused with the perfect-fit
+  text (§S7);
+- a `fit.glm` perfect fit under an estimated dispersion refused with
+  §S3's text, E101 (§S4);
+- a start with a non-finite η refused, as R stops (§S4);
+- the `fit.logistic` path chosen by the values of the weights and
+  offset (§S4);
+- off that path, z formed from the unclamped linear predictor, as R
+  forms it (§S4);
+- a logical column coded as one column, never fully, where R codes it
+  as a two-level factor; this follows from K7 (§S2).
+
+On acceptance, ERRATA also records two refinements of research 07
+beside K1's six narrowings:
+- §3.2 says `model.matrix` answers "a design MATRIX"
+  (`07-statistical-research.md:111`), and §S2 answers a MAP holding one;
+- §3.2 asks for "Weights and offsets for every model word" (`:116`),
+  and `stat.lm` and `fit.logistic` take neither, unchanged under K15.
 
 None is open in `docs/registers/open-questions.md`: R's behaviour is
 read from its source, and every Bund2 behaviour cited is read or probed.
