@@ -69,6 +69,9 @@
   the table now meets it. The review's SF1, a dated note on D252 that
   `json` does not carry a frame, is the owner's to record in
   `docs/registers/decisions.md`.
+- Note (2026-11-19): the seven **[author]** choices marked after
+  acceptance (§Open questions, their own block) are accepted by the
+  owner, "Accept all seven" (D259). Nothing in the code or text moves.
 - Note (2026-11-19, after M4, on the twelfth review's assumptions A1–A6,
   `docs/rfc/reviews/RFC-0017-review-2026-11-19.md`): the code is
   unchanged. Each behaviour below was there in M4 but not written down;
@@ -94,8 +97,8 @@
 - Depends on: RFC-0015 (the `biomath` conventions: S3's forms, S11's
   refusals E101–E115, the operand readers, the lambda bridge), RFC-0016
   (§S1's options-MAP rules, D251), RFC-0004 (effects)
-- Decisions consumed: **D252** (C1 ruled B, C2 ruled C, and its three
-  dated notes), **D253**–**D258** (with the dated notes beside D254, D255,
+- Decisions consumed: **D252** (C1 ruled B, C2 ruled C, and its four
+  dated notes), **D253**–**D259** (with the dated notes beside D254, D255,
   D256, and two beside D258), D21, D24, D32, D33, D36, D37, D39, D51, D72, D106, D108, D111,
   D119, D250 (B12, B15), F76.
 - Reference SHA: `reference/rust_multistackvm`
@@ -1238,9 +1241,9 @@ Choices this revision makes that no ruling names, each marked
   break printed as it is, `… 1 more row` (S6, extending D257 S9).
 
 Marked **[author]** after acceptance (Notes, 2026-11-19). M4 built each
-of these, and the twelfth review found them unstated. They are not
-among the choices accepted on 2026-11-18, and are listed for the owner
-to see:
+of these, and the twelfth review found them unstated. They were not
+among the choices accepted on 2026-11-18; the owner accepted all seven
+on 2026-11-19 (D259):
 
 - `frame.join`'s and `frame.matrix`'s refusals in a stated order, and
   `"refuse"` naming the first NONE in the order the word reads its

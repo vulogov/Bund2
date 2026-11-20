@@ -1,0 +1,143 @@
+//
+// RFC-0017's frames, factors and missing values, over a small dose trial:
+// nine patients at three sites, two of whom have no response recorded.
+// Run it:
+//
+//   bund2 demo.bund
+//
+// Nothing is drawn at random, so a run prints the same lines each time,
+// and `expected.txt` beside this file is what it must print.
+//
+// A frame is a plain MAP: `columns`, the names in order; `data`, each name
+// to its LIST of cells; `levels`, each factor's levels. NONE marks a
+// missing cell. Every `frame.` word checks that shape on entry.
+//
+// Operands go deepest first: the deepest operand is a word's first, so
+// `frame names opts frame.sort` sorts `frame` by `names`.
+//
+
+// A FLOAT, or each FLOAT of a LIST, to six decimals, so that the printed
+// lines do not depend on the last bits of a long computation.
+:round { 1000000.0 * math.round 1000000.0 swap / } register
+:roundall { list swap { round swap + } loop } register
+
+//
+// 1. Reading. The trial is CSV text; a program reading a file passes
+//    `"/absolute/path.csv" file` in its place (`file` takes a path, made a
+//    `file://` URI). An empty field and `NA` are both missing, so they
+//    become NONE and every row keeps its place. `factors` makes `site` a
+//    factor, its levels its distinct values sorted.
+//
+"-- 1. reading a CSV into a frame" println
+:trial
+"patient,site,dose,response
+1,north,10,4.2
+2,north,20,5.9
+3,south,10,3.8
+4,south,20,
+5,east,10,4.6
+6,east,20,6.3
+7,north,30,7.1
+8,south,30,6.8
+9,east,30,NA
+" var
+:t :trial var? dict [ "site" ] "factors" swap set frame.csv.parse var
+:t var? frame.text println
+"names:                  " print :t var? frame.names println
+"rows:                   " print :t var? frame.nrow println
+"missing responses:      " print :t var? "response" frame.column na.count println
+"mean of those recorded: " print :t var? "response" frame.column na.omit stat.mean round println
+"" println
+
+//
+// 2. Choosing rows. `frame.complete` keeps the rows with no NONE in the
+//    named columns. `frame.filter` keeps the rows its lambda answers
+//    `true` for; the lambda gets each row as a MAP of name to cell.
+//    Comparisons take the top operand first, so `10 <` asks 10 < dose.
+//    `frame.sort` is stable, here by dose descending, then response, with
+//    NONE last.
+//
+"-- 2. complete rows, a filter, a sort" println
+"rows with a response:" println
+:t var? [ "response" ] frame.complete frame.text println
+"doses above 10:" println
+:t var? { "dose" get 10 < } frame.filter frame.text println
+"by dose descending, then response:" println
+:t var? [ "dose" "response" ] dict [ "dose" ] "descending" swap set frame.sort frame.text println
+"" println
+
+//
+// 3. Summarising. `frame.aggregate` makes one row per site, in the
+//    factor's level order, and one column per [ column statistic ] pair.
+//    A word that computes from cells takes `na`: `"refuse"`, the default,
+//    stops at the first NONE and names it; `"omit"` drops the incomplete
+//    rows and says how many, per group, in `.dropped`.
+//
+"-- 3. aggregate by site" println
+:t var? [ "site" ]
+[ [ "response" "mean" ] [ "response" "median" ] [ "patient" "count" ] ]
+dict "na" "omit" set frame.aggregate frame.text println
+?try
+  :try { :t var? [ "site" ] [ [ "response" "mean" ] ] dict frame.aggregate println } set
+  :except { "under refuse: " print :context get println } set
+!
+"" println
+
+//
+// 4. Joining. `frame.join` matches rows on the `by` columns. An inner
+//    join, the default, keeps the rows that match; a left join keeps every
+//    row of the left frame and gives the unmatched ones NONE.
+//
+"-- 4. joining the sites' towns" println
+:sites "site,town
+north,Ashby
+south,Barrow
+west,Calder
+" dict frame.csv.parse var
+"inner:" println
+:t var? :sites var? [ "site" ] dict frame.join frame.text println
+"left:" println
+:t var? :sites var? [ "site" ] dict "how" "left" set frame.join frame.text println
+"" println
+
+//
+// 5. A model. `frame.matrix` makes a MATRIX of numeric columns, the shape
+//    `stat.lm` and the `linalg.` words take. Under `"omit"` it answers a
+//    MAP of the MATRIX and how many rows it dropped. Here response is
+//    fitted on dose over the complete rows; `stat.lm` adds the intercept.
+//
+"-- 5. a linear model from a frame" println
+"rows dropped under omit: " print
+:t var? [ "dose" "response" ] dict "na" "omit" set frame.matrix "dropped" get println
+:c :t var? [ "response" ] frame.complete var
+:fit :c var? [ "dose" ] dict frame.matrix :c var? "response" frame.column stat.lm var
+"intercept and slope:     " print :fit var? "coef" get roundall println
+"r²:                      " print :fit var? "r2" get round println
+"" println
+
+//
+// 6. Writing. `frame.csv.text` writes CSV, NONE as an empty field and
+//    every STRING quoted; `"/absolute/path.csv" file.write` would keep it.
+//
+"-- 6. the first three rows as CSV" println
+:t var? 3 frame.head frame.csv.text print
+"" println
+
+//
+// 7. Making NONE. `na` is NONE, but inside a LIST literal it stays a
+//    word, as `true` and `false` do, so `[ 1 na ]` holds a CALL and a
+//    frame word refuses it. `+` puts NONE into a LIST; JSON's `null` and
+//    `frame.csv.parse` make it too. `na.fill` replaces it.
+//
+"-- 7. making NONE" println
+?try
+  :try { [ "x" ] [ [ 1 na ] ] frame.new println } set
+  :except { "a literal: " print :context get println } set
+!
+:x [ 1 3 ] na + var
+"by +:       " print :x var? println
+"how many:   " print :x var? na.count println
+"na.is na:   " print na na.is println
+"filled:     " print :x var? 0 na.fill println
+:f [ "x" ] [ [ 1 2 3 ] ] frame.new "x" :x var? frame.with var
+"in a frame:" println :f var? frame.text println

@@ -17576,3 +17576,28 @@ the default `na` strings, `[ "" "NA" ]`. A program whose `na` leaves out
 `""` asks for empty fields to stay empty, and RFC-0017 reads every empty
 unquoted field so, an empty line in a one-column frame included: an empty
 STRING. Recorded here so the reading is the owner's to overrule.
+
+## D259 — RFC-0017's post-acceptance [author] choices, after M4
+
+**Raised 2026-11-19** by RFC-0017's twelfth review
+(`docs/rfc/reviews/RFC-0017-review-2026-11-19.md`, SF3 and A1–A6), on
+the RFC as built through M4 (9b71007). Each choice was marked
+**[author]** after the RFC's acceptance of 2026-11-18, which covered
+only the choices listed then, and is listed under RFC-0017's §Open
+questions in its own block. The code already does each one; each was
+probed on `target/debug/bund2` before it was written down.
+
+- Blocks: nothing; ruling against a choice would make a work item
+- Depends on: D252, D253 (P8), D256 (S7), D257 (S6)
+- Status: **RESOLVED** by the repository owner, 2026-11-19: "Accept all
+  seven".
+
+| | Choice (RFC-0017) | Ruled |
+|---|---|---|
+| **1** | `frame.join`'s refusals in a stated order, the first failure winning (S5; SF3) | Accepted |
+| **2** | `frame.matrix`'s refusals in a stated order, the first failure winning (S5; SF3) | Accepted |
+| **3** | `"refuse"` names the first NONE in the order the word reads its columns, each from row 1 (S5; SF3) | Accepted |
+| **4** | A `by` column that a statistic also reads is read under `na` as that statistic's column (S5; A1) | Accepted |
+| **5** | A column of no kind is accepted with rows, by `frame.aggregate`'s statistics and by `frame.matrix` (S5; A2) | Accepted |
+| **6** | `.dropped` is added under `"omit"` even when every statistic is `"count"` (S5; A4) | Accepted |
+| **7** | A LIST literal cannot hold NONE; NONE enters a LIST by `+`, JSON's `null` or `frame.csv.parse` (S3; A5) | Accepted |
