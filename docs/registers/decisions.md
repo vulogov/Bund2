@@ -17601,3 +17601,71 @@ probed on `target/debug/bund2` before it was written down.
 | **5** | A column of no kind is accepted with rows, by `frame.aggregate`'s statistics and by `frame.matrix` (S5; A2) | Accepted |
 | **6** | `.dropped` is added under `"omit"` even when every statistic is `"count"` (S5; A4) | Accepted |
 | **7** | A LIST literal cannot hold NONE; NONE enters a LIST by `+`, JSON's `null` or `frame.csv.parse` (S3; A5) | Accepted |
+
+## D260 — Research 07's C3–C8: model specification, reference values, names, reproducible studies, lambda speed, and the shape of the programme
+
+**Raised 2026-11-19** by `docs/research/07-statistical-research.md`
+(§5, C3–C8), on the owner's "lay out C3–C8 options", after RFC-0017
+(Phase B) was built. The options were shown with these findings:
+
+- **A lambda run by a native word is interpreted.** RFC-0015's models
+  run through `kb::bridge::ask` on a scratch stack
+  (`crates/bund2-stdlib/src/biomath/dynamics.rs`, `call`), at Tier 0;
+  RFC-0000's B3 keeps `bund2-stdlib` from depending on `bund2-jit`, so
+  Tier 1 cannot reach that path without an architecture change. The
+  cost of one call through the bridge was not measured.
+- **Named statistics already stand in for lambdas once.** D253 P5 gave
+  `frame.aggregate` "named statistics, no lambdas", computed by the
+  named words' own functions.
+- **A VM's generator is seeded from the operating system** on first use
+  (`crates/bund2-interp/src/lib.rs`, `rng`), and `rng.seed` makes it
+  deterministic (`crates/bund2-stdlib/src/biomath/rng.rs`,
+  `seed_from_u64`). A spawned child reproduces only when the program
+  passes it a seed, as RFC-0015's worked example 3 does. Resampling
+  inside one seeded VM already reproduces.
+- **Reference values come from definitions.** RFC-0015's fixtures are
+  computed with mpmath at 50 digits
+  (`crates/bund2-stdlib/src/biomath/fixtures/fit.py`, its header). R is
+  not installed where this was raised, and neither is `mpmath` for the
+  system `python3`, so regenerating a fixture needs a setup step today.
+- **Prefixes are mixed already.** RFC-0016 extended `stat.`
+  (`stat.cor.test.*`, `stat.effect.*`); RFC-0017 took `frame.` and `na`
+  (D253 P1).
+
+- Blocks: research 07's Phases C to H, and the RFC for each
+- Depends on: D72, D252, D253 (P1, P5)
+- Status: **RESOLVED** by the repository owner, 2026-11-19, ruling all six
+  as recommended: "go as recommended".
+
+| | Question | Options | Ruled |
+|---|---|---|---|
+| **C3** | Model specification | **A** a LIST of terms: a STRING a column, a nested LIST an interaction (`[ "dose" "site" [ "dose" "site" ] ]`). **B** a formula STRING parsed by a word (`"y ~ dose * site"`). **C** both, the formula parsed into A's form | **A** |
+| **C4** | Reference values | **A** R installed, its output committed with its version. **B** statsmodels and SciPy as the oracle. **C** definitions and published worked examples, as RFC-0015's fixtures. **D** C by default, and R, at a pinned version with its script committed, only where an answer depends on an algorithm's choices (BCa intervals, Cox regression, mixed models) | **D** |
+| **C5** | Names | **A** extend `stat.` and `fit.` only. **B** a new prefix per area (`model.`, `boot.`, `optim.`, `mv.`, `surv.`). **C** B, each prefix proposed by the RFC that needs it | **C** |
+| **C6** | Reproducible studies | **A** the program's own seeding, as today. **B** `vm.spawn` derives a child's seed implicitly once the parent is seeded. **C** an explicit word (such as `rng.derive`) answering a child seed drawn from the seeded generator, which the program passes to `vm.spawn` | **C** |
+| **C7** | Speed of lambda-heavy work | **A** accept Tier 0. **B** named native statistics (`"mean"`) where a lambda would go, a lambda always accepted beside them. **C** wait for Tier 1 to compile lambdas called from native words | **B**, and A for what the names do not cover |
+| **C8** | One RFC or several | **A** one RFC per phase. **B** one RFC for C to H. **C** grouped by dependency: C; D with E; then F, G, H | **A** |
+
+What the rulings fix, for the RFCs that follow:
+
+- **A model is data.** Phase C's `model.matrix` takes the response and a
+  LIST of terms; a transformed variable is a column made first with
+  `frame.with`. The default contrast coding, how the intercept is
+  dropped and where the response goes are the Phase C RFC's to propose.
+  A formula STRING may come later, as C3's option C, parsed into the
+  LIST form.
+- **R arrives only when needed**, with the first fixture whose answer no
+  definition fixes (Phase G, or Phase D's BCa interval); that RFC names
+  R's version and commits the script. No second oracle is used.
+- **A new prefix when the operand is a new kind of thing** (a design, a
+  resample, an optimiser); `stat.` or `fit.` for another test or fit.
+  Each RFC proposes its names, as RFC-0017 did.
+- **`vm.spawn` is unchanged.** Reproducing a study across VMs is the
+  program's, made safe by an explicit derivation word, whose name and
+  derivation are Phase D's RFC to propose.
+- **Lambda-taking words also take names** for the common statistics,
+  computed by the named words' own functions, as `frame.aggregate`'s
+  are; which names, per word, is each RFC's to propose. C7's option C
+  is revisited at Phase H, if at all.
+- **One RFC per phase.** Phase C is next by the order of work; D and E
+  do not depend on C3 and may go first if the owner prefers.
