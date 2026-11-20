@@ -17669,3 +17669,61 @@ What the rulings fix, for the RFCs that follow:
   is revisited at Phase H, if at all.
 - **One RFC per phase.** Phase C is next by the order of work; D and E
   do not depend on C3 and may go first if the owner prefers.
+
+## D261 — RFC-0018's owner questions K1–K16: models over frames
+
+**Raised 2026-11-19** by `docs/rfc/RFC-0018-models.md` (§Open
+questions), drafted on the owner's `/rfc-draft 0018` for research 07's
+Phase C. The owner reviewed the recommendations before the RFC's first
+review, and the RFC was revised twice
+(`docs/rfc/reviews/RFC-0018-review-2026-11-20.md`, `-2.md`). Findings
+that bear on the rulings:
+
+- **R drops unused factor levels** before coding (`lm` and `glm` set
+  `drop.unused.levels`, R 4.4.2's `src/library/stats/R/lm.R:32`,
+  `glm.R:50`). The RFC does the same, so a singular design (K8) arises
+  only from a design that is wrong in itself, and its E106 names the
+  column.
+- **R's stopping rule leaves an IRLS estimate some 10⁻⁸ from the
+  solution** of the score equations, so criterion 3 compares IRLS
+  estimates at 10⁻⁶. An extra step would tighten that but break K15's
+  agreement with `fit.logistic`, so K11 keeps R's rule.
+- **R's binomial AIC rounds m·y** (`family.R:359`), so on a non-integer
+  count R answers a wrong AIC behind a warning (K12).
+- **Research 07's §3.3 table is narrowed** by K1 in six places:
+  variance inflation, HC0–HC3 standard errors, anova types II and III,
+  the quasi families and the negative binomial (K9), and `fit.logistic`
+  not becoming one of `fit.glm`'s cases (K15).
+
+- Blocks: RFC-0018's acceptance
+- Depends on: D72, D250 (B10, B12, B15), D251 (A4), D252, D253 (P9),
+  D256 (S6), D260 (C3, C4, C5)
+- Status: **RESOLVED** by the repository owner, 2026-11-20, ruling all
+  sixteen as recommended: "rule on K1–K16: recomendations".
+
+| | Question | Ruled |
+|---|---|---|
+| **K1** | Scope | **A** research 07's Phase C row: design, `fit.lm`, `fit.glm` (five families), residuals, influence, prediction, F and LR tests, the type I `anova`, with BIC beside AIC; the six narrowings of §3.3 for ERRATA on acceptance |
+| **K2** | Names | **A** `model.matrix`, `fit.lm`, `fit.glm`, `model.residuals`, `model.influence`, `model.predict`, `model.compare`, `model.anova` |
+| **K3** | How a frame reaches a fit | **A** a design MAP made once by `model.matrix` |
+| **K4** | Coefficient names | **B** `(intercept)`, `site.south`, `dose:site.south`, `treated.true`; two columns of one name refused |
+| **K5** | Factor coding | **A** treatment contrasts, the first level the baseline, no option |
+| **K6** | Terms and interactions | **A** terms in the order given; an interaction needs each member as an earlier term |
+| **K7** | Column kinds | **A** numeric and logical coded, a factor by contrasts, a string column refused |
+| **K8** | A rank-deficient design | **A** E106, naming the first dependent column |
+| **K9** | Families and links | **A** binomial, Poisson, Gaussian, Gamma, inverse Gaussian, with R's `okLinks` |
+| **K10** | A binomial response | **A** 0/1, or a proportion with the trials as `weights` |
+| **K11** | IRLS control | **A** R's iteration and stopping rule, ε 10⁻⁸, at most 100 iterations and 100 halvings |
+| **K12** | A non-integer binomial count | **A** E101 beyond 10⁻³ of an integer |
+| **K13** | Default test | **A** F when the dispersion is estimated, LR when it is fixed (R 4.4) |
+| **K14** | NONE | **A** only `model.matrix` and `model.predict` take `na` |
+| **K15** | `stat.lm` and `fit.logistic` | **A** both unchanged; `fit.lm` bit for bit with `stat.lm`; `fit.glm` to 10⁻¹² with `fit.logistic` |
+| **K16** | Intervals from `model.predict` | **A** confidence intervals mapped through the inverse link; prediction intervals for Gaussian identity fits, with new rows' `weights` |
+
+What the rulings fix:
+
+- **RFC-0018 is written against these options already.** No text
+  changes with the ruling except its status lines; its **[author]**
+  choices (§Open questions) were not part of this ruling.
+- **ERRATA, on acceptance,** records K1's six narrowings of research 07's
+  §3.3 against RFC-0018.
