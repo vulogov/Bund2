@@ -17727,3 +17727,13 @@ What the rulings fix:
   choices (§Open questions) were not part of this ruling.
 - **ERRATA, on acceptance,** records K1's six narrowings of research 07's
   §3.3 against RFC-0018.
+
+**Note, 2026-11-20, after the RFC's third review**
+(`docs/rfc/reviews/RFC-0018-review-2026-11-20-3.md`, B1). The second
+finding above holds only under a canonical link, where IRLS is Newton's
+method. Under any other link IRLS converges linearly, and R's rule can
+stop it some 10⁻⁵ from the solution of the score equations. Criterion 3
+now compares an IRLS fit with §S4's own iteration, run at 50 digits and
+stopped by the same rule, rather than with the exact solution. K11's
+ruling is unchanged: R's rule and cap are kept, and so is K15's
+agreement with `fit.logistic`.
