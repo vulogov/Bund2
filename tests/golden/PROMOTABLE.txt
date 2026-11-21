@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 522 promotable of 531 reached, of 804 fixed-effect natives; 9 reached natives
+# 522 promotable of 531 reached, of 826 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -600,8 +600,14 @@ vec.sub.
 # not reached: endcontext
 # not reached: file
 # not reached: file.
+# not reached: fit.glm
+# not reached: fit.glm.
+# not reached: fit.lm
+# not reached: fit.lm.
 # not reached: fit.logistic
 # not reached: fit.logistic.
+# not reached: frame.aggregate
+# not reached: frame.aggregate.
 # not reached: frame.check
 # not reached: frame.check.
 # not reached: frame.column
@@ -616,6 +622,10 @@ vec.sub.
 # not reached: frame.factor.levels.
 # not reached: frame.head
 # not reached: frame.head.
+# not reached: frame.join
+# not reached: frame.join.
+# not reached: frame.matrix
+# not reached: frame.matrix.
 # not reached: frame.names
 # not reached: frame.names.
 # not reached: frame.ncol
@@ -730,6 +740,18 @@ vec.sub.
 # not reached: math.betainc.
 # not reached: math.erfinv
 # not reached: math.erfinv.
+# not reached: model.anova
+# not reached: model.anova.
+# not reached: model.compare
+# not reached: model.compare.
+# not reached: model.influence
+# not reached: model.influence.
+# not reached: model.matrix
+# not reached: model.matrix.
+# not reached: model.predict
+# not reached: model.predict.
+# not reached: model.residuals
+# not reached: model.residuals.
 # not reached: phylo.dist
 # not reached: phylo.dist.
 # not reached: phylo.graph
