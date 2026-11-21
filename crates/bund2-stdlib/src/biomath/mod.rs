@@ -96,6 +96,10 @@
 //! `.select`, `.take`, `.head`, `.filter`, `.complete`, `.sort`, `.factor`
 //! and `.factor.levels`. Its M3 adds §S6, in [`frame::csv`]:
 //! `frame.csv.parse`, `frame.csv.text` and `frame.text`.
+//!
+//! RFC-0018 adds models over frames. Its M1 adds §S2:
+//!
+//! - [`model`]: `model.matrix`, the design and its check.
 
 pub mod align;
 pub mod describe;
@@ -106,6 +110,7 @@ pub mod fit;
 pub mod frame;
 pub mod infer;
 pub mod linalg;
+pub mod model;
 pub mod na;
 pub(crate) mod operand;
 pub mod phylo;
@@ -138,6 +143,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     sample::register(r);
     na::register(r);
     frame::register(r);
+    model::register(r);
 }
 
 #[cfg(test)]

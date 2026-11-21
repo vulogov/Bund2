@@ -854,7 +854,11 @@ mod honesty_tests {
         // `rng.choice.weighted`'s is `list`, the list drawn from, whose
         // values are moved and never read as names (§S7). Their forms' are
         // too.
-        const UNVARIED: [&str; 75] = [
+        // RFC-0018 §S9: `model.matrix`'s first operand is a frame, refused
+        // unless it passes RFC-0017's check, and its second the response,
+        // a column's name looked up in that frame; its form's are too.
+        // Neither is a stack's name.
+        const UNVARIED: [&str; 77] = [
             "bio.align",
             "bio.align.",
             "bio.align.score",
@@ -887,6 +891,8 @@ mod honesty_tests {
             "kb.word",
             "math.betainc",
             "math.betainc.",
+            "model.matrix",
+            "model.matrix.",
             "popgen.fst",
             "popgen.fst.",
             "popgen.hwe",
