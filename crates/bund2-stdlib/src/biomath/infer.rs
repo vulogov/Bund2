@@ -77,7 +77,7 @@ fn answer_map(
     m
 }
 
-fn constant(word: &str, operand: &str) -> Error {
+pub(crate) fn constant(word: &str, operand: &str) -> Error {
     domain(word, operand, "a constant series".into())
 }
 
@@ -95,7 +95,7 @@ fn statistic(word: &str, s: f64) -> Result<f64, Error> {
 }
 
 /// The two-sided p of a t statistic.
-fn t_p(word: &str, t: f64, df: f64) -> Result<f64, Error> {
+pub(crate) fn t_p(word: &str, t: f64, df: f64) -> Result<f64, Error> {
     Ok(2.0 * Family::T { df }.tails(word, -t.abs())?.0)
 }
 
@@ -833,6 +833,96 @@ fn hommel(word: &str, ps: &[f64]) -> Result<BundValue, Error> {
 
 // The model.
 
+/// What least squares answers, for `stat.lm` and RFC-0018's `fit.lm`.
+pub(crate) struct LeastSquares {
+    pub coef: Vec<f64>,
+    pub se: Vec<f64>,
+    pub t: Vec<f64>,
+    pub p: Vec<f64>,
+    /// 1 − RSS/TSS.
+    pub r2: f64,
+    /// n − k.
+    pub df: f64,
+    /// The residual sum of squares, of the scaled residuals.
+    pub rss: f64,
+    /// RSS/(n − k).
+    pub sigma2: f64,
+    /// R⁻¹, k × k.
+    pub rinv: nalgebra::DMatrix<f64>,
+}
+
+/// Least squares of `yv` on `a` by `nalgebra`'s unpivoted QR: `stat.lm`'s
+/// computation, shared with `fit.lm` so that the two agree bit for bit
+/// (RFC-0018 §S3, K15). `a` and `yv` are already scaled by √W; `tss` is
+/// the total sum of squares the caller computed from the unscaled values.
+/// Refusals in `stat.lm`'s order: a diagonal of R at or below 10⁻¹⁰ of the
+/// largest is `singular(i)`, i the first such column; with `constant`, a
+/// TSS of 0 is `stat.lm`'s constant refusal; an RSS of 0 a perfect fit;
+/// both on `operand`.
+pub(crate) fn least_squares(
+    word: &str,
+    operand: &str,
+    a: &nalgebra::DMatrix<f64>,
+    yv: &nalgebra::DVector<f64>,
+    tss: f64,
+    constant_refused: bool,
+    singular: &dyn Fn(usize) -> Error,
+) -> Result<LeastSquares, Error> {
+    use nalgebra::DMatrix;
+    let (n, k) = a.shape();
+    let qr = a.clone().qr();
+    let r = qr.r();
+    let scale = (0..k).map(|i| r[(i, i)].abs()).fold(0.0, f64::max);
+    if let Some(i) = (0..k).find(|&i| r[(i, i)].abs() <= scale * 1e-10) {
+        return Err(singular(i));
+    }
+    let first_zero = || (0..k).find(|&i| r[(i, i)] == 0.0).unwrap_or(0);
+    let qty = qr.q().transpose() * yv;
+    let Some(coef) = r.solve_upper_triangular(&qty) else {
+        return Err(singular(first_zero()));
+    };
+    let Some(rinv) = r.solve_upper_triangular(&DMatrix::identity(k, k)) else {
+        return Err(singular(first_zero()));
+    };
+    let resid = yv - a * &coef;
+    let rss = resid.dot(&resid);
+    if constant_refused && tss == 0.0 {
+        return Err(constant(word, operand));
+    }
+    if rss == 0.0 {
+        return Err(domain(
+            word,
+            operand,
+            "a perfect fit, its residual variance 0".into(),
+        ));
+    }
+    let df = (n - k) as f64;
+    let sigma2 = rss / df;
+    let mut se = Vec::with_capacity(k);
+    let mut t = Vec::with_capacity(k);
+    let mut p = Vec::with_capacity(k);
+    for i in 0..k {
+        let s = (sigma2 * (0..k).map(|j| rinv[(i, j)] * rinv[(i, j)]).sum::<f64>()).sqrt();
+        let ti = statistic(word, coef[i] / s)?;
+        se.push(s);
+        t.push(ti);
+        p.push(t_p(word, ti, df)?);
+    }
+    let coef: Vec<f64> = coef.iter().copied().collect();
+    finite_all(word, "the coefficients", &coef)?;
+    Ok(LeastSquares {
+        coef,
+        se,
+        t,
+        p,
+        r2: 1.0 - rss / tss,
+        df,
+        rss,
+        sigma2,
+        rinv,
+    })
+}
+
 fn stat_lm(vm: &mut dyn Vm) -> Result<(), Error> {
     use nalgebra::{DMatrix, DVector};
     const W: &str = "stat.lm";
@@ -858,54 +948,16 @@ fn stat_lm(vm: &mut dyn Vm) -> Result<(), Error> {
     }
     let a = DMatrix::from_fn(n, k, |i, j| if j == 0 { 1.0 } else { x[i][j - 1] });
     let yv = DVector::from_vec(y.clone());
-    let qr = a.clone().qr();
-    let r = qr.r();
-    let scale = (0..k).map(|i| r[(i, i)].abs()).fold(0.0, f64::max);
-    if (0..k).any(|i| r[(i, i)].abs() <= scale * 1e-10) {
-        return Err(Refusal::Singular.error(W));
-    }
-    let qty = qr.q().transpose() * &yv;
-    let Some(coef) = r.solve_upper_triangular(&qty) else {
-        return Err(Refusal::Singular.error(W));
-    };
-    let Some(rinv) = r.solve_upper_triangular(&DMatrix::identity(k, k)) else {
-        return Err(Refusal::Singular.error(W));
-    };
-    let resid = &yv - &a * &coef;
-    let rss = resid.dot(&resid);
     let ybar = mean(&y);
     let tss: f64 = y.iter().map(|v| (v - ybar) * (v - ybar)).sum();
-    if tss == 0.0 {
-        return Err(constant(W, "y"));
-    }
-    if rss == 0.0 {
-        return Err(domain(
-            W,
-            "y",
-            "a perfect fit, its residual variance 0".into(),
-        ));
-    }
-    let df = (n - k) as f64;
-    let sigma2 = rss / df;
-    let mut se = Vec::with_capacity(k);
-    let mut t = Vec::with_capacity(k);
-    let mut p = Vec::with_capacity(k);
-    for i in 0..k {
-        let s = (sigma2 * (0..k).map(|j| rinv[(i, j)] * rinv[(i, j)]).sum::<f64>()).sqrt();
-        let ti = statistic(W, coef[i] / s)?;
-        se.push(s);
-        t.push(ti);
-        p.push(t_p(W, ti, df)?);
-    }
-    let coef: Vec<f64> = coef.iter().copied().collect();
-    finite_all(W, "the coefficients", &coef)?;
+    let ls = least_squares(W, "y", &a, &yv, tss, true, &|_| Refusal::Singular.error(W))?;
     let mut m = BTreeMap::new();
-    m.insert("coef".to_string(), list(coef));
-    m.insert("se".to_string(), list(se));
-    m.insert("t".to_string(), list(t));
-    m.insert("p".to_string(), list(p));
-    m.insert("r2".to_string(), BundValue::float(1.0 - rss / tss));
-    m.insert("df".to_string(), BundValue::float(df));
+    m.insert("coef".to_string(), list(ls.coef));
+    m.insert("se".to_string(), list(ls.se));
+    m.insert("t".to_string(), list(ls.t));
+    m.insert("p".to_string(), list(ls.p));
+    m.insert("r2".to_string(), BundValue::float(ls.r2));
+    m.insert("df".to_string(), BundValue::float(ls.df));
     vm.push(BundValue::map(m));
     Ok(())
 }

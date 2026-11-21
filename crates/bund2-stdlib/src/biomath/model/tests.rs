@@ -769,3 +769,388 @@ fn no_operand_aborts() {
         }
     }
 }
+
+// RFC-0018 criterion 9: `stat.lm`'s and `fit.logistic`'s answers, every
+// key and every element of each LIST, as f64 bits, recorded from the code
+// before M2 factored `stat.lm`'s computation out (8424124). It differs from
+// `infer.snapshot` only in recording every element, not each answer's
+// first, so every slope's bits are checked as well as the intercept's.
+
+const LM_SNAPSHOT: &str = include_str!("../fixtures/lm.snapshot");
+
+/// `stat.lm`'s and `fit.logistic`'s answered test programs
+/// (`infer/tests.rs`, `lm_against_the_fixture` and `the_forms`;
+/// `fit/tests.rs`, `logistic_against_glm`).
+fn lm_programs() -> Vec<(&'static str, String)> {
+    const MPG: [f64; 32] = [
+        21.0, 21.0, 22.8, 21.4, 18.7, 18.1, 14.3, 24.4, 22.8, 19.2, 17.8, 16.4, 17.3, 15.2, 10.4,
+        10.4, 14.7, 32.4, 30.4, 33.9, 21.5, 15.5, 15.2, 13.3, 19.2, 27.3, 26.0, 30.4, 15.8, 19.7,
+        15.0, 21.4,
+    ];
+    const VS: [u8; 32] = [
+        0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0,
+        0, 0, 1,
+    ];
+    let rows: Vec<String> = MPG.iter().map(|x| format!("[ {x:?} ]")).collect();
+    let vs: Vec<String> = VS.iter().map(|x| format!("{x}")).collect();
+    vec![
+        (
+            "lm.fixture",
+            "[ [ 1 2.5 ] [ 2 1.0 ] [ 3 4.0 ] [ 4 3.5 ] [ 5 6.0 ] [ 6 5.0 ] [ 7 8.5 ] \
+             [ 8 7.0 ] ] matrix [ 3.1 4.9 7.2 8.8 11.1 13.2 14.8 17.1 ] stat.lm"
+                .to_string(),
+        ),
+        (
+            "lm.forms",
+            "[ [ 1 ] [ 2 ] [ 3 ] [ 4 ] ] matrix [ 1.0 2.5 2.5 4.5 ] stat.lm".to_string(),
+        ),
+        (
+            "logistic.mtcars",
+            format!(
+                "[ {} ] matrix [ {} ] fit.logistic",
+                rows.join(" "),
+                vs.join(" ")
+            ),
+        ),
+    ]
+}
+
+/// Each answer as lines `label key index bits`, every element of a LIST.
+fn lm_snapshot() -> String {
+    let mut out = String::new();
+    for (label, src) in lm_programs() {
+        let v = on(&[], &src).unwrap_or_else(|e| panic!("{src}: {e}"));
+        let m = v.as_map().cloned().unwrap_or_default();
+        for (k, x) in m {
+            for (i, f) in floats_of(&x).iter().enumerate() {
+                out.push_str(&format!("{label} {k} {i} {:016x}\n", f.to_bits()));
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn stat_lm_and_fit_logistic_answer_the_snapshot_bit_for_bit() {
+    assert_eq!(lm_snapshot(), LM_SNAPSHOT);
+}
+
+/// Writes the snapshot. Run once, before M2's first change, with
+/// `cargo test -p bund2-stdlib write_the_lm_snapshot -- --ignored`.
+#[test]
+#[ignore = "writes the snapshot; run only to record it"]
+fn write_the_lm_snapshot() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/biomath/fixtures/lm.snapshot"
+    );
+    std::fs::write(path, lm_snapshot()).unwrap_or_else(|e| panic!("{e}"));
+}
+
+// RFC-0018 criterion 2: `fit.lm`.
+
+const MODEL_FIXTURE: &str = include_str!("../fixtures/model.txt");
+
+fn fit_lm(d: &BundValue) -> BundValue {
+    on(&[d.clone(), map(vec![])], "fit.lm").unwrap_or_else(|e| panic!("{e}"))
+}
+
+fn bits(v: &BundValue) -> Vec<u64> {
+    floats_of(v).iter().map(|x| x.to_bits()).collect()
+}
+
+/// |a − b| ≤ r|b| + 10⁻¹⁰, RFC-0018's tolerance, r = 10⁻⁹ for `fit.lm`.
+fn near(what: &str, got: &[f64], want: &[f64]) {
+    assert_eq!(got.len(), want.len(), "{what}: {got:?} against {want:?}");
+    for (g, w) in got.iter().zip(want) {
+        assert!(
+            (g - w).abs() <= 1e-9 * w.abs() + 1e-10,
+            "{what}: {got:?} against {want:?}"
+        );
+    }
+}
+
+/// The dose trial's seven complete rows, numeric columns only, with
+/// weights and an offset made up for the test (`fixtures/model.py`).
+fn dose_frame() -> BundValue {
+    raw(
+        &["y", "dose", "patient", "w", "off"],
+        vec![
+            list([4.2, 5.9, 3.8, 4.6, 6.3, 7.1, 6.8].map(float).to_vec()),
+            list([10, 20, 10, 10, 20, 30, 30].map(int).to_vec()),
+            list([1, 2, 3, 5, 6, 7, 8].map(int).to_vec()),
+            list([1, 2, 1, 3, 1, 2, 1].map(int).to_vec()),
+            list([0.1, 0.0, 0.2, 0.0, 0.1, 0.0, 0.3].map(float).to_vec()),
+        ],
+        vec![],
+    )
+}
+
+fn dose_design(terms: &[&str], opts: Vec<(&str, BundValue)>) -> BundValue {
+    on(&[dose_frame(), s("y"), strs(terms), map(opts)], "model.matrix")
+        .unwrap_or_else(|e| panic!("{e}"))
+}
+
+#[test]
+fn fit_lm_is_registered_beside_fit_logistic() {
+    let mut i = bund2_interp::Interp::new();
+    crate::register_all(&mut i.registry);
+    for (w, want) in [("fit.lm", (2, 1)), ("fit.lm.", (1, 0))] {
+        let e = i.registry.effect_of(w).unwrap_or_else(|| panic!("{w}"));
+        assert_eq!((e.consumes, e.produces, e.opaque), (want.0, want.1, false), "{w}");
+    }
+    assert!(crate::biomath::fit::WORDS.contains(&"fit.lm"));
+}
+
+/// Criterion 2: on `stat.lm`'s own test data, `coef`, `se`, `t`, `p` and
+/// `r2` bit for bit, `df.residual` equal in value to `df`.
+#[test]
+fn fit_lm_answers_stat_lm_bit_for_bit() {
+    let x1 = [1, 2, 3, 4, 5, 6, 7, 8];
+    let x2 = [2.5, 1.0, 4.0, 3.5, 6.0, 5.0, 8.5, 7.0];
+    let y = [3.1, 4.9, 7.2, 8.8, 11.1, 13.2, 14.8, 17.1];
+    let f = raw(
+        &["y", "x1", "x2"],
+        vec![
+            list(y.map(float).to_vec()),
+            list(x1.map(int).to_vec()),
+            list(x2.map(float).to_vec()),
+        ],
+        vec![],
+    );
+    let d = on(&[f, s("y"), strs(&["x1", "x2"]), map(vec![])], "model.matrix").unwrap();
+    let fit = fit_lm(&d);
+    let lm = on(
+        &[],
+        "[ [ 1 2.5 ] [ 2 1.0 ] [ 3 4.0 ] [ 4 3.5 ] [ 5 6.0 ] [ 6 5.0 ] [ 7 8.5 ] \
+         [ 8 7.0 ] ] matrix [ 3.1 4.9 7.2 8.8 11.1 13.2 14.8 17.1 ] stat.lm",
+    )
+    .unwrap();
+    for k in ["coef", "se", "t", "p", "r2"] {
+        assert_eq!(bits(get(&fit, k)), bits(get(&lm, k)), "{k}");
+    }
+    assert_eq!(
+        get(&fit, "df.residual").as_int().map(|d| d as f64),
+        floats_of(get(&lm, "df")).first().copied()
+    );
+}
+
+/// Criterion 2: on criterion 1's design without factors, the same.
+#[test]
+fn fit_lm_answers_stat_lm_on_the_trial() {
+    let d = matrix(&trial(), strs(&["dose", "patient"]), omit());
+    let fit = fit_lm(&d);
+    let rows = [
+        (10, 1, 4.2),
+        (20, 2, 5.9),
+        (10, 3, 3.8),
+        (10, 5, 4.6),
+        (20, 6, 6.3),
+        (30, 7, 7.1),
+        (30, 8, 6.8),
+    ];
+    let x: Vec<String> = rows.iter().map(|(d, p, _)| format!("[ {d} {p} ]")).collect();
+    let y: Vec<String> = rows.iter().map(|(_, _, y)| format!("{y:?}")).collect();
+    let lm = on(
+        &[],
+        &format!("[ {} ] matrix [ {} ] stat.lm", x.join(" "), y.join(" ")),
+    )
+    .unwrap();
+    for k in ["coef", "se", "t", "p", "r2"] {
+        assert_eq!(bits(get(&fit, k)), bits(get(&lm, k)), "{k}");
+    }
+}
+
+/// Criterion 2: weighted and offset fits, against the fixture.
+#[test]
+fn fit_lm_against_the_fixture() {
+    let w = || ("weights", s("w"));
+    let o = || ("offset", s("off"));
+    let no = || ("intercept", BundValue::boolean(false));
+    let cases: Vec<(&str, BundValue)> = vec![
+        ("lm.plain", dose_design(&["dose", "patient"], vec![])),
+        ("lm.weighted", dose_design(&["dose", "patient"], vec![w()])),
+        ("lm.offset", dose_design(&["dose", "patient"], vec![w(), o()])),
+        ("lm.origin", dose_design(&["dose", "patient"], vec![w(), o(), no()])),
+        ("lm.mean", dose_design(&[], vec![w(), o()])),
+    ];
+    for (label, d) in cases {
+        let fit = fit_lm(&d);
+        let mut keys = vec![
+            "coef",
+            "se",
+            "t",
+            "p",
+            "sigma",
+            "deviance",
+            "null.deviance",
+            "aic",
+            "bic",
+            "vcov",
+            "hat",
+            "fitted",
+        ];
+        if label != "lm.mean" {
+            keys.extend(["r2", "adj.r2", "f", "f.p"]);
+        }
+        for k in keys {
+            near(
+                &format!("{label} {k}"),
+                &floats_of(get(&fit, k)),
+                &crate::biomath::testkit::fixture(MODEL_FIXTURE, &format!("{label} {k}")),
+            );
+        }
+        let n = 7;
+        let kk = names_of(&d).len() as i64;
+        let i = i64::from(label != "lm.origin");
+        assert_eq!(get(&fit, "df.residual").as_int(), Some(n - kk), "{label}");
+        assert_eq!(get(&fit, "df.null").as_int(), Some(n - i), "{label}");
+        assert_eq!(get(&fit, "family").display(), "gaussian");
+        assert_eq!(get(&fit, "link").display(), "identity");
+        assert_eq!(get(&fit, "spec").display(), get(&d, "spec").display());
+        assert_eq!(bits(get(&fit, "y")), bits(get(&d, "y")));
+        let sigma = floats_of(get(&fit, "sigma"))[0];
+        near("dispersion", &floats_of(get(&fit, "dispersion")), &[sigma * sigma]);
+    }
+}
+
+/// Criterion 2: the intercept-only design answers `r2` and `adj.r2` 0 and
+/// no `f`, `f.df` or `f.p` key.
+#[test]
+fn fit_lm_intercept_only_has_no_f() {
+    let fit = fit_lm(&dose_design(&[], vec![]));
+    assert_eq!(floats_of(get(&fit, "r2")), [0.0]);
+    assert_eq!(floats_of(get(&fit, "adj.r2")), [0.0]);
+    let m = fit.as_map().cloned().unwrap_or_default();
+    for k in ["f", "f.df", "f.p"] {
+        assert!(!m.contains_key(k), "{k}");
+    }
+    let fit = fit_lm(&dose_design(&["dose"], vec![]));
+    assert_eq!(get(&fit, "f.df").display(), list(vec![int(1), int(5)]).display());
+}
+
+fn lm_fails(d: &BundValue, opts: BundValue) -> String {
+    fails(&[d.clone(), opts], "fit.lm")
+}
+
+fn lm_e101(op: &str, t: &str) -> String {
+    format!("FIT.LM: E101 {op} is outside fit.lm's domain: {t}")
+}
+
+/// Criterion 2 and §S8's rows for `fit.lm`: a constant `y` is fitted
+/// without an intercept and refused with one; singular, perfect and
+/// option refusals with their texts.
+#[test]
+fn fit_lm_refusals() {
+    let f = |y: [f64; 5], x2: [f64; 5]| {
+        raw(
+            &["y", "x", "x2"],
+            vec![
+                list(y.map(float).to_vec()),
+                list([1.0, 2.0, 3.0, 4.0, 6.0].map(float).to_vec()),
+                list(x2.map(float).to_vec()),
+            ],
+            vec![],
+        )
+    };
+    let design = |frame: BundValue, terms: &[&str], opts: Vec<(&str, BundValue)>| {
+        on(&[frame, s("y"), strs(terms), map(opts)], "model.matrix")
+            .unwrap_or_else(|e| panic!("{e}"))
+    };
+    let constant = f([2.0; 5], [1.0, 0.0, 1.0, 0.0, 1.0]);
+    assert_eq!(
+        lm_fails(&design(constant.clone(), &["x"], vec![]), map(vec![])),
+        lm_e101("design", "a constant series")
+    );
+    let origin = design(
+        constant,
+        &["x"],
+        vec![("intercept", BundValue::boolean(false))],
+    );
+    let fit = fit_lm(&origin);
+    assert!(floats_of(get(&fit, "coef"))[0].is_finite());
+    let dependent = f([1.0, 3.0, 2.0, 5.0, 4.0], [2.0, 4.0, 6.0, 8.0, 12.0]);
+    assert_eq!(
+        lm_fails(&design(dependent, &["x", "x2"], vec![]), map(vec![])),
+        "FIT.LM: E106 the matrix is singular: column \"x2\" depends on those before it"
+    );
+    // A perfect fit is refused only when RSS is exactly 0, as `stat.lm`'s
+    // is: y = 3x with x the first unit vector, no intercept, whose QR is
+    // exact.
+    let perfect = raw(
+        &["y", "x"],
+        vec![
+            list([3.0, 0.0, 0.0, 0.0, 0.0].map(float).to_vec()),
+            list([1.0, 0.0, 0.0, 0.0, 0.0].map(float).to_vec()),
+        ],
+        vec![],
+    );
+    assert_eq!(
+        lm_fails(
+            &design(
+                perfect,
+                &["x"],
+                vec![("intercept", BundValue::boolean(false))]
+            ),
+            map(vec![])
+        ),
+        lm_e101("design", "a perfect fit, its residual variance 0")
+    );
+    let d = dose_design(&["dose"], vec![]);
+    assert_eq!(
+        lm_fails(&d, map(vec![("family", s("gaussian"))])),
+        lm_e101("opts", "the key \"family\", which this word does not take")
+    );
+    assert_eq!(
+        lm_fails(&d, map(vec![("zz", int(1))])),
+        lm_e101("opts", "an unknown key \"zz\"")
+    );
+    assert_eq!(lm_fails(&d, int(1)), lm_e101("opts", "1"));
+    // The design is checked before the options.
+    assert_eq!(
+        lm_fails(&int(2), map(vec![("zz", int(1))])),
+        lm_e101("design", "2")
+    );
+    assert_eq!(
+        lm_fails(&with(&d, "dropped", s("x")), map(vec![])),
+        lm_e101("design", "dropped is \"x\"")
+    );
+    // The `.` form takes `opts` from the workbench and answers there.
+    let mut i = run_on(std::slice::from_ref(&d), Some(&map(vec![])), "fit.lm.").unwrap();
+    let wb = i.pull_workbench().unwrap();
+    assert_eq!(bits(get(&wb, "coef")), bits(get(&fit_lm(&d), "coef")));
+}
+
+/// Criterion 8: `fit.lm` on malformed designs answers or refuses.
+#[test]
+fn fit_lm_never_aborts() {
+    let ok = |e: &str| e.contains(": E1") || e.contains("too shallow");
+    let d = dose_design(&["dose", "patient"], vec![]);
+    let mut designs = vec![
+        d.clone(),
+        int(0),
+        map(vec![]),
+        with(&d, "matrix", BundValue::matrix(vec![])),
+        with(&d, "y", list(vec![])),
+        with(&d, "names", list(vec![])),
+        with(&d, "assign", list(vec![int(9)])),
+        with(&d, "weights", list([f64::NAN; 7].map(float).to_vec())),
+        with_spec(&d, "terms", Some(int(1))),
+        with_spec(&d, "offset", None),
+        good(),
+    ];
+    let big: Vec<Vec<BundValue>> = (0..7)
+        .map(|r| vec![float(1.0), float(f64::from(r) * 1e300), float(1e-300)])
+        .collect();
+    designs.push(with(&d, "matrix", BundValue::matrix(big)));
+    for x in &designs {
+        for o in [map(vec![]), int(1), omit()] {
+            if let Err(e) = on(&[x.clone(), o.clone()], "fit.lm") {
+                assert!(ok(&e), "fit.lm: {e}");
+            }
+            if let Err(e) = run_on(std::slice::from_ref(x), Some(&o), "fit.lm.").map(|_| ()) {
+                assert!(ok(&e), "fit.lm.: {e}");
+            }
+        }
+    }
+}

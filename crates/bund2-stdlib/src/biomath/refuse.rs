@@ -35,6 +35,9 @@ pub enum Refusal {
     Undefined { family: String, operation: String },
     /// E106: a singular matrix.
     Singular,
+    /// E106: a singular design, naming the first column that depends on
+    /// those before it (RFC-0018 §S8). `column` is the name as rendered.
+    SingularColumn { column: String },
     /// E107: a non-symmetric matrix where symmetry is required.
     NotSymmetric { i: usize, j: usize, by: f64 },
     /// E108: a complex eigenvalue where a real one is asked for.
@@ -70,7 +73,7 @@ impl Refusal {
             Refusal::NotNumbers { .. } => "E103",
             Refusal::Parameters { .. } => "E104",
             Refusal::Undefined { .. } => "E105",
-            Refusal::Singular => "E106",
+            Refusal::Singular | Refusal::SingularColumn { .. } => "E106",
             Refusal::NotSymmetric { .. } => "E107",
             Refusal::Complex { .. } | Refusal::NotUnique { .. } => "E108",
             Refusal::Alphabet { .. } => "E109",
@@ -102,6 +105,9 @@ impl Refusal {
             }
             Refusal::Undefined { family, operation } => format!("{family} has no {operation}"),
             Refusal::Singular => "the matrix is singular".into(),
+            Refusal::SingularColumn { column } => {
+                format!("the matrix is singular: column {column} depends on those before it")
+            }
             Refusal::NotSymmetric { i, j, by } => {
                 format!("the matrix is not symmetric: [{i},{j}] and [{j},{i}] differ by {by}")
             }

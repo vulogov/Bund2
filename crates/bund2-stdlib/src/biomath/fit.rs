@@ -355,10 +355,24 @@ pub fn register(r: &mut Registry) {
         WordKind::Sync,
     );
     crate::wb::bench!(r, "fit.logistic", fit_logistic, 2, 0);
+    // RFC-0018 §S9: the model words' fits, beside `fit.logistic`.
+    r.register_native(
+        "fit.lm",
+        super::model::lm::fit_lm,
+        StackEffect::fixed(2, 1),
+        WordKind::Sync,
+    );
+    crate::wb::bench!(r, "fit.lm", super::model::lm::fit_lm, 2, 0);
 }
 
-/// §S16's words with their forms.
-pub const WORDS: [&str; 3] = ["fit.logistic", "fit.logistic.", "fit.nls"];
+/// §S16's words with their forms, and RFC-0018's `fit.lm` (§S9).
+pub const WORDS: [&str; 5] = [
+    "fit.lm",
+    "fit.lm.",
+    "fit.logistic",
+    "fit.logistic.",
+    "fit.nls",
+];
 
 #[cfg(test)]
 mod tests;
