@@ -1,8 +1,16 @@
 # RFC-0018: Models: design matrices, generalised linear models, diagnostics and comparison
 
-- Status: **Draft** (2026-11-19). Drafted on the owner's `/rfc-draft 0018`,
-  after RFC-0017 (research 07's Phase B) was built and D260 ruled
-  research 07's C3–C8.
+- Status: **Accepted** (2026-11-20) by the repository owner ("accept
+  RFC-0018"), after six reviews and their revisions
+  (`docs/rfc/reviews/RFC-0018-review-2026-11-20.md` through `-6.md`).
+  Accepting means D261–D265 as ruled, with their dated notes; S1–S9 as
+  specified, each **[author]** choice listed under §Open questions
+  included; the milestones built in order, each gated by its criteria
+  and by criterion 9; `model.*` and `fit.lm`/`fit.glm` as Bund2's own
+  names (D72), as RFC-0015's to RFC-0017's families are; and research
+  07's departures recorded in `docs/research/ERRATA.md`.
+- Drafted 2026-11-19 on the owner's `/rfc-draft 0018`, after RFC-0017
+  (research 07's Phase B) was built and D260 ruled research 07's C3–C8.
 - Scope: research 07's Phase C (`docs/research/07-statistical-research.md:218`;
   §3.2 at `:109-116`, §3.3 at `:118-127`): `model.matrix`, `fit.glm` with
   weights and offsets, residuals, diagnostics, prediction, F and
@@ -1598,8 +1606,8 @@ Restated by the sixth revision, after D264, and ruled as written on 2026-11-20 (
   that order. The alternative is the order as written, which differs
   from R's for `[ "b" "a" [ "a" "b" ] ]`.
 
-On acceptance, ERRATA also records two refinements of research 07
-beside K1's six narrowings:
+On acceptance (2026-11-20), ERRATA recorded K1's six narrowings and
+two refinements of research 07:
 - §3.2 says `model.matrix` answers "a design MATRIX"
   (`07-statistical-research.md:111`), and §S2 answers a MAP holding one;
 - §3.2 asks for "Weights and offsets for every model word" (`:116`),

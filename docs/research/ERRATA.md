@@ -257,3 +257,24 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   opens a file. §5 posed the shape as question C1, so the research
   reached no conclusion this contradicts; the entry records the
   departure from its stated default.
+
+- `07-statistical-research.md:109-127,218` -> narrowed and refined by
+  RFC-0018, recorded here on 2026-11-20 at its acceptance (D261's K1,
+  ruled A). Phase C (`:218`) is built as drawn: `model.matrix`, `fit.lm`,
+  `fit.glm` with weights and offsets, residuals, influence, prediction, F
+  and likelihood-ratio tests, and the type I `anova`, with BIC beside AIC.
+  §3.3's table (`:118-127`) is narrowed in six places, each left to a
+  later RFC as a self-contained addition:
+  - variance inflation, in the diagnostics row (`:125`), is not built;
+  - robust HC0–HC3 standard errors (`:126`) are not built;
+  - `anova` types II and III (`:124`) are not built; only type I is;
+  - the quasi families (`:123`) are not built (K9);
+  - the negative binomial (`:123`) is not built (K9);
+  - `fit.logistic` does not "become one case" of `fit.glm` (`:122`). It
+    is kept, its text and answers unchanged, and `fit.glm` under the
+    binomial `logit` agrees with it (K15).
+  §3.2 is refined in two places. `model.matrix` answers a MAP holding the
+  design MATRIX, with its names, term assignment, response, weights,
+  offset and spec, rather than "a design MATRIX" (`:111`). "Weights and
+  offsets for every model word" (`:116`) holds for RFC-0018's words;
+  `stat.lm` and `fit.logistic` take neither, unchanged under K15.
