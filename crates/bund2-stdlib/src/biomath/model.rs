@@ -5,6 +5,7 @@
 //! every model word's keys from the start. M2 adds §S3's `fit.lm`
 //! ([`lm`]), registered beside `fit.logistic` in `fit.rs`, over
 //! `stat.lm`'s computation factored out as `infer.rs`'s `least_squares`.
+//! M3 adds §S4's `fit.glm` ([`glm`]): five families, R's links and IRLS.
 //!
 //! **A design is a plain MAP** (§S2): `matrix`, a MATRIX of FLOATs, the
 //! intercept's column first; `names`; `assign`, each column's term; `y`,
@@ -18,6 +19,7 @@
 
 pub(crate) mod code;
 pub mod design;
+pub(crate) mod glm;
 pub(crate) mod lm;
 pub(crate) mod opts;
 

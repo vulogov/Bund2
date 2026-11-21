@@ -1154,3 +1154,455 @@ fn fit_lm_never_aborts() {
         }
     }
 }
+
+// RFC-0018 criterion 3: `fit.glm`.
+
+fn fl(xs: &[f64]) -> BundValue {
+    list(xs.iter().copied().map(float).collect())
+}
+
+fn xs(n: usize) -> BundValue {
+    list((1..=n).map(|i| int(i as i64)).collect())
+}
+
+/// A design from columns `y` and `x`, and those of `extra`.
+fn glm_design(
+    y: &[f64],
+    extra: Vec<(&str, BundValue)>,
+    terms: &[&str],
+    opts: Vec<(&str, BundValue)>,
+) -> BundValue {
+    let mut names = vec!["y"];
+    let mut cols = vec![fl(y)];
+    let mut levels = vec![];
+    for (n, c) in extra {
+        names.push(n);
+        if let Some(rest) = n.strip_prefix('f') {
+            let _ = rest;
+            levels.push((n, strs(&["1", "2", "3"])));
+        }
+        cols.push(c);
+    }
+    let f = raw(&names, cols, levels);
+    on(&[f, s("y"), strs(terms), map(opts)], "model.matrix").unwrap_or_else(|e| panic!("{e}"))
+}
+
+fn glm_opts(family: &str, link: Option<&str>) -> BundValue {
+    let mut kv = vec![("family", s(family))];
+    if let Some(l) = link {
+        kv.push(("link", s(l)));
+    }
+    map(kv)
+}
+
+fn fit_glm(d: &BundValue, family: &str, link: Option<&str>) -> Result<BundValue, String> {
+    on(&[d.clone(), glm_opts(family, link)], "fit.glm")
+}
+
+/// |a − b| ≤ 10⁻⁶|b| + 10⁻¹⁰, RFC-0018's IRLS tolerance; a p below 10⁻⁶
+/// is compared to an absolute 10⁻¹².
+fn near_irls(what: &str, got: &[f64], want: &[f64], p: bool) {
+    assert_eq!(got.len(), want.len(), "{what}: {got:?} against {want:?}");
+    for (g, w) in got.iter().zip(want) {
+        let ok = if p && w.abs() < 1e-6 {
+            (g - w).abs() <= 1e-12
+        } else {
+            (g - w).abs() <= 1e-6 * w.abs() + 1e-10
+        };
+        assert!(ok, "{what}: {got:?} against {want:?}");
+    }
+}
+
+fn want(label: &str, key: &str) -> Vec<f64> {
+    crate::biomath::testkit::fixture(MODEL_FIXTURE, &format!("{label} {key}"))
+}
+
+fn against(label: &str, fit: &BundValue, estimated: bool) {
+    let stat = if estimated { "t" } else { "z" };
+    let mut keys = vec![
+        "coef",
+        "se",
+        stat,
+        "p",
+        "deviance",
+        "null.deviance",
+        "dispersion",
+        "fitted",
+    ];
+    if MODEL_FIXTURE.contains(&format!("{label} aic ")) {
+        keys.extend(["aic", "bic"]);
+    }
+    for k in keys {
+        near_irls(&format!("{label} {k}"), &floats_of(get(fit, k)), &want(label, k), k == "p");
+    }
+    for k in ["iterations", "halvings"] {
+        assert_eq!(
+            get(fit, k).as_int().map(|i| i as f64),
+            want(label, k).first().copied(),
+            "{label} {k}"
+        );
+    }
+    let m = fit.as_map().cloned().unwrap_or_default();
+    assert!(!m.contains_key(if estimated { "z" } else { "t" }), "{label}");
+    for k in ["sigma", "r2", "adj.r2", "f", "f.df", "f.p"] {
+        assert!(!m.contains_key(k), "{label} {k}");
+    }
+}
+
+const POS: [f64; 8] = [2.1, 3.4, 1.9, 5.6, 4.2, 6.8, 7.5, 3.3];
+
+#[test]
+fn fit_glm_is_registered_beside_fit_logistic() {
+    let mut i = bund2_interp::Interp::new();
+    crate::register_all(&mut i.registry);
+    for (w, want) in [("fit.glm", (2, 1)), ("fit.glm.", (1, 0))] {
+        let e = i.registry.effect_of(w).unwrap_or_else(|| panic!("{w}"));
+        assert_eq!((e.consumes, e.produces, e.opaque), (want.0, want.1, false), "{w}");
+    }
+    assert!(crate::biomath::fit::WORDS.contains(&"fit.glm"));
+}
+
+/// Criterion 3: Dobson's trial, R's own example (`glm.Rd:335-340`).
+#[test]
+fn fit_glm_dobson() {
+    let counts = [18.0, 17.0, 15.0, 20.0, 10.0, 20.0, 25.0, 13.0, 12.0];
+    let d = glm_design(
+        &counts,
+        vec![
+            ("foutcome", strs(&["1", "2", "3", "1", "2", "3", "1", "2", "3"])),
+            ("ftreatment", strs(&["1", "1", "1", "2", "2", "2", "3", "3", "3"])),
+        ],
+        &["foutcome", "ftreatment"],
+        vec![],
+    );
+    let fit = fit_glm(&d, "poisson", None).unwrap();
+    against("glm.dobson", &fit, false);
+    assert_eq!(get(&fit, "link").display(), "log");
+    assert_eq!(get(&fit, "df.residual").as_int(), Some(4));
+    assert_eq!(get(&fit, "df.null").as_int(), Some(8));
+}
+
+/// Criterion 3: a rate model, its null deviance the refitted
+/// intercept-plus-offset model's.
+#[test]
+fn fit_glm_rate_with_offset() {
+    let y = [2.0, 3.0, 6.0, 7.0, 8.0, 9.0, 10.0, 12.0, 15.0];
+    let expo = [10.0_f64, 17.0, 26.0, 34.0, 40.0, 43.0, 50.0, 60.0, 75.0];
+    let d = glm_design(
+        &y,
+        vec![("x", xs(9)), ("off", fl(&expo.map(f64::ln)))],
+        &["x"],
+        vec![("offset", s("off"))],
+    );
+    against("glm.rate", &fit_glm(&d, "poisson", None).unwrap(), false);
+}
+
+/// Criterion 3: proportions with their trials as weights, three links.
+#[test]
+fn fit_glm_binomial_proportions() {
+    let trials = [10.0, 12.0, 15.0, 9.0, 20.0, 11.0];
+    let succ = [1.0, 3.0, 6.0, 5.0, 15.0, 10.0];
+    let prop: Vec<f64> = succ.iter().zip(&trials).map(|(s, t)| s / t).collect();
+    let d = glm_design(
+        &prop,
+        vec![("x", xs(6)), ("w", fl(&trials))],
+        &["x"],
+        vec![("weights", s("w"))],
+    );
+    for link in ["logit", "probit", "cloglog"] {
+        let fit = fit_glm(&d, "binomial", Some(link)).unwrap();
+        against(&format!("glm.binomial.{link}"), &fit, false);
+    }
+}
+
+/// Criterion 3: Gamma under inverse and log, the inverse Gaussian under
+/// 1/mu^2, the Gaussian under log.
+#[test]
+fn fit_glm_positive_families() {
+    let d = glm_design(&POS, vec![("x", xs(8))], &["x"], vec![]);
+    for (label, family, link) in [
+        ("glm.gamma.inverse", "gamma", None),
+        ("glm.gamma.log", "gamma", Some("log")),
+        ("glm.ig", "inverse.gaussian", None),
+        ("glm.gaussian.log", "gaussian", Some("log")),
+    ] {
+        let fit = fit_glm(&d, family, link).unwrap();
+        against(label, &fit, true);
+    }
+}
+
+/// Criterion 3: step halving, under `identity` and under `sqrt`.
+#[test]
+fn fit_glm_halves_a_step() {
+    let y = [1.0, 1.0, 2.0, 0.0, 6.0, 2.0, 0.0, 6.0];
+    let d = glm_design(&y, vec![("x", xs(8))], &["x"], vec![]);
+    let fit = fit_glm(&d, "poisson", Some("identity")).unwrap();
+    against("glm.halving", &fit, false);
+    assert_eq!(get(&fit, "iterations").as_int(), Some(7));
+    assert_eq!(get(&fit, "halvings").as_int(), Some(1));
+    // The fixture's search: η ≤ 0 halved once, every μ inside the range.
+    let y = [2.0, 0.0, 0.0, 7.0, 20.0, 20.0];
+    assert!(MODEL_FIXTURE.contains("glm.sqrt.y [2 0 0 7 20 20]"));
+    let d = glm_design(&y, vec![("x", xs(6))], &["x"], vec![]);
+    let fit = fit_glm(&d, "poisson", Some("sqrt")).unwrap();
+    against("glm.sqrt", &fit, false);
+    assert_eq!(get(&fit, "halvings").as_int(), Some(1));
+}
+
+/// Criterion 3: the zero group is answered, its indicator's coefficient
+/// below −20; with a tiny exposure, rates numerically 0 are refused.
+#[test]
+fn fit_glm_zero_counts() {
+    let d = glm_design(
+        &[3.0, 5.0, 4.0, 0.0, 0.0, 0.0],
+        vec![("g", fl(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0]))],
+        &["g"],
+        vec![],
+    );
+    let fit = fit_glm(&d, "poisson", None).unwrap();
+    against("glm.zero", &fit, false);
+    assert!(floats_of(get(&fit, "coef"))[1] < -20.0);
+    let d = glm_design(
+        &[3.0, 5.0, 4.0, 0.0],
+        vec![("off", fl(&[0.0, 0.0, 0.0, 1e-16_f64.ln()]))],
+        &[],
+        vec![("offset", s("off"))],
+    );
+    assert_eq!(
+        fit_glm(&d, "poisson", None).unwrap_err(),
+        "FIT.GLM: E101 design is outside fit.glm's domain: fitted rate numerically 0 at row 4"
+    );
+}
+
+/// Criterion 3: the binomial logit on 0/1 data agrees with `fit.logistic`
+/// to a relative 10⁻¹² (§S4, K15).
+#[test]
+fn fit_glm_agrees_with_fit_logistic() {
+    const MPG: [f64; 32] = [
+        21.0, 21.0, 22.8, 21.4, 18.7, 18.1, 14.3, 24.4, 22.8, 19.2, 17.8, 16.4, 17.3, 15.2, 10.4,
+        10.4, 14.7, 32.4, 30.4, 33.9, 21.5, 15.5, 15.2, 13.3, 19.2, 27.3, 26.0, 30.4, 15.8, 19.7,
+        15.0, 21.4,
+    ];
+    const VS: [f64; 32] = [
+        0., 0., 1., 1., 0., 1., 0., 1., 1., 1., 1., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 0.,
+        0., 0., 0., 1., 0., 1., 0., 0., 0., 1.,
+    ];
+    let d = glm_design(&VS, vec![("mpg", fl(&MPG))], &["mpg"], vec![]);
+    let fit = fit_glm(&d, "binomial", None).unwrap();
+    let rows: Vec<String> = MPG.iter().map(|x| format!("[ {x:?} ]")).collect();
+    let vs: Vec<String> = VS.iter().map(|x| format!("{}", *x as i64)).collect();
+    let lr = on(
+        &[],
+        &format!("[ {} ] matrix [ {} ] fit.logistic", rows.join(" "), vs.join(" ")),
+    )
+    .unwrap();
+    for (k, l) in [("coef", "coef"), ("se", "se"), ("z", "z"), ("deviance", "deviance"), ("aic", "aic")] {
+        let (g, w) = (floats_of(get(&fit, k)), floats_of(get(&lr, l)));
+        assert_eq!(g.len(), w.len(), "{k}");
+        for (a, b) in g.iter().zip(&w) {
+            assert!((a - b).abs() <= 1e-12 * b.abs(), "{k}: {g:?} against {w:?}");
+        }
+    }
+}
+
+/// Criterion 2: a Gaussian identity `fit.glm` gives `fit.lm`'s AIC to 10⁻⁹.
+#[test]
+fn fit_glm_gaussian_aic_is_fit_lm_aic() {
+    let d = dose_design(&["dose", "patient"], vec![("weights", s("w"))]);
+    let g = fit_glm(&d, "gaussian", None).unwrap();
+    let l = fit_lm(&d);
+    let (a, b) = (floats_of(get(&g, "aic"))[0], floats_of(get(&l, "aic"))[0]);
+    assert!((a - b).abs() <= 1e-9 * b.abs(), "{a} against {b}");
+}
+
+/// Criterion 3: a non-integer Poisson `y` is fitted with no `aic` or `bic`.
+#[test]
+fn fit_glm_non_integer_poisson_has_no_aic() {
+    let d = glm_design(&[1.5, 2.0, 3.25, 4.0, 6.5, 7.0], vec![("x", xs(6))], &["x"], vec![]);
+    let fit = fit_glm(&d, "poisson", None).unwrap();
+    let m = fit.as_map().cloned().unwrap_or_default();
+    assert!(!m.contains_key("aic") && !m.contains_key("bic"));
+    assert!(m.contains_key("deviance") && m.contains_key("null.deviance"));
+}
+
+fn glm_e101(op: &str, t: &str) -> String {
+    format!("FIT.GLM: E101 {op} is outside fit.glm's domain: {t}")
+}
+
+/// Criterion 3: §S8's rows for `fit.glm`, with their texts.
+#[test]
+fn fit_glm_refusals() {
+    let d = glm_design(&[1.0, 0.0, 3.0, 2.0, 5.0], vec![("x", xs(5))], &["x"], vec![]);
+    let o = |kv: Vec<(&str, BundValue)>| map(kv);
+    let refuse = |d: &BundValue, opts: BundValue| fails(&[d.clone(), opts], "fit.glm");
+    assert_eq!(refuse(&d, o(vec![])), glm_e101("opts", "family is required"));
+    assert_eq!(
+        refuse(&d, o(vec![("family", s("normal"))])),
+        glm_e101("opts", "family is \"normal\", not a family")
+    );
+    assert_eq!(
+        refuse(&d, o(vec![("family", s("binomial")), ("link", s("sqrt"))])),
+        glm_e101("opts", "link is \"sqrt\", not a binomial link")
+    );
+    assert_eq!(
+        refuse(&d, o(vec![("family", s("poisson")), ("na", s("omit"))])),
+        glm_e101("opts", "the key \"na\", which this word does not take")
+    );
+    // A response outside its family's range.
+    let neg = glm_design(&[1.0, -1.0, 3.0, 2.0, 5.0], vec![("x", xs(5))], &["x"], vec![]);
+    assert_eq!(
+        fit_glm(&neg, "poisson", None).unwrap_err(),
+        glm_e101("design", "y row 2 is -1.0, below the poisson family's 0")
+    );
+    assert_eq!(
+        fit_glm(&neg, "binomial", None).unwrap_err(),
+        glm_e101("design", "y row 2 is -1.0, outside the binomial family's [0, 1]")
+    );
+    assert_eq!(
+        fit_glm(&d, "gamma", None).unwrap_err(),
+        glm_e101("design", "y row 2 is 0.0, not above the gamma family's 0")
+    );
+    // Binomial counts and trials.
+    let w = |y: &[f64], w: &[f64]| {
+        glm_design(y, vec![("x", xs(5)), ("w", fl(w))], &["x"], vec![("weights", s("w"))])
+    };
+    assert_eq!(
+        fit_glm(&w(&[0.5, 0.5, 0.5, 0.5, 0.5], &[2.0, 2.0, 2.5, 2.0, 2.0]), "binomial", None)
+            .unwrap_err(),
+        glm_e101("design", "weights row 3 is 2.5, not a count of trials")
+    );
+    assert_eq!(
+        fit_glm(&w(&[0.5, 0.5, 0.25, 0.5, 0.5], &[2.0; 5]), "binomial", None).unwrap_err(),
+        glm_e101("design", "y row 3 times its weight is 0.5, not a count")
+    );
+    // A start with a non-finite η.
+    let tiny = glm_design(&[1.0, 1e-200, 3.0, 2.0, 5.0], vec![("x", xs(5))], &["x"], vec![]);
+    assert_eq!(
+        fit_glm(&tiny, "inverse.gaussian", None).unwrap_err(),
+        glm_e101(
+            "design",
+            "y row 2 is 1e-200, whose starting η under the 1/mu^2 link is not finite"
+        )
+    );
+    // The first IRLS step out of range.
+    let first = glm_design(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0], vec![("x", xs(6))], &["x"], vec![]);
+    assert!(MODEL_FIXTURE.contains("glm.first.y [0 0 0 1 1 1]"));
+    assert_eq!(
+        fit_glm(&first, "poisson", Some("identity")).unwrap_err(),
+        glm_e101(
+            "design",
+            "the first IRLS step leaves the poisson family's valid range, with no earlier \
+             coefficients to halve towards"
+        )
+    );
+    // Separation, under logit and under probit.
+    let sep = glm_design(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0], vec![("x", xs(6))], &["x"], vec![]);
+    for link in ["logit", "probit"] {
+        assert_eq!(
+            fit_glm(&sep, "binomial", Some(link)).unwrap_err(),
+            glm_e101(
+                "design",
+                "fitted probabilities numerically 0 or 1: X separates y"
+            ),
+            "{link}"
+        );
+    }
+    // A singular design: an interaction with an empty combination of levels.
+    let f = raw(
+        &["y", "a", "b"],
+        vec![
+            fl(&[1.0, 2.0, 3.0, 2.0, 4.0, 3.0, 5.0]),
+            strs(&["p", "q", "p", "q", "p", "q", "p"]),
+            strs(&["u", "u", "v", "u", "v", "u", "v"]),
+        ],
+        vec![("a", strs(&["p", "q"])), ("b", strs(&["u", "v"]))],
+    );
+    let sing = on(
+        &[f, s("y"), list(vec![s("a"), s("b"), strs(&["a", "b"])]), map(vec![])],
+        "model.matrix",
+    )
+    .unwrap();
+    assert_eq!(
+        fit_glm(&sing, "poisson", None).unwrap_err(),
+        "FIT.GLM: E106 the matrix is singular: column \"a.q:b.v\" depends on those before it"
+    );
+    // A perfect fit under an estimated dispersion.
+    let perfect = raw(
+        &["y", "x"],
+        vec![fl(&[3.0, 0.0, 0.0, 0.0, 0.0]), fl(&[1.0, 0.0, 0.0, 0.0, 0.0])],
+        vec![],
+    );
+    let pd = on(
+        &[
+            perfect,
+            s("y"),
+            strs(&["x"]),
+            map(vec![("intercept", BundValue::boolean(false))]),
+        ],
+        "model.matrix",
+    )
+    .unwrap();
+    assert_eq!(
+        fit_glm(&pd, "gaussian", None).unwrap_err(),
+        glm_e101("design", "a perfect fit, its residual variance 0")
+    );
+    // IRLS past its cap: a Poisson sqrt fit converging linearly towards 0.
+    let slow = glm_design(&[1.0, 0.0, 0.0, 0.0, 1.0, 8.0], vec![("x", xs(6))], &["x"], vec![]);
+    assert_eq!(
+        fit_glm(&slow, "poisson", Some("sqrt")).unwrap_err(),
+        "FIT.GLM: E110 IRLS did not converge within 100 iterations"
+    );
+    // The design is checked before the options.
+    assert_eq!(refuse(&int(1), o(vec![])), glm_e101("design", "1"));
+    // The `.` form takes `opts` from the workbench and answers there.
+    let good = glm_design(&POS, vec![("x", xs(8))], &["x"], vec![]);
+    let mut i = run_on(
+        std::slice::from_ref(&good),
+        Some(&glm_opts("gamma", None)),
+        "fit.glm.",
+    )
+    .unwrap();
+    let wb = i.pull_workbench().unwrap();
+    assert_eq!(
+        bits(get(&wb, "coef")),
+        bits(get(&fit_glm(&good, "gamma", None).unwrap(), "coef"))
+    );
+}
+
+/// Criterion 8: `fit.glm` on malformed designs and options answers or
+/// refuses, every family and link.
+#[test]
+fn fit_glm_never_aborts() {
+    let ok = |e: &str| e.contains(": E1") || e.contains("too shallow");
+    let base = glm_design(&POS, vec![("x", xs(8))], &["x"], vec![]);
+    let zeros = glm_design(&[0.0; 8], vec![("x", xs(8))], &["x"], vec![]);
+    let ones = glm_design(&[1.0; 8], vec![("x", xs(8))], &["x"], vec![]);
+    let huge = glm_design(
+        &[1e300, 1e-300, 1.0, 2.0, 1e300, 3.0, 1e-300, 4.0],
+        vec![("x", xs(8))],
+        &["x"],
+        vec![],
+    );
+    let wide = with(&base, "matrix", {
+        let rows: Vec<Vec<BundValue>> = (0..8)
+            .map(|r| vec![float(1.0), float(f64::from(r) * 1e200)])
+            .collect();
+        BundValue::matrix(rows)
+    });
+    let families: [(&str, &[&str]); 5] = [
+        ("binomial", &["logit", "probit", "cloglog", "cauchit", "log"]),
+        ("poisson", &["log", "identity", "sqrt"]),
+        ("gaussian", &["identity", "log", "inverse"]),
+        ("gamma", &["inverse", "log", "identity"]),
+        ("inverse.gaussian", &["1/mu^2", "inverse", "log", "identity"]),
+    ];
+    for d in [&base, &zeros, &ones, &huge, &wide, &good(), &int(3)] {
+        for (family, links) in families {
+            for link in links {
+                if let Err(e) = fit_glm(d, family, Some(link)) {
+                    assert!(ok(&e), "{family} {link}: {e}");
+                }
+            }
+        }
+    }
+}

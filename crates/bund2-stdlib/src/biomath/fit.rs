@@ -363,10 +363,20 @@ pub fn register(r: &mut Registry) {
         WordKind::Sync,
     );
     crate::wb::bench!(r, "fit.lm", super::model::lm::fit_lm, 2, 0);
+    r.register_native(
+        "fit.glm",
+        super::model::glm::fit_glm,
+        StackEffect::fixed(2, 1),
+        WordKind::Sync,
+    );
+    crate::wb::bench!(r, "fit.glm", super::model::glm::fit_glm, 2, 0);
 }
 
-/// §S16's words with their forms, and RFC-0018's `fit.lm` (§S9).
-pub const WORDS: [&str; 5] = [
+/// §S16's words with their forms, and RFC-0018's `fit.glm` and `fit.lm`
+/// (§S9).
+pub const WORDS: [&str; 7] = [
+    "fit.glm",
+    "fit.glm.",
     "fit.lm",
     "fit.lm.",
     "fit.logistic",

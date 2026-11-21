@@ -12,7 +12,8 @@
 //! a key given to the wrong word reads "which this word does not take"
 //! now, and the text does not move when a later milestone reads the key.
 //! M1 reads `model.matrix`'s four: `intercept`, `weights`, `offset` and
-//! `na`, the last with the frame words' text.
+//! `na`, the last with the frame words' text. M3 reads `fit.glm`'s `family`
+//! and `link`, each a STRING whose value the word checks.
 
 use bund2_api::Error;
 use bund2_value::{BOOL, BundValue, MAP, STRING};
@@ -46,6 +47,10 @@ pub(crate) struct Opts {
     pub offset: Option<String>,
     /// `na`: `"refuse"` or `"omit"`.
     pub missing: Option<Missing>,
+    /// `family` (`fit.glm`, `model.anova`): its name, checked by the word.
+    pub family: Option<String>,
+    /// `link` (`fit.glm`, `model.anova`): its name, checked by the word.
+    pub link: Option<String>,
 }
 
 /// E101 on the `opts` operand.
@@ -57,6 +62,14 @@ pub(crate) fn refuse(word: &str, text: String) -> Error {
 fn column(word: &str, key: &str, v: &BundValue) -> Result<String, Error> {
     match v.as_str() {
         Some(s) if v.dt() == STRING && !s.is_empty() => Ok(s),
+        _ => Err(refuse(word, format!("{key} is {}", render::value(v)))),
+    }
+}
+
+/// A STRING naming a choice, checked against the choices by the word.
+fn name(word: &str, key: &str, v: &BundValue) -> Result<String, Error> {
+    match v.as_str() {
+        Some(s) if v.dt() == STRING => Ok(s),
         _ => Err(refuse(word, format!("{key} is {}", render::value(v)))),
     }
 }
@@ -84,6 +97,8 @@ pub(crate) fn read(word: &str, v: &BundValue, takes: &[&str]) -> Result<Opts, Er
                 _ => return Err(refuse(word, format!("intercept is {}", render::value(x)))),
             },
             "weights" => o.weights = Some(column(word, k, x)?),
+            "family" => o.family = Some(name(word, k, x)?),
+            "link" => o.link = Some(name(word, k, x)?),
             "offset" => o.offset = Some(column(word, k, x)?),
             "na" => {
                 let s = x.as_str().filter(|_| x.dt() == STRING);
