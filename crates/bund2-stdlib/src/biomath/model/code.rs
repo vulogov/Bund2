@@ -137,9 +137,9 @@ pub(crate) fn plan(
     let full = if intercept {
         None
     } else {
-        terms.iter().position(|t| {
-            matches!(t.as_slice(), [m] if kinds.get(m) == Some(&Kind::Factor))
-        })
+        terms
+            .iter()
+            .position(|t| matches!(t.as_slice(), [m] if kinds.get(m) == Some(&Kind::Factor)))
     };
     let atoms_of = |m: &String, fully: bool| -> Result<Vec<Atom>, Error> {
         Ok(match kinds.get(m) {
@@ -187,11 +187,7 @@ pub(crate) fn plan(
             products = next;
         }
         for atoms in products {
-            let label = atoms
-                .iter()
-                .map(Atom::label)
-                .collect::<Vec<_>>()
-                .join(":");
+            let label = atoms.iter().map(Atom::label).collect::<Vec<_>>().join(":");
             let source = match atoms.as_slice() {
                 [Atom::Level(c, l)] => format!("{} level {}", render::text(c), render::text(l)),
                 [a] => format!("column {}", render::text(a.column())),
@@ -353,7 +349,9 @@ pub(crate) fn kept(
             }
         }
     }
-    Ok((0..f.nrow).filter(|&r| keep.get(r) == Some(&true)).collect())
+    Ok((0..f.nrow)
+        .filter(|&r| keep.get(r) == Some(&true))
+        .collect())
 }
 
 /// A column's index, which step 2 or 3 found.
@@ -541,7 +539,10 @@ pub(crate) fn model_matrix(vm: &mut dyn Vm) -> Result<(), Error> {
     let columns = plan(W, &terms, &kinds, &used, intercept)?;
     // Two columns of one name.
     for (j, c) in columns.iter().enumerate() {
-        if let Some(e) = columns.get(..j).and_then(|b| b.iter().find(|e| e.name == c.name)) {
+        if let Some(e) = columns
+            .get(..j)
+            .and_then(|b| b.iter().find(|e| e.name == c.name))
+        {
             return Err(terms_refusal(format!(
                 "column name {} is both {} and {}",
                 render::text(&c.name),
@@ -619,7 +620,12 @@ pub(crate) fn model_matrix(vm: &mut dyn Vm) -> Result<(), Error> {
     d.insert("matrix".to_string(), BundValue::matrix(matrix));
     d.insert(
         "names".to_string(),
-        BundValue::list(columns.iter().map(|c| BundValue::str(c.name.clone())).collect()),
+        BundValue::list(
+            columns
+                .iter()
+                .map(|c| BundValue::str(c.name.clone()))
+                .collect(),
+        ),
     );
     d.insert(
         "assign".to_string(),
@@ -633,4 +639,3 @@ pub(crate) fn model_matrix(vm: &mut dyn Vm) -> Result<(), Error> {
     vm.push(BundValue::map(d));
     Ok(())
 }
-

@@ -170,8 +170,16 @@ fn every_word_is_registered_with_its_effect() {
             "model.residuals" => 2,
             _ => 1,
         };
-        let want = if w.ends_with('.') { (consumes - 1, 0) } else { (consumes, 1) };
-        assert_eq!((e.consumes, e.produces, e.opaque), (want.0, want.1, false), "{w}");
+        let want = if w.ends_with('.') {
+            (consumes - 1, 0)
+        } else {
+            (consumes, 1)
+        };
+        assert_eq!(
+            (e.consumes, e.produces, e.opaque),
+            (want.0, want.1, false),
+            "{w}"
+        );
     }
     let ours = i
         .registry
@@ -209,10 +217,7 @@ fn the_trial_codes_its_interaction() {
         vec![1.0, 30.0, 0.0, 1.0, 0.0, 30.0],
     ];
     assert_eq!(rows_of(&d), want);
-    assert_eq!(
-        floats_of(get(&d, "y")),
-        [4.2, 5.9, 3.8, 4.6, 6.3, 7.1, 6.8]
-    );
+    assert_eq!(floats_of(get(&d, "y")), [4.2, 5.9, 3.8, 4.6, 6.3, 7.1, 6.8]);
     assert_eq!(floats_of(get(&d, "weights")), [1.0; 7]);
     assert_eq!(floats_of(get(&d, "offset")), [0.0; 7]);
     let spec = get(&d, "spec");
@@ -223,7 +228,11 @@ fn the_trial_codes_its_interaction() {
         strs(&["east", "north", "south"]).display()
     );
     assert_eq!(get(spec, "terms").display(), dose_site().display());
-    assert!(get(spec, "logical").as_list().is_some_and(<[BundValue]>::is_empty));
+    assert!(
+        get(spec, "logical")
+            .as_list()
+            .is_some_and(<[BundValue]>::is_empty)
+    );
     // The design passes its own check.
     let checked = design::check("fit.lm", "design", &d).unwrap_or_else(|e| panic!("{}", e.0));
     assert_eq!(checked.x, want);
@@ -266,7 +275,10 @@ model.matrix "names" get
 /// level, and inside an interaction a factor keeps its contrasts.
 #[test]
 fn no_intercept_codes_the_first_factor_fully() {
-    let no = map(vec![("na", s("omit")), ("intercept", BundValue::boolean(false))]);
+    let no = map(vec![
+        ("na", s("omit")),
+        ("intercept", BundValue::boolean(false)),
+    ]);
     let d = matrix(&trial(), strs(&["site"]), no.clone());
     assert_eq!(names_of(&d), ["site.east", "site.north", "site.south"]);
     let d = matrix(&trial(), dose_site(), no);
@@ -302,11 +314,8 @@ fn a_logical_column_codes_one() {
 /// from `north` and `south` alone.
 #[test]
 fn unused_levels_code_nothing() {
-    let f = on(
-        &[trial()],
-        r#"{ "site" get "east" == not } frame.filter"#,
-    )
-    .unwrap_or_else(|e| panic!("{e}"));
+    let f = on(&[trial()], r#"{ "site" get "east" == not } frame.filter"#)
+        .unwrap_or_else(|e| panic!("{e}"));
     let d = matrix(&f, strs(&["dose", "site"]), omit());
     assert_eq!(names_of(&d), ["(intercept)", "dose", "site.south"]);
     assert_eq!(
@@ -381,7 +390,10 @@ fn refusals_have_their_texts() {
     let none_map = map(vec![]);
     // Step 0: the frame.
     assert_eq!(
-        fails(&[int(1), s("response"), strs(&[]), none_map.clone()], "model.matrix"),
+        fails(
+            &[int(1), s("response"), strs(&[]), none_map.clone()],
+            "model.matrix"
+        ),
         e101("frame", "1")
     );
     // Step 1: the options.
@@ -390,15 +402,30 @@ fn refusals_have_their_texts() {
         e101("opts", "an unknown key \"zz\"")
     );
     assert_eq!(
-        mm_fails(&t, "response", strs(&["dose"]), map(vec![("family", s("poisson"))])),
+        mm_fails(
+            &t,
+            "response",
+            strs(&["dose"]),
+            map(vec![("family", s("poisson"))])
+        ),
         e101("opts", "the key \"family\", which this word does not take")
     );
     assert_eq!(
-        mm_fails(&t, "response", strs(&["dose"]), map(vec![("intercept", int(1))])),
+        mm_fails(
+            &t,
+            "response",
+            strs(&["dose"]),
+            map(vec![("intercept", int(1))])
+        ),
         e101("opts", "intercept is 1")
     );
     assert_eq!(
-        mm_fails(&t, "response", strs(&["dose"]), map(vec![("na", s("drop"))])),
+        mm_fails(
+            &t,
+            "response",
+            strs(&["dose"]),
+            map(vec![("na", s("drop"))])
+        ),
         e101("opts", "na is \"drop\"")
     );
     // Step 2: the response, then `weights` and `offset`.
@@ -411,17 +438,27 @@ fn refusals_have_their_texts() {
         e101("response", "no column \"y\"")
     );
     assert_eq!(
-        mm_fails(&t, "response", strs(&["dose"]), map(vec![("weights", s("w"))])),
+        mm_fails(
+            &t,
+            "response",
+            strs(&["dose"]),
+            map(vec![("weights", s("w"))])
+        ),
         e101("opts", "weights names no column \"w\"")
     );
     // Step 3: the terms.
+    assert_eq!(mm_fails(&t, "response", int(1), omit()), e101("terms", "1"));
     assert_eq!(
-        mm_fails(&t, "response", int(1), omit()),
-        e101("terms", "1")
-    );
-    assert_eq!(
-        mm_fails(&t, "response", list(vec![s("dose"), strs(&["site"])]), omit()),
-        e101("terms", &format!("item 2 is {}", strs(&["site"]).summary(40)))
+        mm_fails(
+            &t,
+            "response",
+            list(vec![s("dose"), strs(&["site"])]),
+            omit()
+        ),
+        e101(
+            "terms",
+            &format!("item 2 is {}", strs(&["site"]).summary(40))
+        )
     );
     assert_eq!(
         mm_fails(&t, "response", strs(&["dose", "zz"]), omit()),
@@ -455,7 +492,12 @@ fn refusals_have_their_texts() {
         e101("terms", "term 4 repeats term 3")
     );
     assert_eq!(
-        mm_fails(&t, "response", list(vec![s("dose"), strs(&["dose", "site"])]), omit()),
+        mm_fails(
+            &t,
+            "response",
+            list(vec![s("dose"), strs(&["dose", "site"])]),
+            omit()
+        ),
         e101("terms", "term 2 needs \"site\" as a term before it")
     );
     assert_eq!(
@@ -473,7 +515,12 @@ fn refusals_have_their_texts() {
         e101("terms", "term 2 reads the response \"response\"")
     );
     assert_eq!(
-        mm_fails(&t, "response", strs(&["dose"]), map(vec![("weights", s("response"))])),
+        mm_fails(
+            &t,
+            "response",
+            strs(&["dose"]),
+            map(vec![("weights", s("response"))])
+        ),
         e101("opts", "weights names the response \"response\"")
     );
     assert_eq!(
@@ -512,7 +559,12 @@ fn refusals_have_their_texts() {
         e101("terms", "column \"e\" is of no kind")
     );
     assert_eq!(
-        mm_fails(&t, "response", strs(&["dose"]), map(vec![("weights", s("site"))])),
+        mm_fails(
+            &t,
+            "response",
+            strs(&["dose"]),
+            map(vec![("weights", s("site"))])
+        ),
         e101("opts", "weights column \"site\" is a factor")
     );
     // Step 6: NONE under "refuse", then the weights' cells.
@@ -543,7 +595,11 @@ fn refusals_have_their_texts() {
         mm_fails(&empty, "y", strs(&["x"]), omit()),
         e101("frame", "no rows")
     );
-    let one = on(std::slice::from_ref(&t), r#"{ "site" get "north" == } frame.filter"#).unwrap();
+    let one = on(
+        std::slice::from_ref(&t),
+        r#"{ "site" get "north" == } frame.filter"#,
+    )
+    .unwrap();
     assert_eq!(
         mm_fails(&one, "response", strs(&["dose", "site"]), omit()),
         e101("terms", "term 2, \"site\", has one used level, \"north\"")
@@ -634,7 +690,10 @@ fn the_design_check_enforces_its_invariants() {
     assert_eq!(design_fails(&int(1)), de101("1"));
     let mut m = d.as_map().cloned().unwrap_or_default();
     m.remove("y");
-    assert_eq!(design_fails(&BundValue::map(m)), de101("a missing key \"y\""));
+    assert_eq!(
+        design_fails(&BundValue::map(m)),
+        de101("a missing key \"y\"")
+    );
     assert_eq!(
         design_fails(&with(&d, "matrix", strs(&["a"]))),
         de101(&format!("matrix is {}", strs(&["a"]).summary(40)))
@@ -689,7 +748,13 @@ fn the_design_check_enforces_its_invariants() {
         design_fails(&with_spec(&d, "levels", None)),
         de101("spec has no key \"levels\"")
     );
-    let w = |x: f64| list((0..7).map(|i| float(if i == 2 { x } else { 1.0 })).collect());
+    let w = |x: f64| {
+        list(
+            (0..7)
+                .map(|i| float(if i == 2 { x } else { 1.0 }))
+                .collect(),
+        )
+    };
     assert_eq!(
         design_fails(&with(&d, "weights", w(0.0))),
         de101("weights row 3 is 0.0")
@@ -698,7 +763,11 @@ fn the_design_check_enforces_its_invariants() {
         design_fails(&with(&d, "weights", w(2.0))),
         de101("weights row 3 is 2.0, and spec names no weights")
     );
-    let off = list((0..7).map(|i| float(if i == 5 { 0.25 } else { 0.0 })).collect());
+    let off = list(
+        (0..7)
+            .map(|i| float(if i == 5 { 0.25 } else { 0.0 }))
+            .collect(),
+    );
     assert_eq!(
         design_fails(&with(&d, "offset", off)),
         de101("offset row 6 is 0.25, and spec names no offset")
@@ -731,7 +800,10 @@ fn the_design_check_enforces_its_invariants() {
         "dropped",
         int(0),
     );
-    assert_eq!(design_fails(&small), de101("4 observations for 4 coefficients"));
+    assert_eq!(
+        design_fails(&small),
+        de101("4 observations for 4 coefficients")
+    );
 }
 
 /// Criterion 8: every name and form, on a palette of wrong types, empty,
@@ -759,7 +831,10 @@ fn no_operand_aborts() {
         for b in &palette {
             for c in &palette {
                 for d in &palette {
-                    if let Err(e) = on(&[a.clone(), b.clone(), c.clone(), d.clone()], "model.matrix") {
+                    if let Err(e) = on(
+                        &[a.clone(), b.clone(), c.clone(), d.clone()],
+                        "model.matrix",
+                    ) {
                         assert!(ok(&e), "model.matrix: {e}");
                     }
                 }
@@ -796,8 +871,8 @@ fn lm_programs() -> Vec<(&'static str, String)> {
         15.0, 21.4,
     ];
     const VS: [u8; 32] = [
-        0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0,
-        0, 0, 1,
+        0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0,
+        0, 1,
     ];
     let rows: Vec<String> = MPG.iter().map(|x| format!("[ {x:?} ]")).collect();
     let vs: Vec<String> = VS.iter().map(|x| format!("{x}")).collect();
@@ -895,8 +970,11 @@ fn dose_frame() -> BundValue {
 }
 
 fn dose_design(terms: &[&str], opts: Vec<(&str, BundValue)>) -> BundValue {
-    on(&[dose_frame(), s("y"), strs(terms), map(opts)], "model.matrix")
-        .unwrap_or_else(|e| panic!("{e}"))
+    on(
+        &[dose_frame(), s("y"), strs(terms), map(opts)],
+        "model.matrix",
+    )
+    .unwrap_or_else(|e| panic!("{e}"))
 }
 
 #[test]
@@ -905,7 +983,11 @@ fn fit_lm_is_registered_beside_fit_logistic() {
     crate::register_all(&mut i.registry);
     for (w, want) in [("fit.lm", (2, 1)), ("fit.lm.", (1, 0))] {
         let e = i.registry.effect_of(w).unwrap_or_else(|| panic!("{w}"));
-        assert_eq!((e.consumes, e.produces, e.opaque), (want.0, want.1, false), "{w}");
+        assert_eq!(
+            (e.consumes, e.produces, e.opaque),
+            (want.0, want.1, false),
+            "{w}"
+        );
     }
     assert!(crate::biomath::fit::WORDS.contains(&"fit.lm"));
 }
@@ -926,7 +1008,11 @@ fn fit_lm_answers_stat_lm_bit_for_bit() {
         ],
         vec![],
     );
-    let d = on(&[f, s("y"), strs(&["x1", "x2"]), map(vec![])], "model.matrix").unwrap();
+    let d = on(
+        &[f, s("y"), strs(&["x1", "x2"]), map(vec![])],
+        "model.matrix",
+    )
+    .unwrap();
     let fit = fit_lm(&d);
     let lm = on(
         &[],
@@ -957,7 +1043,10 @@ fn fit_lm_answers_stat_lm_on_the_trial() {
         (30, 7, 7.1),
         (30, 8, 6.8),
     ];
-    let x: Vec<String> = rows.iter().map(|(d, p, _)| format!("[ {d} {p} ]")).collect();
+    let x: Vec<String> = rows
+        .iter()
+        .map(|(d, p, _)| format!("[ {d} {p} ]"))
+        .collect();
     let y: Vec<String> = rows.iter().map(|(_, _, y)| format!("{y:?}")).collect();
     let lm = on(
         &[],
@@ -978,8 +1067,14 @@ fn fit_lm_against_the_fixture() {
     let cases: Vec<(&str, BundValue)> = vec![
         ("lm.plain", dose_design(&["dose", "patient"], vec![])),
         ("lm.weighted", dose_design(&["dose", "patient"], vec![w()])),
-        ("lm.offset", dose_design(&["dose", "patient"], vec![w(), o()])),
-        ("lm.origin", dose_design(&["dose", "patient"], vec![w(), o(), no()])),
+        (
+            "lm.offset",
+            dose_design(&["dose", "patient"], vec![w(), o()]),
+        ),
+        (
+            "lm.origin",
+            dose_design(&["dose", "patient"], vec![w(), o(), no()]),
+        ),
         ("lm.mean", dose_design(&[], vec![w(), o()])),
     ];
     for (label, d) in cases {
@@ -1018,7 +1113,11 @@ fn fit_lm_against_the_fixture() {
         assert_eq!(get(&fit, "spec").display(), get(&d, "spec").display());
         assert_eq!(bits(get(&fit, "y")), bits(get(&d, "y")));
         let sigma = floats_of(get(&fit, "sigma"))[0];
-        near("dispersion", &floats_of(get(&fit, "dispersion")), &[sigma * sigma]);
+        near(
+            "dispersion",
+            &floats_of(get(&fit, "dispersion")),
+            &[sigma * sigma],
+        );
     }
 }
 
@@ -1034,7 +1133,10 @@ fn fit_lm_intercept_only_has_no_f() {
         assert!(!m.contains_key(k), "{k}");
     }
     let fit = fit_lm(&dose_design(&["dose"], vec![]));
-    assert_eq!(get(&fit, "f.df").display(), list(vec![int(1), int(5)]).display());
+    assert_eq!(
+        get(&fit, "f.df").display(),
+        list(vec![int(1), int(5)]).display()
+    );
 }
 
 fn lm_fails(d: &BundValue, opts: BundValue) -> String {
@@ -1241,7 +1343,12 @@ fn against(label: &str, fit: &BundValue, estimated: bool) {
         keys.extend(["aic", "bic"]);
     }
     for k in keys {
-        near_irls(&format!("{label} {k}"), &floats_of(get(fit, k)), &want(label, k), k == "p");
+        near_irls(
+            &format!("{label} {k}"),
+            &floats_of(get(fit, k)),
+            &want(label, k),
+            k == "p",
+        );
     }
     for k in ["iterations", "halvings"] {
         assert_eq!(
@@ -1251,7 +1358,10 @@ fn against(label: &str, fit: &BundValue, estimated: bool) {
         );
     }
     let m = fit.as_map().cloned().unwrap_or_default();
-    assert!(!m.contains_key(if estimated { "z" } else { "t" }), "{label}");
+    assert!(
+        !m.contains_key(if estimated { "z" } else { "t" }),
+        "{label}"
+    );
     for k in ["sigma", "r2", "adj.r2", "f", "f.df", "f.p"] {
         assert!(!m.contains_key(k), "{label} {k}");
     }
@@ -1265,7 +1375,11 @@ fn fit_glm_is_registered_beside_fit_logistic() {
     crate::register_all(&mut i.registry);
     for (w, want) in [("fit.glm", (2, 1)), ("fit.glm.", (1, 0))] {
         let e = i.registry.effect_of(w).unwrap_or_else(|| panic!("{w}"));
-        assert_eq!((e.consumes, e.produces, e.opaque), (want.0, want.1, false), "{w}");
+        assert_eq!(
+            (e.consumes, e.produces, e.opaque),
+            (want.0, want.1, false),
+            "{w}"
+        );
     }
     assert!(crate::biomath::fit::WORDS.contains(&"fit.glm"));
 }
@@ -1277,8 +1391,14 @@ fn fit_glm_dobson() {
     let d = glm_design(
         &counts,
         vec![
-            ("foutcome", strs(&["1", "2", "3", "1", "2", "3", "1", "2", "3"])),
-            ("ftreatment", strs(&["1", "1", "1", "2", "2", "2", "3", "3", "3"])),
+            (
+                "foutcome",
+                strs(&["1", "2", "3", "1", "2", "3", "1", "2", "3"]),
+            ),
+            (
+                "ftreatment",
+                strs(&["1", "1", "1", "2", "2", "2", "3", "3", "3"]),
+            ),
         ],
         &["foutcome", "ftreatment"],
         vec![],
@@ -1392,8 +1512,8 @@ fn fit_glm_agrees_with_fit_logistic() {
         15.0, 21.4,
     ];
     const VS: [f64; 32] = [
-        0., 0., 1., 1., 0., 1., 0., 1., 1., 1., 1., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 0.,
-        0., 0., 0., 1., 0., 1., 0., 0., 0., 1.,
+        0., 0., 1., 1., 0., 1., 0., 1., 1., 1., 1., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 0., 0.,
+        0., 0., 1., 0., 1., 0., 0., 0., 1.,
     ];
     let d = glm_design(&VS, vec![("mpg", fl(&MPG))], &["mpg"], vec![]);
     let fit = fit_glm(&d, "binomial", None).unwrap();
@@ -1401,10 +1521,20 @@ fn fit_glm_agrees_with_fit_logistic() {
     let vs: Vec<String> = VS.iter().map(|x| format!("{}", *x as i64)).collect();
     let lr = on(
         &[],
-        &format!("[ {} ] matrix [ {} ] fit.logistic", rows.join(" "), vs.join(" ")),
+        &format!(
+            "[ {} ] matrix [ {} ] fit.logistic",
+            rows.join(" "),
+            vs.join(" ")
+        ),
     )
     .unwrap();
-    for (k, l) in [("coef", "coef"), ("se", "se"), ("z", "z"), ("deviance", "deviance"), ("aic", "aic")] {
+    for (k, l) in [
+        ("coef", "coef"),
+        ("se", "se"),
+        ("z", "z"),
+        ("deviance", "deviance"),
+        ("aic", "aic"),
+    ] {
         let (g, w) = (floats_of(get(&fit, k)), floats_of(get(&lr, l)));
         assert_eq!(g.len(), w.len(), "{k}");
         for (a, b) in g.iter().zip(&w) {
@@ -1426,7 +1556,12 @@ fn fit_glm_gaussian_aic_is_fit_lm_aic() {
 /// Criterion 3: a non-integer Poisson `y` is fitted with no `aic` or `bic`.
 #[test]
 fn fit_glm_non_integer_poisson_has_no_aic() {
-    let d = glm_design(&[1.5, 2.0, 3.25, 4.0, 6.5, 7.0], vec![("x", xs(6))], &["x"], vec![]);
+    let d = glm_design(
+        &[1.5, 2.0, 3.25, 4.0, 6.5, 7.0],
+        vec![("x", xs(6))],
+        &["x"],
+        vec![],
+    );
     let fit = fit_glm(&d, "poisson", None).unwrap();
     let m = fit.as_map().cloned().unwrap_or_default();
     assert!(!m.contains_key("aic") && !m.contains_key("bic"));
@@ -1440,10 +1575,18 @@ fn glm_e101(op: &str, t: &str) -> String {
 /// Criterion 3: §S8's rows for `fit.glm`, with their texts.
 #[test]
 fn fit_glm_refusals() {
-    let d = glm_design(&[1.0, 0.0, 3.0, 2.0, 5.0], vec![("x", xs(5))], &["x"], vec![]);
+    let d = glm_design(
+        &[1.0, 0.0, 3.0, 2.0, 5.0],
+        vec![("x", xs(5))],
+        &["x"],
+        vec![],
+    );
     let o = |kv: Vec<(&str, BundValue)>| map(kv);
     let refuse = |d: &BundValue, opts: BundValue| fails(&[d.clone(), opts], "fit.glm");
-    assert_eq!(refuse(&d, o(vec![])), glm_e101("opts", "family is required"));
+    assert_eq!(
+        refuse(&d, o(vec![])),
+        glm_e101("opts", "family is required")
+    );
     assert_eq!(
         refuse(&d, o(vec![("family", s("normal"))])),
         glm_e101("opts", "family is \"normal\", not a family")
@@ -1457,14 +1600,22 @@ fn fit_glm_refusals() {
         glm_e101("opts", "the key \"na\", which this word does not take")
     );
     // A response outside its family's range.
-    let neg = glm_design(&[1.0, -1.0, 3.0, 2.0, 5.0], vec![("x", xs(5))], &["x"], vec![]);
+    let neg = glm_design(
+        &[1.0, -1.0, 3.0, 2.0, 5.0],
+        vec![("x", xs(5))],
+        &["x"],
+        vec![],
+    );
     assert_eq!(
         fit_glm(&neg, "poisson", None).unwrap_err(),
         glm_e101("design", "y row 2 is -1.0, below the poisson family's 0")
     );
     assert_eq!(
         fit_glm(&neg, "binomial", None).unwrap_err(),
-        glm_e101("design", "y row 2 is -1.0, outside the binomial family's [0, 1]")
+        glm_e101(
+            "design",
+            "y row 2 is -1.0, outside the binomial family's [0, 1]"
+        )
     );
     assert_eq!(
         fit_glm(&d, "gamma", None).unwrap_err(),
@@ -1472,11 +1623,20 @@ fn fit_glm_refusals() {
     );
     // Binomial counts and trials.
     let w = |y: &[f64], w: &[f64]| {
-        glm_design(y, vec![("x", xs(5)), ("w", fl(w))], &["x"], vec![("weights", s("w"))])
+        glm_design(
+            y,
+            vec![("x", xs(5)), ("w", fl(w))],
+            &["x"],
+            vec![("weights", s("w"))],
+        )
     };
     assert_eq!(
-        fit_glm(&w(&[0.5, 0.5, 0.5, 0.5, 0.5], &[2.0, 2.0, 2.5, 2.0, 2.0]), "binomial", None)
-            .unwrap_err(),
+        fit_glm(
+            &w(&[0.5, 0.5, 0.5, 0.5, 0.5], &[2.0, 2.0, 2.5, 2.0, 2.0]),
+            "binomial",
+            None
+        )
+        .unwrap_err(),
         glm_e101("design", "weights row 3 is 2.5, not a count of trials")
     );
     assert_eq!(
@@ -1484,7 +1644,12 @@ fn fit_glm_refusals() {
         glm_e101("design", "y row 3 times its weight is 0.5, not a count")
     );
     // A start with a non-finite η.
-    let tiny = glm_design(&[1.0, 1e-200, 3.0, 2.0, 5.0], vec![("x", xs(5))], &["x"], vec![]);
+    let tiny = glm_design(
+        &[1.0, 1e-200, 3.0, 2.0, 5.0],
+        vec![("x", xs(5))],
+        &["x"],
+        vec![],
+    );
     assert_eq!(
         fit_glm(&tiny, "inverse.gaussian", None).unwrap_err(),
         glm_e101(
@@ -1493,7 +1658,12 @@ fn fit_glm_refusals() {
         )
     );
     // The first IRLS step out of range.
-    let first = glm_design(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0], vec![("x", xs(6))], &["x"], vec![]);
+    let first = glm_design(
+        &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        vec![("x", xs(6))],
+        &["x"],
+        vec![],
+    );
     assert!(MODEL_FIXTURE.contains("glm.first.y [0 0 0 1 1 1]"));
     assert_eq!(
         fit_glm(&first, "poisson", Some("identity")).unwrap_err(),
@@ -1504,7 +1674,12 @@ fn fit_glm_refusals() {
         )
     );
     // Separation, under logit and under probit.
-    let sep = glm_design(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0], vec![("x", xs(6))], &["x"], vec![]);
+    let sep = glm_design(
+        &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        vec![("x", xs(6))],
+        &["x"],
+        vec![],
+    );
     for link in ["logit", "probit"] {
         assert_eq!(
             fit_glm(&sep, "binomial", Some(link)).unwrap_err(),
@@ -1526,7 +1701,12 @@ fn fit_glm_refusals() {
         vec![("a", strs(&["p", "q"])), ("b", strs(&["u", "v"]))],
     );
     let sing = on(
-        &[f, s("y"), list(vec![s("a"), s("b"), strs(&["a", "b"])]), map(vec![])],
+        &[
+            f,
+            s("y"),
+            list(vec![s("a"), s("b"), strs(&["a", "b"])]),
+            map(vec![]),
+        ],
         "model.matrix",
     )
     .unwrap();
@@ -1537,7 +1717,10 @@ fn fit_glm_refusals() {
     // A perfect fit under an estimated dispersion.
     let perfect = raw(
         &["y", "x"],
-        vec![fl(&[3.0, 0.0, 0.0, 0.0, 0.0]), fl(&[1.0, 0.0, 0.0, 0.0, 0.0])],
+        vec![
+            fl(&[3.0, 0.0, 0.0, 0.0, 0.0]),
+            fl(&[1.0, 0.0, 0.0, 0.0, 0.0]),
+        ],
         vec![],
     );
     let pd = on(
@@ -1555,7 +1738,12 @@ fn fit_glm_refusals() {
         glm_e101("design", "a perfect fit, its residual variance 0")
     );
     // IRLS past its cap: a Poisson sqrt fit converging linearly towards 0.
-    let slow = glm_design(&[1.0, 0.0, 0.0, 0.0, 1.0, 8.0], vec![("x", xs(6))], &["x"], vec![]);
+    let slow = glm_design(
+        &[1.0, 0.0, 0.0, 0.0, 1.0, 8.0],
+        vec![("x", xs(6))],
+        &["x"],
+        vec![],
+    );
     assert_eq!(
         fit_glm(&slow, "poisson", Some("sqrt")).unwrap_err(),
         "FIT.GLM: E110 IRLS did not converge within 100 iterations"
@@ -1598,11 +1786,17 @@ fn fit_glm_never_aborts() {
         BundValue::matrix(rows)
     });
     let families: [(&str, &[&str]); 5] = [
-        ("binomial", &["logit", "probit", "cloglog", "cauchit", "log"]),
+        (
+            "binomial",
+            &["logit", "probit", "cloglog", "cauchit", "log"],
+        ),
         ("poisson", &["log", "identity", "sqrt"]),
         ("gaussian", &["identity", "log", "inverse"]),
         ("gamma", &["inverse", "log", "identity"]),
-        ("inverse.gaussian", &["1/mu^2", "inverse", "log", "identity"]),
+        (
+            "inverse.gaussian",
+            &["1/mu^2", "inverse", "log", "identity"],
+        ),
     ];
     for d in [&base, &zeros, &ones, &huge, &wide, &good(), &int(3)] {
         for (family, links) in families {
@@ -1621,8 +1815,14 @@ fn dobson_design() -> BundValue {
     glm_design(
         &[18.0, 17.0, 15.0, 20.0, 10.0, 20.0, 25.0, 13.0, 12.0],
         vec![
-            ("foutcome", strs(&["1", "2", "3", "1", "2", "3", "1", "2", "3"])),
-            ("ftreatment", strs(&["1", "1", "1", "2", "2", "2", "3", "3", "3"])),
+            (
+                "foutcome",
+                strs(&["1", "2", "3", "1", "2", "3", "1", "2", "3"]),
+            ),
+            (
+                "ftreatment",
+                strs(&["1", "1", "1", "2", "2", "2", "3", "3", "3"]),
+            ),
         ],
         &["foutcome", "ftreatment"],
         vec![],
@@ -1637,11 +1837,17 @@ fn residuals_of(fit: &BundValue, t: &str) -> Result<BundValue, String> {
 fn model_residuals_and_influence_against_the_fixture() {
     let gamma = glm_design(&POS, vec![("x", xs(8))], &["x"], vec![]);
     let cases = [
-        ("glm.dobson", fit_glm(&dobson_design(), "poisson", None).unwrap()),
+        (
+            "glm.dobson",
+            fit_glm(&dobson_design(), "poisson", None).unwrap(),
+        ),
         ("glm.gamma.inverse", fit_glm(&gamma, "gamma", None).unwrap()),
         (
             "lm.weighted",
-            fit_lm(&dose_design(&["dose", "patient"], vec![("weights", s("w"))])),
+            fit_lm(&dose_design(
+                &["dose", "patient"],
+                vec![("weights", s("w"))],
+            )),
         ),
     ];
     for (label, fit) in &cases {
@@ -1658,7 +1864,11 @@ fn model_residuals_and_influence_against_the_fixture() {
         let d = on(&[fit.clone(), map(vec![])], "model.residuals").unwrap();
         assert_eq!(bits(&d), bits(&residuals_of(fit, "deviance").unwrap()));
         let inf = on(std::slice::from_ref(fit), "model.influence").unwrap();
-        for (k, f) in [("hat", "hat"), ("std.residuals", "standardized"), ("cooks", "cooks")] {
+        for (k, f) in [
+            ("hat", "hat"),
+            ("std.residuals", "standardized"),
+            ("cooks", "cooks"),
+        ] {
             near_irls(
                 &format!("{label} {k}"),
                 &floats_of(get(&inf, k)),
@@ -1718,14 +1928,25 @@ fn predict_on(fit: &BundValue, frame: BundValue, opts: Vec<(&str, BundValue)>) -
     on(&[fit.clone(), frame, map(opts)], "model.predict").unwrap_or_else(|e| panic!("{e}"))
 }
 
-fn check_predict(label: &str, fit: &BundValue, frame: &BundValue, prediction: bool, w: Option<&str>) {
+fn check_predict(
+    label: &str,
+    fit: &BundValue,
+    frame: &BundValue,
+    prediction: bool,
+    w: Option<&str>,
+) {
     for (scale, prefix) in [("link", "link"), ("response", "response")] {
         let mut o = vec![("type", s(scale)), ("interval", s("confidence"))];
         if let Some(w) = w {
             o.push(("weights", s(w)));
         }
         let p = predict_on(fit, frame.clone(), o);
-        for (k, f) in [("fit", "fit"), ("se", "se"), ("lower", "lower"), ("upper", "upper")] {
+        for (k, f) in [
+            ("fit", "fit"),
+            ("se", "se"),
+            ("lower", "lower"),
+            ("upper", "upper"),
+        ] {
             near_irls(
                 &format!("{label} {prefix} {k}"),
                 &floats_of(get(&p, k)),
@@ -1766,7 +1987,12 @@ fn model_predict_against_the_fixture() {
     );
     check_predict("glm.dobson", &dobson, &new, false, None);
     // The Gamma under inverse: every se positive, every lower below upper.
-    let gamma = fit_glm(&glm_design(&POS, vec![("x", xs(8))], &["x"], vec![]), "gamma", None).unwrap();
+    let gamma = fit_glm(
+        &glm_design(&POS, vec![("x", xs(8))], &["x"], vec![]),
+        "gamma",
+        None,
+    )
+    .unwrap();
     let gx = raw(&["x"], vec![fl(&[1.5, 4.5, 7.0])], vec![]);
     check_predict("glm.gamma.inverse", &gamma, &gx, false, None);
     let p = predict_on(&gamma, gx, vec![("interval", s("confidence"))]);
@@ -1777,12 +2003,19 @@ fn model_predict_against_the_fixture() {
     // weighted fit's with and without weights for the new rows.
     let lx = raw(
         &["dose", "patient", "nw"],
-        vec![fl(&[15.0, 25.0, 5.0]), fl(&[4.0, 9.0, 1.0]), fl(&[2.0, 1.0, 3.0])],
+        vec![
+            fl(&[15.0, 25.0, 5.0]),
+            fl(&[4.0, 9.0, 1.0]),
+            fl(&[2.0, 1.0, 3.0]),
+        ],
         vec![],
     );
     let plain = fit_lm(&dose_design(&["dose", "patient"], vec![]));
     check_predict("lm.plain", &plain, &lx, true, None);
-    let weighted = fit_lm(&dose_design(&["dose", "patient"], vec![("weights", s("w"))]));
+    let weighted = fit_lm(&dose_design(
+        &["dose", "patient"],
+        vec![("weights", s("w"))],
+    ));
     check_predict("lm.weighted", &weighted, &lx, true, None);
     check_predict("lm.weighted.w", &weighted, &lx, true, Some("nw"));
 }
@@ -1838,16 +2071,34 @@ fn model_predict_refusals() {
     );
     assert_eq!(
         predict_fails(&fit, west, vec![]),
-        pe101("frame", "column \"site\" row 1 is \"west\", not one of the fit's levels")
+        pe101(
+            "frame",
+            "column \"site\" row 1 is \"west\", not one of the fit's levels"
+        )
     );
     assert_eq!(
-        predict_fails(&fit, raw(&["site"], vec![strs(&["east"])], vec![("site", strs(&["east"]))]), vec![]),
+        predict_fails(
+            &fit,
+            raw(
+                &["site"],
+                vec![strs(&["east"])],
+                vec![("site", strs(&["east"]))]
+            ),
+            vec![]
+        ),
         pe101("frame", "no column \"dose\"")
     );
-    let text = raw(&["dose", "site"], vec![list(vec![int(1)]), strs(&["east"])], vec![]);
+    let text = raw(
+        &["dose", "site"],
+        vec![list(vec![int(1)]), strs(&["east"])],
+        vec![],
+    );
     assert_eq!(
         predict_fails(&fit, text, vec![]),
-        pe101("frame", "column \"site\" is string, where the fit coded a factor")
+        pe101(
+            "frame",
+            "column \"site\" is string, where the fit coded a factor"
+        )
     );
     let dobson = fit_glm(&dobson_design(), "poisson", None).unwrap();
     assert_eq!(
@@ -1856,17 +2107,28 @@ fn model_predict_refusals() {
             raw(&["x"], vec![fl(&[1.0])], vec![]),
             vec![("interval", s("prediction"))]
         ),
-        pe101("opts", "interval \"prediction\" needs a gaussian identity fit")
+        pe101(
+            "opts",
+            "interval \"prediction\" needs a gaussian identity fit"
+        )
     );
     // A Gamma inverse fit, a new row whose link-scale interval contains 0.
-    let gamma = fit_glm(&glm_design(&POS, vec![("x", xs(8))], &["x"], vec![]), "gamma", None).unwrap();
+    let gamma = fit_glm(
+        &glm_design(&POS, vec![("x", xs(8))], &["x"], vec![]),
+        "gamma",
+        None,
+    )
+    .unwrap();
     let far = raw(&["x"], vec![fl(&[60.0])], vec![]);
     let link = predict_on(
         &gamma,
         far.clone(),
         vec![("type", s("link")), ("interval", s("confidence"))],
     );
-    let (lo, hi) = (floats_of(get(&link, "lower"))[0], floats_of(get(&link, "upper"))[0]);
+    let (lo, hi) = (
+        floats_of(get(&link, "lower"))[0],
+        floats_of(get(&link, "upper"))[0],
+    );
     assert!(lo < 0.0 && hi > 0.0, "{lo} {hi}");
     assert_eq!(
         predict_fails(&gamma, far, vec![("interval", s("confidence"))]),
@@ -1920,7 +2182,14 @@ fn m4_words_never_abort() {
     let mut m = fit.as_map().cloned().unwrap_or_default();
     m.insert("hat".into(), fl(&[1.0; 7]));
     let unit_hat = BundValue::map(m);
-    let fits = [fit.clone(), bad_vcov, unit_hat, int(1), map(vec![]), trial()];
+    let fits = [
+        fit.clone(),
+        bad_vcov,
+        unit_hat,
+        int(1),
+        map(vec![]),
+        trial(),
+    ];
     let others = [
         map(vec![]),
         map(vec![("type", s("link"))]),
@@ -1949,7 +2218,9 @@ fn m4_words_never_abort() {
                 if let Err(e) = on(&[f.clone(), a.clone(), b.clone()], "model.predict") {
                     assert!(ok(&e), "model.predict: {e}");
                 }
-                if let Err(e) = run_on(&[f.clone(), a.clone()], Some(b), "model.predict.").map(|_| ()) {
+                if let Err(e) =
+                    run_on(&[f.clone(), a.clone()], Some(b), "model.predict.").map(|_| ())
+                {
                     assert!(ok(&e), "model.predict.: {e}");
                 }
             }
@@ -1976,13 +2247,20 @@ fn scalar(v: &BundValue, k: &str) -> f64 {
 
 /// A column of a frame.
 fn column(f: &BundValue, c: &str) -> Vec<BundValue> {
-    get(get(f, "data"), c).as_list().unwrap_or_default().to_vec()
+    get(get(f, "data"), c)
+        .as_list()
+        .unwrap_or_default()
+        .to_vec()
 }
 
 /// A numeric column's cells after its first, which is NONE.
 fn after_none(f: &BundValue, c: &str) -> Vec<f64> {
     let cells = column(f, c);
-    assert_eq!(cells.first().map(BundValue::dt), Some(bund2_value::NONE), "{c}");
+    assert_eq!(
+        cells.first().map(BundValue::dt),
+        Some(bund2_value::NONE),
+        "{c}"
+    );
     crate::biomath::testkit::floats(&list(cells[1..].to_vec()))
 }
 
@@ -1990,8 +2268,14 @@ fn dobson_outcome_design() -> BundValue {
     glm_design(
         &[18.0, 17.0, 15.0, 20.0, 10.0, 20.0, 25.0, 13.0, 12.0],
         vec![
-            ("foutcome", strs(&["1", "2", "3", "1", "2", "3", "1", "2", "3"])),
-            ("ftreatment", strs(&["1", "1", "1", "2", "2", "2", "3", "3", "3"])),
+            (
+                "foutcome",
+                strs(&["1", "2", "3", "1", "2", "3", "1", "2", "3"]),
+            ),
+            (
+                "ftreatment",
+                strs(&["1", "1", "1", "2", "2", "2", "3", "3", "3"]),
+            ),
         ],
         &["foutcome"],
         vec![],
@@ -2070,7 +2354,11 @@ fn model_compare_takes_fit_lm_and_fit_glm() {
         near(k, &[scalar(&a, k)], &[scalar(&b, k)]);
     }
     let f = anova(&big_d, vec![("family", s("gaussian"))]).unwrap();
-    near("statistic", &[scalar(&a, "statistic")], &after_none(&f, "statistic")[1..]);
+    near(
+        "statistic",
+        &[scalar(&a, "statistic")],
+        &after_none(&f, "statistic")[1..],
+    );
     let t = floats_of(get(&big, "t"))[2];
     near("t²", &[scalar(&a, "statistic")], &[t * t]);
 }
@@ -2080,16 +2368,34 @@ fn model_compare_takes_fit_lm_and_fit_glm() {
 #[test]
 fn model_anova_dobson() {
     let f = anova(&dobson_design(), vec![("family", s("poisson"))]).unwrap();
-    let terms: Vec<String> = column(&f, "term").iter().filter_map(BundValue::as_str).collect();
+    let terms: Vec<String> = column(&f, "term")
+        .iter()
+        .filter_map(BundValue::as_str)
+        .collect();
     assert_eq!(terms, ["(intercept)", "foutcome", "ftreatment"]);
     assert!(crate::biomath::frame::check::check("t", "frame", &f).is_ok());
-    assert_eq!(get(&f, "columns").display(), strs(&[
-        "term", "df", "deviance", "resid.df", "resid.deviance", "statistic", "p"
-    ]).display());
+    assert_eq!(
+        get(&f, "columns").display(),
+        strs(&[
+            "term",
+            "df",
+            "deviance",
+            "resid.df",
+            "resid.deviance",
+            "statistic",
+            "p"
+        ])
+        .display()
+    );
     assert_eq!(ints_of(&list(column(&f, "resid.df"))), [8, 6, 4]);
     assert_eq!(ints_of(&list(column(&f, "df")[1..].to_vec())), [2, 2]);
     let rd = crate::biomath::testkit::floats(&list(column(&f, "resid.deviance")));
-    near_irls("resid.deviance", &rd, &want("anova.dobson", "resid.deviance"), false);
+    near_irls(
+        "resid.deviance",
+        &rd,
+        &want("anova.dobson", "resid.deviance"),
+        false,
+    );
     for k in ["deviance", "statistic", "p"] {
         near_irls(k, &after_none(&f, k), &want("anova.dobson", k), k == "p");
     }
@@ -2100,12 +2406,20 @@ fn model_anova_dobson() {
 
     let no = dobson_design_without_intercept();
     let f = anova(&no, vec![("family", s("poisson"))]).unwrap();
-    let terms: Vec<String> = column(&f, "term").iter().filter_map(BundValue::as_str).collect();
+    let terms: Vec<String> = column(&f, "term")
+        .iter()
+        .filter_map(BundValue::as_str)
+        .collect();
     assert_eq!(terms, ["NULL", "foutcome", "ftreatment"]);
     assert_eq!(ints_of(&list(column(&f, "resid.df"))), [9, 6, 4]);
     assert_eq!(ints_of(&list(column(&f, "df")[1..].to_vec())), [3, 2]);
     let rd = crate::biomath::testkit::floats(&list(column(&f, "resid.deviance")));
-    near_irls("resid.deviance", &rd, &want("anova.dobson0", "resid.deviance"), false);
+    near_irls(
+        "resid.deviance",
+        &rd,
+        &want("anova.dobson0", "resid.deviance"),
+        false,
+    );
     for k in ["deviance", "statistic", "p"] {
         near_irls(k, &after_none(&f, k), &want("anova.dobson0", k), k == "p");
     }
@@ -2115,8 +2429,14 @@ fn dobson_design_without_intercept() -> BundValue {
     glm_design(
         &[18.0, 17.0, 15.0, 20.0, 10.0, 20.0, 25.0, 13.0, 12.0],
         vec![
-            ("foutcome", strs(&["1", "2", "3", "1", "2", "3", "1", "2", "3"])),
-            ("ftreatment", strs(&["1", "1", "1", "2", "2", "2", "3", "3", "3"])),
+            (
+                "foutcome",
+                strs(&["1", "2", "3", "1", "2", "3", "1", "2", "3"]),
+            ),
+            (
+                "ftreatment",
+                strs(&["1", "1", "1", "2", "2", "2", "3", "3", "3"]),
+            ),
         ],
         &["foutcome", "ftreatment"],
         vec![("intercept", BundValue::boolean(false))],
@@ -2127,10 +2447,19 @@ fn dobson_design_without_intercept() -> BundValue {
 /// residual df; and a Gaussian identity design by least squares.
 #[test]
 fn model_anova_gamma_and_gaussian() {
-    let f = anova(&gamma_design(&["x", "z"], vec![]), vec![("family", s("gamma"))]).unwrap();
+    let f = anova(
+        &gamma_design(&["x", "z"], vec![]),
+        vec![("family", s("gamma"))],
+    )
+    .unwrap();
     assert_eq!(ints_of(&list(column(&f, "resid.df"))), [7, 6, 5]);
     let rd = crate::biomath::testkit::floats(&list(column(&f, "resid.deviance")));
-    near_irls("resid.deviance", &rd, &want("anova.gamma", "resid.deviance"), false);
+    near_irls(
+        "resid.deviance",
+        &rd,
+        &want("anova.gamma", "resid.deviance"),
+        false,
+    );
     for k in ["deviance", "statistic", "p"] {
         near_irls(k, &after_none(&f, k), &want("anova.gamma", k), k == "p");
     }
@@ -2168,29 +2497,59 @@ fn model_compare_and_anova_refusals() {
             "link is \"log\", where big's is \"inverse\"".to_string(),
         ),
         (
-            with(&fit_glm(&null, "gamma", None).unwrap(), "y", fl(&[9.0, 3.4, 1.9, 5.6, 4.2, 6.8, 7.5, 3.3])),
+            with(
+                &fit_glm(&null, "gamma", None).unwrap(),
+                "y",
+                fl(&[9.0, 3.4, 1.9, 5.6, 4.2, 6.8, 7.5, 3.3]),
+            ),
             format!("y row 1 is {}, where big's is {}", shown(9.0), shown(2.1)),
         ),
         (
-            with(&fit_glm(&null, "gamma", None).unwrap(), "weights", fl(&[2.0; 8])),
-            format!("weights row 1 is {}, where big's is {}", shown(2.0), shown(1.0)),
+            with(
+                &fit_glm(&null, "gamma", None).unwrap(),
+                "weights",
+                fl(&[2.0; 8]),
+            ),
+            format!(
+                "weights row 1 is {}, where big's is {}",
+                shown(2.0),
+                shown(1.0)
+            ),
         ),
         (
-            with(&fit_glm(&null, "gamma", None).unwrap(), "offset", fl(&[0.5; 8])),
-            format!("offset row 1 is {}, where big's is {}", shown(0.5), shown(0.0)),
+            with(
+                &fit_glm(&null, "gamma", None).unwrap(),
+                "offset",
+                fl(&[0.5; 8]),
+            ),
+            format!(
+                "offset row 1 is {}, where big's is {}",
+                shown(0.5),
+                shown(0.0)
+            ),
         ),
         (
             fit_glm(&gamma_design(&["z"], vec![]), "gamma", None).unwrap(),
             "names item 2, \"z\", is not among big's names".to_string(),
         ),
-        (big.clone(), "has 2 columns, not fewer than big's 2".to_string()),
         (
-            with(&fit_glm(&null, "gamma", None).unwrap(), "df.residual", int(6)),
+            big.clone(),
+            "has 2 columns, not fewer than big's 2".to_string(),
+        ),
+        (
+            with(
+                &fit_glm(&null, "gamma", None).unwrap(),
+                "df.residual",
+                int(6),
+            ),
             "df.residual is 6, not above big's 6".to_string(),
         ),
     ];
     for (small, text) in cases {
-        assert_eq!(compare(&small, &big, map(vec![])).unwrap_err(), mc_e101("small", &text));
+        assert_eq!(
+            compare(&small, &big, map(vec![])).unwrap_err(),
+            mc_e101("small", &text)
+        );
     }
     let small = fit_glm(&null, "gamma", None).unwrap();
     assert_eq!(
@@ -2210,7 +2569,11 @@ fn model_compare_and_anova_refusals() {
         mc_e101("opts", f_poisson)
     );
     assert_eq!(
-        anova(&dobson_design(), vec![("family", s("poisson")), ("test", s("F"))]).unwrap_err(),
+        anova(
+            &dobson_design(),
+            vec![("family", s("poisson")), ("test", s("F"))]
+        )
+        .unwrap_err(),
         ma_e101("opts", f_poisson)
     );
     // Deepest first: a malformed small before bad opts, small before big.
@@ -2252,7 +2615,11 @@ fn model_compare_and_anova_refusals() {
     );
     assert!(fit_glm(&row, "poisson", Some("identity")).is_ok());
     assert_eq!(
-        anova(&row, vec![("family", s("poisson")), ("link", s("identity"))]).unwrap_err(),
+        anova(
+            &row,
+            vec![("family", s("poisson")), ("link", s("identity"))]
+        )
+        .unwrap_err(),
         ma_e101(
             "design",
             "the first IRLS step leaves the poisson family's valid range, with no earlier \
@@ -2306,5 +2673,3 @@ fn m5_words_never_abort() {
         }
     }
 }
-
-

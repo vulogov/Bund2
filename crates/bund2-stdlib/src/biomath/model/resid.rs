@@ -116,9 +116,9 @@ pub(crate) fn model_residuals(vm: &mut dyn Vm) -> Result<(), Error> {
     let o = opts::read(W, &opts_v, &["type"])?;
     let t = match &o.kind {
         None => Type::Deviance,
-        Some(s) => Type::parse(s).ok_or_else(|| {
-            opts::refuse(W, format!("type is {}", render::text(s)))
-        })?,
+        Some(s) => {
+            Type::parse(s).ok_or_else(|| opts::refuse(W, format!("type is {}", render::text(s))))?
+        }
     };
     let r = residuals(W, &f, t)?;
     vm.push(finite_each(W, "the residual", r)?);
@@ -144,12 +144,18 @@ pub(crate) fn model_influence(vm: &mut dyn Vm) -> Result<(), Error> {
         cooks.push(s * s * h / (f.dispersion * k));
     }
     let mut m = BTreeMap::new();
-    m.insert("hat".to_string(), finite_each(W, "the leverage", f.hat.clone())?);
+    m.insert(
+        "hat".to_string(),
+        finite_each(W, "the leverage", f.hat.clone())?,
+    );
     m.insert(
         "std.residuals".to_string(),
         finite_each(W, "the standardized residual", std)?,
     );
-    m.insert("cooks".to_string(), finite_each(W, "Cook's distance", cooks)?);
+    m.insert(
+        "cooks".to_string(),
+        finite_each(W, "Cook's distance", cooks)?,
+    );
     vm.push(BundValue::map(m));
     Ok(())
 }

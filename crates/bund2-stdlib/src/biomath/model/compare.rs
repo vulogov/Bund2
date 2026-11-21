@@ -60,7 +60,10 @@ fn test_of(word: &str, o: &Opts, family: Family) -> Result<Test, Error> {
         Some("F") => Test::F,
         Some("LR") => Test::Lr,
         Some(other) => {
-            return Err(opts::refuse(word, format!("test is {}", render::text(other))));
+            return Err(opts::refuse(
+                word,
+                format!("test is {}", render::text(other)),
+            ));
         }
     };
     if t == Test::F && !family.estimated() {
@@ -84,7 +87,14 @@ struct Tested {
 
 /// `stat.anova`'s statistic and p for a Δdeviance on `df`, φ the larger
 /// model's dispersion and `df2` its residual df.
-fn tested(word: &str, test: Test, delta: f64, df: i64, phi: f64, df2: i64) -> Result<Tested, Error> {
+fn tested(
+    word: &str,
+    test: Test,
+    delta: f64,
+    df: i64,
+    phi: f64,
+    df2: i64,
+) -> Result<Tested, Error> {
     if delta <= 0.0 {
         return Ok(Tested {
             deviance: 0.0,
@@ -225,7 +235,14 @@ pub(crate) fn model_compare(vm: &mut dyn Vm) -> Result<(), Error> {
         ));
     }
     let df = small.df_residual - big.df_residual;
-    let t = tested(W, test, small.deviance - big.deviance, df, phi, big.df_residual)?;
+    let t = tested(
+        W,
+        test,
+        small.deviance - big.deviance,
+        df,
+        phi,
+        big.df_residual,
+    )?;
     let mut m = BTreeMap::new();
     m.insert("df".to_string(), BundValue::int(df));
     m.insert("deviance".to_string(), BundValue::float(t.deviance));
@@ -249,8 +266,14 @@ fn through(d: &Design, through: usize) -> Design {
             .iter()
             .map(|r| keep.iter().filter_map(|&j| r.get(j).copied()).collect())
             .collect(),
-        names: keep.iter().filter_map(|&j| d.names.get(j).cloned()).collect(),
-        assign: keep.iter().filter_map(|&j| d.assign.get(j).copied()).collect(),
+        names: keep
+            .iter()
+            .filter_map(|&j| d.names.get(j).cloned())
+            .collect(),
+        assign: keep
+            .iter()
+            .filter_map(|&j| d.assign.get(j).copied())
+            .collect(),
         ..d.clone()
     }
 }
@@ -263,7 +286,10 @@ fn labels(word: &str, d: &Design) -> Result<Vec<String>, Error> {
         .iter()
         .map(|t| {
             members_of(t).ok_or_else(|| {
-                Error::internal(format!("{word}: a checked design's term is {}", t.summary(WIDTH)))
+                Error::internal(format!(
+                    "{word}: a checked design's term is {}",
+                    t.summary(WIDTH)
+                ))
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -342,12 +368,14 @@ pub(crate) fn model_anova(vm: &mut dyn Vm) -> Result<(), Error> {
 
     // The null model.
     let (null_term, null_dev, null_df) = if intercept {
-        let dev = null_with_intercept.filter(|x| x.is_finite()).ok_or_else(|| {
-            Refusal::Overflow {
-                expression: "the null model's deviance".into(),
-            }
-            .error(W)
-        })?;
+        let dev = null_with_intercept
+            .filter(|x| x.is_finite())
+            .ok_or_else(|| {
+                Refusal::Overflow {
+                    expression: "the null model's deviance".into(),
+                }
+                .error(W)
+            })?;
         ("(intercept)", dev, count(n - 1))
     } else {
         let dev = glm::deviance_at_offset(&d, family, link);
@@ -404,7 +432,9 @@ pub(crate) fn model_anova(vm: &mut dyn Vm) -> Result<(), Error> {
         let (prev_dev, prev_df) = resid[r - 1];
         let ddf = prev_df - rdf;
         let t = tested(W, test, prev_dev - dev, ddf, phi, df_full)?;
-        term.push(BundValue::str(labels.get(r - 1).cloned().unwrap_or_default()));
+        term.push(BundValue::str(
+            labels.get(r - 1).cloned().unwrap_or_default(),
+        ));
         df.push(BundValue::int(ddf));
         deviance.push(BundValue::float(t.deviance));
         statistic.push(BundValue::float(t.statistic));

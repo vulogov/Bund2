@@ -132,7 +132,10 @@ fn overflow(what: String) -> Error {
 pub(crate) fn model_predict(vm: &mut dyn Vm) -> Result<(), Error> {
     let v = operands(vm, W, 3)?;
     let [fit_v, frame_v, opts_v] = <[BundValue; 3]>::try_from(v).map_err(|v| {
-        Error::internal(format!("{W}: three operands were pulled and {} are held", v.len()))
+        Error::internal(format!(
+            "{W}: three operands were pulled and {} are held",
+            v.len()
+        ))
     })?;
     // The fit, and the columns its spec codes.
     let f = reading::check(W, "fit", &fit_v)?;
@@ -191,7 +194,10 @@ pub(crate) fn model_predict(vm: &mut dyn Vm) -> Result<(), Error> {
             )));
         }
     }
-    for (key, col) in [("offset", f.spec.offset.clone()), ("weights", o.weights.clone())] {
+    for (key, col) in [
+        ("offset", f.spec.offset.clone()),
+        ("weights", o.weights.clone()),
+    ] {
         let Some(n) = col else { continue };
         let k = fr.kind(index(&fr, &n)?);
         if k != Kind::Numeric {
@@ -221,7 +227,11 @@ pub(crate) fn model_predict(vm: &mut dyn Vm) -> Result<(), Error> {
         let Some(levels) = f.spec.levels.get(n) else {
             continue;
         };
-        let cells = fr.cols.get(index(&fr, n)?).map(Vec::as_slice).unwrap_or(&[]);
+        let cells = fr
+            .cols
+            .get(index(&fr, n)?)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
         for &r in &rows {
             let Some(cell) = cells.get(r) else { continue };
             let s = cell.as_str().unwrap_or_default();
@@ -270,7 +280,11 @@ pub(crate) fn model_predict(vm: &mut dyn Vm) -> Result<(), Error> {
     let x = code::cells(W, &fr, &c.columns, &rows)?;
     let offset: Vec<f64> = match &f.spec.offset {
         Some(n) => {
-            let cells = fr.cols.get(index(&fr, n)?).map(Vec::as_slice).unwrap_or(&[]);
+            let cells = fr
+                .cols
+                .get(index(&fr, n)?)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
             rows.iter()
                 .map(|&r| cells.get(r).map_or(Ok(0.0), code::cell_value))
                 .collect::<Result<_, _>>()?

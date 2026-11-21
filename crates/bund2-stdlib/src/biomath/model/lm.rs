@@ -103,7 +103,15 @@ fn solve(word: &str, d: &Design, s: &Scaled, constant: bool) -> Result<LeastSqua
             .map_or_else(|| format!("{}", i + 1), |n| render::text(n));
         Refusal::SingularColumn { column }.error(word)
     };
-    least_squares(word, "design", &s.a, &s.ys, s.tss, constant && d.spec.intercept, &singular)
+    least_squares(
+        word,
+        "design",
+        &s.a,
+        &s.ys,
+        s.tss,
+        constant && d.spec.intercept,
+        &singular,
+    )
 }
 
 /// A Gaussian identity row of `model.anova` (§S7): the RSS of `d`'s least
@@ -180,10 +188,7 @@ fn fit(d: &Design, spec: BundValue) -> Result<BundValue, Error> {
         "the AIC",
         nf * ((two_pi * rss / nf).ln() + 1.0) - sum_log_w + 2.0 * (kf + 1.0),
     )?;
-    let bic = finite(
-        "the BIC",
-        aic - 2.0 * (kf + 1.0) + (kf + 1.0) * nf.ln(),
-    )?;
+    let bic = finite("the BIC", aic - 2.0 * (kf + 1.0) + (kf + 1.0) * nf.ln())?;
 
     let floats = |xs: &[f64]| list(xs.to_vec());
     let mut m = BTreeMap::new();
@@ -200,10 +205,16 @@ fn fit(d: &Design, spec: BundValue) -> Result<BundValue, Error> {
         "sigma".to_string(),
         BundValue::float(finite("sigma", ls.sigma2.sqrt())?),
     );
-    m.insert("deviance".to_string(), BundValue::float(finite("RSS", rss)?));
+    m.insert(
+        "deviance".to_string(),
+        BundValue::float(finite("RSS", rss)?),
+    );
     m.insert("df.residual".to_string(), count(n - k));
     m.insert("r2".to_string(), BundValue::float(finite("r2", r2)?));
-    m.insert("adj.r2".to_string(), BundValue::float(finite("adj.r2", adj)?));
+    m.insert(
+        "adj.r2".to_string(),
+        BundValue::float(finite("adj.r2", adj)?),
+    );
     if !only_intercept {
         let (df1, df2) = (k - i, n - k);
         let f = finite(
@@ -230,7 +241,10 @@ fn fit(d: &Design, spec: BundValue) -> Result<BundValue, Error> {
     m.insert("df.null".to_string(), count(n - i));
     m.insert("aic".to_string(), BundValue::float(aic));
     m.insert("bic".to_string(), BundValue::float(bic));
-    m.insert("fitted".to_string(), finite_each("the fitted value", fitted)?);
+    m.insert(
+        "fitted".to_string(),
+        finite_each("the fitted value", fitted)?,
+    );
     m.insert("y".to_string(), floats(&d.y));
     m.insert("weights".to_string(), floats(&d.weights));
     m.insert("offset".to_string(), floats(&d.offset));

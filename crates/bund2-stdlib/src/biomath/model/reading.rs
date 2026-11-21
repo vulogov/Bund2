@@ -144,7 +144,13 @@ pub(crate) fn check(word: &str, op: &str, v: &BundValue) -> Result<Fit, Error> {
     let dv = get("df.residual")?;
     let df_residual = match dv.unboxed() {
         BundValue::Int(d, _) if dv.dt() == INTEGER && *d > 0 => *d,
-        _ => return Err(no(word, op, format!("df.residual is {}", dv.summary(WIDTH)))),
+        _ => {
+            return Err(no(
+                word,
+                op,
+                format!("df.residual is {}", dv.summary(WIDTH)),
+            ));
+        }
     };
     let text = |k: &str| -> Result<String, Error> {
         let x = get(k)?;
@@ -168,7 +174,11 @@ pub(crate) fn check(word: &str, op: &str, v: &BundValue) -> Result<Fit, Error> {
             no(
                 word,
                 op,
-                format!("link is {}, not a {} link", render::text(&lname), family.name()),
+                format!(
+                    "link is {}, not a {} link",
+                    render::text(&lname),
+                    family.name()
+                ),
             )
         })?;
     let spec = design::spec(word, op, get("spec")?)?;

@@ -101,9 +101,8 @@ impl Check<'_> {
             .iter()
             .enumerate()
             .map(|(i, x)| {
-                num(x).ok_or_else(|| {
-                    self.no(format!("{key} row {} is {}", i + 1, render::value(x)))
-                })
+                num(x)
+                    .ok_or_else(|| self.no(format!("{key} row {} is {}", i + 1, render::value(x))))
             })
             .collect()
     }
@@ -279,7 +278,11 @@ pub fn check(word: &str, op: &str, v: &BundValue) -> Result<Design, Error> {
             return Err(c.no(format!("assign item {} is 0, a second intercept", i + 2)));
         }
         if let Some(r) = x.iter().position(|row| row.first() != Some(&1.0)) {
-            let cell = x.get(r).and_then(|row| row.first()).copied().unwrap_or(f64::NAN);
+            let cell = x
+                .get(r)
+                .and_then(|row| row.first())
+                .copied()
+                .unwrap_or(f64::NAN);
             return Err(c.no(format!(
                 "matrix row {} column 1 is {}, not the intercept's 1",
                 r + 1,
