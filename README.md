@@ -5,19 +5,20 @@ dynamically typed, metaprogramming, with a tiered execution model.
 
 Bund syntax and logic are preserved 100%.
 
-## Latest release: 0.55.0
+## Latest release: 0.56.0
 
-The release in which a Bund program starts VMs itself (D249). Three words,
-`vm.spawn`, `vm.join` and `vm.done?`, run a LAMBDA or a STRING on a VM of
-its own thread and hand back its final stack; the VMs talk over the local
-bus, as VMs started by a Rust host do. The words are in every build and
-additive: a program's own word of the same name still wins, and
-`bund2_async::host::Host` keeps its API.
+The release of statistics over data. Words of Bund2's own for
+mathematical biology and genetics (RFC-0015), statistical inference
+(RFC-0016), tables of data with factors and missing values (RFC-0017),
+and linear and generalised linear models over them, with diagnostics,
+prediction and model comparison (RFC-0018). No existing word changes
+what it answers. The SMYSL features now take SMYSL 1.15.0 from
+crates.io.
 
 conform 143/159, CEILING 143/159; IMPLEMENTED 597/602, COVERAGE 577/602.
 
-The notes are in `docs/release_notes/0.55.0.md`; the examples are in
-`bund_examples/`, `threads_demo` and `threads_demo_inner` among them.
+The notes are in `docs/release_notes/0.56.0.md`; the examples are in
+`bund_examples/`, `biomath`, `frames` and `models` among them.
 
 ## Layout
 
