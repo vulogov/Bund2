@@ -78,7 +78,7 @@ impl Link {
         }
     }
 
-    fn parse(s: &str) -> Option<Link> {
+    pub(crate) fn parse(s: &str) -> Option<Link> {
         [
             Link::Logit,
             Link::Probit,
@@ -211,7 +211,7 @@ impl Family {
         }
     }
 
-    fn parse(s: &str) -> Option<Family> {
+    pub(crate) fn parse(s: &str) -> Option<Family> {
         [
             Family::Binomial,
             Family::Poisson,
@@ -235,7 +235,7 @@ impl Family {
     }
 
     /// R's `okLinks` (K9).
-    fn links(self) -> &'static [Link] {
+    pub(crate) fn links(self) -> &'static [Link] {
         match self {
             Family::Binomial => &[
                 Link::Logit,

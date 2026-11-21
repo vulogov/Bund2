@@ -105,10 +105,17 @@ def lm(label, intercept, cols, weights, offset):
                           for r in range(n)])
     show(f"{label} fitted", [sum(rows[r][a] * b[a] for a in range(k)) + off[r]
                              for r in range(n)])
+    mu = [sum(rows[r][a] * b[a] for a in range(k)) + off[r] for r in range(n)]
+    return {"family": "gaussian", "link": "identity", "y": y, "w": w, "off": off,
+            "mu": mu, "eta": mu, "beta": b, "cov": [[s2 * inv[a, c] for c in range(k)]
+                                                    for a in range(k)],
+            "phi": s2, "df": df, "k": k,
+            "hat": [w[r] * sum(rows[r][a] * inv[a, c] * rows[r][c]
+                               for a in range(k) for c in range(k)) for r in range(n)]}
 
 
-lm("lm.plain", True, [DOSE, PATIENT], None, None)
-lm("lm.weighted", True, [DOSE, PATIENT], W, None)
+LM_PLAIN = lm("lm.plain", True, [DOSE, PATIENT], None, None)
+LM_WEIGHTED = lm("lm.weighted", True, [DOSE, PATIENT], W, None)
 lm("lm.offset", True, [DOSE, PATIENT], W, OFF)
 lm("lm.origin", False, [DOSE, PATIENT], W, OFF)
 lm("lm.mean", True, [], W, OFF)
@@ -348,6 +355,11 @@ def glm(label, family, link, cols, y, w=None, off=None, intercept=True):
     show(f"{label} fitted", mu)
     show(f"{label} iterations", [it])
     show(f"{label} halvings", [halvings])
+    return {"family": family, "link": link, "y": y, "w": w, "off": off, "mu": mu,
+            "eta": eta, "beta": beta, "phi": phi_, "df": df, "k": k,
+            "cov": [[phi_ * inv[a, c] for c in range(k)] for a in range(k)],
+            "hat": [ww[r] * sum(rows[r][a] * inv[a, c] * rows[r][c]
+                                for a in range(k) for c in range(k)) for r in range(n)]}
 
 
 GIVEN_OFFSET = {"glm.rate": True, "glm.rate0": True}
@@ -358,7 +370,7 @@ OUT2 = [0, 1, 0, 0, 1, 0, 0, 1, 0]
 OUT3 = [0, 0, 1, 0, 0, 1, 0, 0, 1]
 TR2 = [0, 0, 0, 1, 1, 1, 0, 0, 0]
 TR3 = [0, 0, 0, 0, 0, 0, 1, 1, 1]
-glm("glm.dobson", "poisson", "log", [OUT2, OUT3, TR2, TR3], COUNTS)
+DOBSON = glm("glm.dobson", "poisson", "log", [OUT2, OUT3, TR2, TR3], COUNTS)
 
 # A rate model: counts over exposures, log exposure the offset.
 RATE_Y = [2, 3, 6, 7, 8, 9, 10, 12, 15]
@@ -377,7 +389,7 @@ for lk in ("logit", "probit", "cloglog"):
 
 POS = ["2.1", "3.4", "1.9", "5.6", "4.2", "6.8", "7.5", "3.3"]
 X8 = list(range(1, 9))
-glm("glm.gamma.inverse", "gamma", "inverse", [X8], POS)
+GAMMA_INV = glm("glm.gamma.inverse", "gamma", "inverse", [X8], POS)
 glm("glm.gamma.log", "gamma", "log", [X8], POS)
 glm("glm.ig", "inverse.gaussian", "1/mu^2", [X8], POS)
 glm("glm.gaussian.log", "gaussian", "log", [X8], POS)
@@ -386,7 +398,7 @@ glm("glm.gaussian.log", "gaussian", "log", [X8], POS)
 glm("glm.halving", "poisson", "identity", [X8], [1, 1, 2, 0, 6, 2, 0, 6])
 
 # The zero group: an intercept and an indicator, counts 3, 5, 4, 0, 0, 0.
-glm("glm.zero", "poisson", "log", [[0, 0, 0, 1, 1, 1]], [3, 5, 4, 0, 0, 0])
+ZERO = glm("glm.zero", "poisson", "log", [[0, 0, 0, 1, 1, 1]], [3, 5, 4, 0, 0, 0])
 
 
 # A Poisson sqrt model whose step leaves eta <= 0 and is halved, converging
@@ -428,3 +440,89 @@ glm("glm.sqrt", "poisson", "sqrt", [X6], SQRT_Y)
 FIRST_Y = next(list(ys) for ys, r in fits("poisson", "identity", [0, 1, 2, 3, 5, 8])
                if r is None and sum(1 for v in ys if v) >= 3)
 print("glm.first.y", "[" + " ".join(str(v) for v in FIRST_Y) + "]")
+
+
+# model.residuals and model.influence (RFC-0018 S5), from each fit's
+# estimate: "response" y - mu, "pearson" (y - mu) sqrt(w)/sqrt(V(mu)),
+# "deviance" sign(y - mu) sqrt(d_i), "working" (y - mu)/mu'(eta),
+# "standardized" the deviance residual over sqrt(phi (1 - h_i)); Cook's
+# distance (r_P/(1 - h))^2 h/(phi k).
+
+def residuals(label, st):
+    var, _, devres, _ = FAMILIES[st["family"]]
+    y, mu, w, eta, h = st["y"], st["mu"], st["w"], st["eta"], st["hat"]
+    n = len(y)
+    resp = [y[r] - mu[r] for r in range(n)]
+    pear = [(y[r] - mu[r]) * mpmath.sqrt(w[r]) / mpmath.sqrt(var(mu[r])) for r in range(n)]
+    dev = [mpmath.sign(y[r] - mu[r]) * mpmath.sqrt(max(devres(y[r], mu[r], w[r]), 0))
+           for r in range(n)]
+    work = [(y[r] - mu[r]) / mu_eta(st["link"], eta[r]) for r in range(n)]
+    std = [dev[r] / mpmath.sqrt(st["phi"] * (1 - h[r])) for r in range(n)]
+    cooks = [(pear[r] / (1 - h[r])) ** 2 * h[r] / (st["phi"] * st["k"]) for r in range(n)]
+    for key, xs in [("response", resp), ("pearson", pear), ("deviance", dev),
+                    ("working", work), ("standardized", std), ("hat", h),
+                    ("cooks", cooks)]:
+        show(f"{label} resid.{key}", xs)
+
+
+residuals("glm.dobson", DOBSON)
+residuals("glm.gamma.inverse", GAMMA_INV)
+residuals("lm.weighted", LM_WEIGHTED)
+
+
+# model.predict (RFC-0018 S6) at new rows: on the link scale eta = x b +
+# offset and se = sqrt(x' V x); on the response scale mu = g^-1(eta) and
+# se |mu'(eta)|. A confidence interval is eta -/+ q se, q normal when phi
+# is fixed and t on the residual df when estimated, at (1 + conf)/2, its
+# ends mapped through g^-1, lower the smaller; a prediction interval adds
+# phi/w to the variance, w the new row's weight.
+
+def quantile(p, df):
+    if df is None:
+        return mpmath.sqrt(2) * mpmath.erfinv(2 * p - 1)
+    return mpmath.findroot(lambda t: 1 - t_two_sided(t, df) / 2 - p, 2)
+
+
+def predict(label, st, xs, ws=None, conf=mpf("0.95"), prediction=False):
+    inv = LINKS[st["link"]][1]
+    df = st["df"] if st["family"] not in ("binomial", "poisson") else None
+    q = quantile((1 + conf) / 2, df)
+    k = st["k"]
+    out = {key: [] for key in ("link.fit", "link.se", "link.lower", "link.upper",
+                                "response.fit", "response.se", "response.lower",
+                                "response.upper", "pred.lower", "pred.upper")}
+    for j, x in enumerate(xs):
+        x = [mpf(v) for v in x]
+        eta = sum(x[a] * st["beta"][a] for a in range(k))
+        se = mpmath.sqrt(sum(x[a] * st["cov"][a][c] * x[c] for a in range(k) for c in range(k)))
+        lo, hi = eta - q * se, eta + q * se
+        out["link.fit"].append(eta)
+        out["link.se"].append(se)
+        out["link.lower"].append(lo)
+        out["link.upper"].append(hi)
+        out["response.fit"].append(inv(eta))
+        out["response.se"].append(se * abs(mu_eta(st["link"], eta)))
+        a, b = inv(lo), inv(hi)
+        out["response.lower"].append(min(a, b))
+        out["response.upper"].append(max(a, b))
+        if prediction:
+            w = mpf(ws[j]) if ws else mpf(1)
+            half = q * mpmath.sqrt(se ** 2 + st["phi"] / w)
+            out["pred.lower"].append(eta - half)
+            out["pred.upper"].append(eta + half)
+    for key, v in out.items():
+        if v:
+            show(f"{label} predict.{key}", v)
+
+
+# Dobson at (outcome, treatment) = (1, 1), (2, 3), (3, 2): the intercept,
+# outcome2, outcome3, treatment2, treatment3.
+predict("glm.dobson", DOBSON, [[1, 0, 0, 0, 0], [1, 1, 0, 0, 1], [1, 0, 1, 1, 0]])
+predict("glm.gamma.inverse", GAMMA_INV, [[1, "1.5"], [1, "4.5"], [1, 7]])
+NEW_LM = [[1, 15, 4], [1, 25, 9], [1, 5, 1]]
+predict("lm.plain", LM_PLAIN, NEW_LM, prediction=True)
+predict("lm.weighted", LM_WEIGHTED, NEW_LM, prediction=True)
+predict("lm.weighted.w", LM_WEIGHTED, NEW_LM, ws=[2, 1, 3], prediction=True)
+# The zero group's upper end: exp of about 4.8e4, so the key is left out;
+# its lower end, through log's clamp, is eps.
+predict("glm.zero", ZERO, [[1, 1]])

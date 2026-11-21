@@ -30,23 +30,23 @@ pub(crate) const CAP: u64 = 100_000_000;
 
 const W: &str = "model.matrix";
 
-/// One factor of a column's product.
+/// One factor of a column's product, by column name.
 #[derive(Debug, Clone)]
-enum Atom {
+pub(crate) enum Atom {
     /// A numeric column's cell.
-    Number(usize),
+    Number(String),
     /// A logical column's cell, 1.0 for `true`.
-    Logical(usize),
+    Logical(String),
     /// 1.0 where the factor column's cell is the level.
-    Level(usize, String),
+    Level(String, String),
 }
 
 /// A planned column: its name, where it came from, its term, its atoms.
-struct Column {
-    name: String,
-    source: String,
-    assign: usize,
-    atoms: Vec<Atom>,
+pub(crate) struct Column {
+    pub name: String,
+    pub source: String,
+    pub assign: usize,
+    pub atoms: Vec<Atom>,
 }
 
 /// A cell of a numeric column as a FLOAT (B15).
@@ -63,7 +63,7 @@ fn number(v: &BundValue) -> Result<f64, Error> {
 }
 
 /// A logical or numeric cell as a FLOAT: `true` is 1.0.
-fn cell_value(v: &BundValue) -> Result<f64, Error> {
+pub(crate) fn cell_value(v: &BundValue) -> Result<f64, Error> {
     match v.unboxed() {
         BundValue::Bool(b, _) => Ok(if *b { 1.0 } else { 0.0 }),
         _ => number(v),
@@ -81,18 +81,21 @@ fn name(f: &Frame, i: usize) -> &str {
 }
 
 impl Atom {
-    fn name(&self, f: &Frame) -> String {
+    fn label(&self) -> String {
         match self {
-            Atom::Number(i) => name(f, *i).to_string(),
-            Atom::Logical(i) => format!("{}.true", name(f, *i)),
-            Atom::Level(i, l) => format!("{}.{l}", name(f, *i)),
+            Atom::Number(c) => c.clone(),
+            Atom::Logical(c) => format!("{c}.true"),
+            Atom::Level(c, l) => format!("{c}.{l}"),
         }
     }
 
-    fn value(&self, f: &Frame, r: usize) -> Result<f64, Error> {
-        let cell = col(f, self.column()).get(r).ok_or_else(|| {
-            Error::internal(format!("{W}: row {} is past the frame's end", r + 1))
-        })?;
+    fn column(&self) -> &str {
+        match self {
+            Atom::Number(c) | Atom::Logical(c) | Atom::Level(c, _) => c,
+        }
+    }
+
+    fn value(&self, cell: &BundValue) -> Result<f64, Error> {
         match self {
             Atom::Number(_) => number(cell),
             Atom::Logical(_) => cell_value(cell),
@@ -103,11 +106,161 @@ impl Atom {
             }),
         }
     }
+}
 
-    fn column(&self) -> usize {
-        match self {
-            Atom::Number(i) | Atom::Logical(i) | Atom::Level(i, _) => *i,
+/// R's variable order: each column in the order it first appears in
+/// `terms`, read left to right (`model.c:1091-1112`).
+pub(crate) fn variable_order(terms: &[Vec<String>]) -> Vec<String> {
+    let mut order: Vec<String> = Vec::new();
+    for t in terms {
+        for m in t {
+            if !order.contains(m) {
+                order.push(m.clone());
+            }
         }
+    }
+    order
+}
+
+/// Each column of a design (§S2): the intercept's, then each term's, an
+/// interaction's members in R's variable order, the first fastest. A
+/// factor is coded from `levels`, its first the baseline; without an
+/// intercept, the first factor term codes every level.
+pub(crate) fn plan(
+    word: &str,
+    terms: &[Vec<String>],
+    kinds: &BTreeMap<String, Kind>,
+    levels: &BTreeMap<String, Vec<String>>,
+    intercept: bool,
+) -> Result<Vec<Column>, Error> {
+    let order = variable_order(terms);
+    let full = if intercept {
+        None
+    } else {
+        terms.iter().position(|t| {
+            matches!(t.as_slice(), [m] if kinds.get(m) == Some(&Kind::Factor))
+        })
+    };
+    let atoms_of = |m: &String, fully: bool| -> Result<Vec<Atom>, Error> {
+        Ok(match kinds.get(m) {
+            Some(Kind::Numeric) => vec![Atom::Number(m.clone())],
+            Some(Kind::Logical) => vec![Atom::Logical(m.clone())],
+            Some(Kind::Factor) => {
+                let ls = levels.get(m).map(Vec::as_slice).unwrap_or(&[]);
+                let skip = usize::from(!fully);
+                ls.iter()
+                    .skip(skip)
+                    .map(|l| Atom::Level(m.clone(), l.clone()))
+                    .collect()
+            }
+            _ => {
+                return Err(Error::internal(format!(
+                    "{word}: column {m:?} reached the plan with a kind that codes nothing"
+                )));
+            }
+        })
+    };
+    let mut columns: Vec<Column> = Vec::new();
+    if intercept {
+        columns.push(Column {
+            name: "(intercept)".into(),
+            source: "the intercept".into(),
+            assign: 0,
+            atoms: Vec::new(),
+        });
+    }
+    for (t, members) in terms.iter().enumerate() {
+        let mut sorted: Vec<&String> = members.iter().collect();
+        sorted.sort_by_key(|m| order.iter().position(|o| o == *m));
+        let mut products: Vec<Vec<Atom>> = vec![Vec::new()];
+        for m in sorted {
+            let fully = members.len() == 1 && full == Some(t);
+            let atoms = atoms_of(m, fully)?;
+            let mut next = Vec::with_capacity(products.len() * atoms.len());
+            for a in &atoms {
+                for p in &products {
+                    let mut q = p.clone();
+                    q.push(a.clone());
+                    next.push(q);
+                }
+            }
+            products = next;
+        }
+        for atoms in products {
+            let label = atoms
+                .iter()
+                .map(Atom::label)
+                .collect::<Vec<_>>()
+                .join(":");
+            let source = match atoms.as_slice() {
+                [Atom::Level(c, l)] => format!("{} level {}", render::text(c), render::text(l)),
+                [a] => format!("column {}", render::text(a.column())),
+                _ => format!("term {}", t + 1),
+            };
+            columns.push(Column {
+                name: label,
+                source,
+                assign: t + 1,
+                atoms,
+            });
+        }
+    }
+    Ok(columns)
+}
+
+/// The design's cells for `rows` of `f`, each column the product of its
+/// atoms, in order.
+pub(crate) fn cells(
+    word: &str,
+    f: &Frame,
+    columns: &[Column],
+    rows: &[usize],
+) -> Result<Vec<Vec<f64>>, Error> {
+    // Each atom's column, resolved once.
+    let mut resolved: Vec<Vec<(usize, &Atom)>> = Vec::with_capacity(columns.len());
+    for c in columns {
+        let mut atoms = Vec::with_capacity(c.atoms.len());
+        for a in &c.atoms {
+            let i = f.index(a.column()).ok_or_else(|| {
+                Error::internal(format!(
+                    "{word}: column {:?} was checked present and is gone",
+                    a.column()
+                ))
+            })?;
+            atoms.push((i, a));
+        }
+        resolved.push(atoms);
+    }
+    let mut out = Vec::with_capacity(rows.len());
+    for &r in rows {
+        let mut row = Vec::with_capacity(columns.len());
+        for atoms in &resolved {
+            let mut x = 1.0;
+            for (i, a) in atoms {
+                let cell = col(f, *i).get(r).ok_or_else(|| {
+                    Error::internal(format!("{word}: row {} is past the frame's end", r + 1))
+                })?;
+                x *= a.value(cell)?;
+            }
+            row.push(x);
+        }
+        out.push(row);
+    }
+    Ok(out)
+}
+
+/// One `terms` item's members: a STRING, or a LIST of two or more STRINGs.
+pub(crate) fn members_of(item: &BundValue) -> Option<Vec<String>> {
+    if item.dt() == STRING {
+        item.as_str().map(|s| vec![s])
+    } else if item.dt() == LIST {
+        item.as_list().filter(|xs| xs.len() >= 2).and_then(|xs| {
+            xs.iter()
+                .map(|x| x.as_str().filter(|_| x.dt() == STRING))
+                .collect()
+        })
+    } else {
+        None
     }
 }
 
@@ -126,18 +279,7 @@ fn read_terms(f: &Frame, v: &BundValue) -> Result<Vec<Vec<String>>, Error> {
     let mut terms: Vec<Vec<String>> = Vec::with_capacity(items.len());
     for (i, item) in items.iter().enumerate() {
         let t = i + 1;
-        let members: Option<Vec<String>> = if item.dt() == STRING {
-            item.as_str().map(|s| vec![s])
-        } else if item.dt() == LIST {
-            item.as_list().filter(|xs| xs.len() >= 2).and_then(|xs| {
-                xs.iter()
-                    .map(|x| x.as_str().filter(|_| x.dt() == STRING))
-                    .collect()
-            })
-        } else {
-            None
-        };
-        let Some(members) = members else {
+        let Some(members) = members_of(item) else {
             return Err(terms_refusal(format!(
                 "item {t} is {}",
                 render::value(item)
@@ -179,7 +321,12 @@ fn read_terms(f: &Frame, v: &BundValue) -> Result<Vec<Vec<String>>, Error> {
 /// The rows with no NONE in the columns `reads`, under `na`: E101 at the
 /// first NONE under `"refuse"`, columns in `reads` order, rows from the
 /// first, as RFC-0017's words refuse it.
-fn kept(f: &Frame, reads: &[usize], missing: Missing) -> Result<Vec<usize>, Error> {
+pub(crate) fn kept(
+    word: &str,
+    f: &Frame,
+    reads: &[usize],
+    missing: Missing,
+) -> Result<Vec<usize>, Error> {
     let mut keep = vec![true; f.nrow];
     for &c in reads {
         for (r, x) in col(f, c).iter().enumerate() {
@@ -189,7 +336,7 @@ fn kept(f: &Frame, reads: &[usize], missing: Missing) -> Result<Vec<usize>, Erro
             match missing {
                 Missing::Refuse => {
                     return Err(domain(
-                        W,
+                        word,
                         "frame",
                         format!(
                             "column {} row {} is none (na \"refuse\")",
@@ -291,14 +438,7 @@ pub(crate) fn model_matrix(vm: &mut dyn Vm) -> Result<(), Error> {
     }
     // The columns the terms read, in order of first appearance: R's
     // variable order (`model.c:1091-1112`).
-    let mut order: Vec<String> = Vec::new();
-    for t in &terms {
-        for m in t {
-            if !order.contains(m) {
-                order.push(m.clone());
-            }
-        }
-    }
+    let order = variable_order(&terms);
     // Step 5: each column's kind.
     let rk = f.kind(ri);
     if !matches!(rk, Kind::Numeric | Kind::Logical) {
@@ -344,7 +484,7 @@ pub(crate) fn model_matrix(vm: &mut dyn Vm) -> Result<(), Error> {
             reads.push(i);
         }
     }
-    let rows = kept(&f, &reads, missing)?;
+    let rows = kept(W, &f, &reads, missing)?;
     if let Some(w) = wi {
         for &r in &rows {
             let Some(cell) = col(&f, w).get(r) else {
@@ -398,80 +538,7 @@ pub(crate) fn model_matrix(vm: &mut dyn Vm) -> Result<(), Error> {
         }
     }
     // The plan: each column's atoms.
-    let full = if intercept {
-        None
-    } else {
-        terms.iter().position(|t| {
-            matches!(t.as_slice(), [m] if kinds.get(m) == Some(&Kind::Factor))
-        })
-    };
-    let atoms_of = |m: &String, fully: bool| -> Result<Vec<Atom>, Error> {
-        let i = index(&f, m)?;
-        Ok(match kinds.get(m) {
-            Some(Kind::Numeric) => vec![Atom::Number(i)],
-            Some(Kind::Logical) => vec![Atom::Logical(i)],
-            Some(Kind::Factor) => {
-                let ls = used.get(m).map(Vec::as_slice).unwrap_or(&[]);
-                let skip = usize::from(!fully);
-                ls.iter()
-                    .skip(skip)
-                    .map(|l| Atom::Level(i, l.clone()))
-                    .collect()
-            }
-            _ => {
-                return Err(Error::internal(format!(
-                    "{W}: column {m:?} passed step 5 with a kind that codes nothing"
-                )));
-            }
-        })
-    };
-    let mut columns: Vec<Column> = Vec::new();
-    if intercept {
-        columns.push(Column {
-            name: "(intercept)".into(),
-            source: "the intercept".into(),
-            assign: 0,
-            atoms: Vec::new(),
-        });
-    }
-    for (t, members) in terms.iter().enumerate() {
-        let mut sorted: Vec<&String> = members.iter().collect();
-        sorted.sort_by_key(|m| order.iter().position(|o| o == *m));
-        let mut products: Vec<Vec<Atom>> = vec![Vec::new()];
-        for m in sorted {
-            let fully = members.len() == 1 && full == Some(t);
-            let atoms = atoms_of(m, fully)?;
-            let mut next = Vec::with_capacity(products.len() * atoms.len());
-            for a in &atoms {
-                for p in &products {
-                    let mut q = p.clone();
-                    q.push(a.clone());
-                    next.push(q);
-                }
-            }
-            products = next;
-        }
-        for atoms in products {
-            let label = atoms
-                .iter()
-                .map(|a| a.name(&f))
-                .collect::<Vec<_>>()
-                .join(":");
-            let source = match atoms.as_slice() {
-                [Atom::Level(i, l)] => {
-                    format!("{} level {}", render::text(name(&f, *i)), render::text(l))
-                }
-                [a] => format!("column {}", render::text(name(&f, a.column()))),
-                _ => format!("term {}", t + 1),
-            };
-            columns.push(Column {
-                name: label,
-                source,
-                assign: t + 1,
-                atoms,
-            });
-        }
-    }
+    let columns = plan(W, &terms, &kinds, &used, intercept)?;
     // Two columns of one name.
     for (j, c) in columns.iter().enumerate() {
         if let Some(e) = columns.get(..j).and_then(|b| b.iter().find(|e| e.name == c.name)) {
@@ -499,18 +566,10 @@ pub(crate) fn model_matrix(vm: &mut dyn Vm) -> Result<(), Error> {
         .error(W));
     }
     // The cells.
-    let mut matrix = Vec::with_capacity(n);
-    for &r in &rows {
-        let mut row = Vec::with_capacity(k);
-        for c in &columns {
-            let mut x = 1.0;
-            for a in &c.atoms {
-                x *= a.value(&f, r)?;
-            }
-            row.push(BundValue::float(x));
-        }
-        matrix.push(row);
-    }
+    let matrix: Vec<Vec<BundValue>> = cells(W, &f, &columns, &rows)?
+        .into_iter()
+        .map(|row| row.into_iter().map(BundValue::float).collect())
+        .collect();
     let floats_of = |i: Option<usize>, default: f64| -> Result<BundValue, Error> {
         let xs = rows
             .iter()

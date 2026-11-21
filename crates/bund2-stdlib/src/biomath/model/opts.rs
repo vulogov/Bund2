@@ -13,10 +13,11 @@
 //! now, and the text does not move when a later milestone reads the key.
 //! M1 reads `model.matrix`'s four: `intercept`, `weights`, `offset` and
 //! `na`, the last with the frame words' text. M3 reads `fit.glm`'s `family`
-//! and `link`, each a STRING whose value the word checks.
+//! and `link`, each a STRING whose value the word checks. M4 reads `type`,
+//! `interval` and `conf`.
 
 use bund2_api::Error;
-use bund2_value::{BOOL, BundValue, MAP, STRING};
+use bund2_value::{BOOL, BundValue, FLOAT, MAP, STRING};
 
 use crate::biomath::frame::opts::Missing;
 use crate::biomath::frame::render;
@@ -51,6 +52,13 @@ pub(crate) struct Opts {
     pub family: Option<String>,
     /// `link` (`fit.glm`, `model.anova`): its name, checked by the word.
     pub link: Option<String>,
+    /// `type` (`model.residuals`, `model.predict`): checked by the word.
+    pub kind: Option<String>,
+    /// `interval` (`model.predict`): checked by the word.
+    pub interval: Option<String>,
+    /// `conf` (`model.predict`): a FLOAT in (0, 1), as RFC-0016 §S1 reads
+    /// it, so an INTEGER is refused.
+    pub conf: Option<f64>,
 }
 
 /// E101 on the `opts` operand.
@@ -99,6 +107,14 @@ pub(crate) fn read(word: &str, v: &BundValue, takes: &[&str]) -> Result<Opts, Er
             "weights" => o.weights = Some(column(word, k, x)?),
             "family" => o.family = Some(name(word, k, x)?),
             "link" => o.link = Some(name(word, k, x)?),
+            "type" => o.kind = Some(name(word, k, x)?),
+            "interval" => o.interval = Some(name(word, k, x)?),
+            "conf" => {
+                o.conf = Some(match x.unboxed() {
+                    BundValue::Float(c, _) if x.dt() == FLOAT && *c > 0.0 && *c < 1.0 => *c,
+                    _ => return Err(refuse(word, format!("conf is {}", render::value(x)))),
+                });
+            }
             "offset" => o.offset = Some(column(word, k, x)?),
             "na" => {
                 let s = x.as_str().filter(|_| x.dt() == STRING);

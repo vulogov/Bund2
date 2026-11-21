@@ -857,8 +857,9 @@ mod honesty_tests {
         // RFC-0018 §S9: `model.matrix`'s first operand is a frame, refused
         // unless it passes RFC-0017's check, and its second the response,
         // a column's name looked up in that frame; its form's are too.
-        // Neither is a stack's name.
-        const UNVARIED: [&str; 77] = [
+        // Neither is a stack's name. `model.predict`'s first operand is a
+        // fit, refused unless it passes §S7's check; its form's is too.
+        const UNVARIED: [&str; 79] = [
             "bio.align",
             "bio.align.",
             "bio.align.score",
@@ -893,6 +894,8 @@ mod honesty_tests {
             "math.betainc.",
             "model.matrix",
             "model.matrix.",
+            "model.predict",
+            "model.predict.",
             "popgen.fst",
             "popgen.fst.",
             "popgen.hwe",

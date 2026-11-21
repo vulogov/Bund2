@@ -181,6 +181,12 @@ impl Check<'_> {
     }
 }
 
+/// Check a `spec` MAP alone: its keys and their types (§S2), for a fit's
+/// `spec` as for a design's.
+pub(crate) fn spec(word: &str, op: &str, v: &BundValue) -> Result<Spec, Error> {
+    Check { word, op }.spec(v)
+}
+
 /// Check a design operand `op` of `word` (§S2).
 pub fn check(word: &str, op: &str, v: &BundValue) -> Result<Design, Error> {
     let c = Check { word, op };

@@ -162,7 +162,13 @@ fn every_word_is_registered_with_its_effect() {
     crate::register_all(&mut i.registry);
     for w in WORDS {
         let e = i.registry.effect_of(w).unwrap_or_else(|| panic!("{w}"));
-        let want = if w.ends_with('.') { (3, 0) } else { (4, 1) };
+        let consumes: u8 = match w.trim_end_matches('.') {
+            "model.matrix" => 4,
+            "model.predict" => 3,
+            "model.residuals" => 2,
+            _ => 1,
+        };
+        let want = if w.ends_with('.') { (consumes - 1, 0) } else { (consumes, 1) };
         assert_eq!((e.consumes, e.produces, e.opaque), (want.0, want.1, false), "{w}");
     }
     let ours = i
@@ -1601,6 +1607,348 @@ fn fit_glm_never_aborts() {
             for link in links {
                 if let Err(e) = fit_glm(d, family, Some(link)) {
                     assert!(ok(&e), "{family} {link}: {e}");
+                }
+            }
+        }
+    }
+}
+
+// RFC-0018 criterion 4: residuals and influence.
+
+fn dobson_design() -> BundValue {
+    glm_design(
+        &[18.0, 17.0, 15.0, 20.0, 10.0, 20.0, 25.0, 13.0, 12.0],
+        vec![
+            ("foutcome", strs(&["1", "2", "3", "1", "2", "3", "1", "2", "3"])),
+            ("ftreatment", strs(&["1", "1", "1", "2", "2", "2", "3", "3", "3"])),
+        ],
+        &["foutcome", "ftreatment"],
+        vec![],
+    )
+}
+
+fn residuals_of(fit: &BundValue, t: &str) -> Result<BundValue, String> {
+    on(&[fit.clone(), map(vec![("type", s(t))])], "model.residuals")
+}
+
+#[test]
+fn model_residuals_and_influence_against_the_fixture() {
+    let gamma = glm_design(&POS, vec![("x", xs(8))], &["x"], vec![]);
+    let cases = [
+        ("glm.dobson", fit_glm(&dobson_design(), "poisson", None).unwrap()),
+        ("glm.gamma.inverse", fit_glm(&gamma, "gamma", None).unwrap()),
+        (
+            "lm.weighted",
+            fit_lm(&dose_design(&["dose", "patient"], vec![("weights", s("w"))])),
+        ),
+    ];
+    for (label, fit) in &cases {
+        for t in ["response", "pearson", "deviance", "working", "standardized"] {
+            let r = residuals_of(fit, t).unwrap_or_else(|e| panic!("{e}"));
+            near_irls(
+                &format!("{label} {t}"),
+                &floats_of(&r),
+                &want(label, &format!("resid.{t}")),
+                false,
+            );
+        }
+        // The default is "deviance".
+        let d = on(&[fit.clone(), map(vec![])], "model.residuals").unwrap();
+        assert_eq!(bits(&d), bits(&residuals_of(fit, "deviance").unwrap()));
+        let inf = on(std::slice::from_ref(fit), "model.influence").unwrap();
+        for (k, f) in [("hat", "hat"), ("std.residuals", "standardized"), ("cooks", "cooks")] {
+            near_irls(
+                &format!("{label} {k}"),
+                &floats_of(get(&inf, k)),
+                &want(label, &format!("resid.{f}")),
+                false,
+            );
+        }
+    }
+    // For an unweighted fit.lm the deviance residual is y − μ.
+    let plain = fit_lm(&dose_design(&["dose", "patient"], vec![]));
+    let d = floats_of(&residuals_of(&plain, "deviance").unwrap());
+    let r = floats_of(&residuals_of(&plain, "response").unwrap());
+    near("y − μ", &d, &r);
+}
+
+/// Criterion 4: a factor level with one row is refused by
+/// `model.influence` and `"standardized"`, and its other types answered.
+#[test]
+fn a_leverage_of_one_is_refused() {
+    let f = raw(
+        &["y", "x", "g"],
+        vec![
+            fl(&[1.0, 2.0, 2.5, 4.0, 5.5, 6.0, 9.0]),
+            xs(7),
+            strs(&["a", "a", "a", "b", "b", "b", "c"]),
+        ],
+        vec![("g", strs(&["a", "b", "c"]))],
+    );
+    let d = on(&[f, s("y"), strs(&["x", "g"]), map(vec![])], "model.matrix").unwrap();
+    let fit = fit_lm(&d);
+    assert_eq!(
+        on(std::slice::from_ref(&fit), "model.influence").unwrap_err(),
+        "MODEL.INFLUENCE: E114 the answer overflows a FLOAT: the standardized residual at row 7, \
+         whose leverage is 1"
+    );
+    assert_eq!(
+        residuals_of(&fit, "standardized").unwrap_err(),
+        "MODEL.RESIDUALS: E114 the answer overflows a FLOAT: the standardized residual at row 7, \
+         whose leverage is 1"
+    );
+    for t in ["response", "pearson", "deviance", "working"] {
+        residuals_of(&fit, t).unwrap_or_else(|e| panic!("{t}: {e}"));
+    }
+    assert_eq!(
+        residuals_of(&fit, "raw").unwrap_err(),
+        "MODEL.RESIDUALS: E101 opts is outside model.residuals's domain: type is \"raw\""
+    );
+}
+
+// RFC-0018 criterion 5: prediction.
+
+fn predict_fails(fit: &BundValue, frame: BundValue, opts: Vec<(&str, BundValue)>) -> String {
+    fails(&[fit.clone(), frame, map(opts)], "model.predict")
+}
+
+fn predict_on(fit: &BundValue, frame: BundValue, opts: Vec<(&str, BundValue)>) -> BundValue {
+    on(&[fit.clone(), frame, map(opts)], "model.predict").unwrap_or_else(|e| panic!("{e}"))
+}
+
+fn check_predict(label: &str, fit: &BundValue, frame: &BundValue, prediction: bool, w: Option<&str>) {
+    for (scale, prefix) in [("link", "link"), ("response", "response")] {
+        let mut o = vec![("type", s(scale)), ("interval", s("confidence"))];
+        if let Some(w) = w {
+            o.push(("weights", s(w)));
+        }
+        let p = predict_on(fit, frame.clone(), o);
+        for (k, f) in [("fit", "fit"), ("se", "se"), ("lower", "lower"), ("upper", "upper")] {
+            near_irls(
+                &format!("{label} {prefix} {k}"),
+                &floats_of(get(&p, k)),
+                &want(label, &format!("predict.{prefix}.{f}")),
+                false,
+            );
+        }
+        assert_eq!(get(&p, "dropped").as_int(), Some(0));
+    }
+    if prediction {
+        let mut o = vec![("type", s("link")), ("interval", s("prediction"))];
+        if let Some(w) = w {
+            o.push(("weights", s(w)));
+        }
+        let p = predict_on(fit, frame.clone(), o);
+        for k in ["lower", "upper"] {
+            near_irls(
+                &format!("{label} prediction {k}"),
+                &floats_of(get(&p, k)),
+                &want(label, &format!("predict.pred.{k}")),
+                false,
+            );
+        }
+    }
+}
+
+#[test]
+fn model_predict_against_the_fixture() {
+    // Dobson at (1, 1), (2, 3), (3, 2).
+    let dobson = fit_glm(&dobson_design(), "poisson", None).unwrap();
+    let new = raw(
+        &["foutcome", "ftreatment"],
+        vec![strs(&["1", "2", "3"]), strs(&["1", "3", "2"])],
+        vec![
+            ("foutcome", strs(&["1", "2", "3"])),
+            ("ftreatment", strs(&["1", "2", "3"])),
+        ],
+    );
+    check_predict("glm.dobson", &dobson, &new, false, None);
+    // The Gamma under inverse: every se positive, every lower below upper.
+    let gamma = fit_glm(&glm_design(&POS, vec![("x", xs(8))], &["x"], vec![]), "gamma", None).unwrap();
+    let gx = raw(&["x"], vec![fl(&[1.5, 4.5, 7.0])], vec![]);
+    check_predict("glm.gamma.inverse", &gamma, &gx, false, None);
+    let p = predict_on(&gamma, gx, vec![("interval", s("confidence"))]);
+    let (lo, hi) = (floats_of(get(&p, "lower")), floats_of(get(&p, "upper")));
+    assert!(floats_of(get(&p, "se")).iter().all(|s| *s > 0.0));
+    assert!(lo.iter().zip(&hi).all(|(a, b)| a < b));
+    // The Gaussian and weighted fits, prediction intervals too, the
+    // weighted fit's with and without weights for the new rows.
+    let lx = raw(
+        &["dose", "patient", "nw"],
+        vec![fl(&[15.0, 25.0, 5.0]), fl(&[4.0, 9.0, 1.0]), fl(&[2.0, 1.0, 3.0])],
+        vec![],
+    );
+    let plain = fit_lm(&dose_design(&["dose", "patient"], vec![]));
+    check_predict("lm.plain", &plain, &lx, true, None);
+    let weighted = fit_lm(&dose_design(&["dose", "patient"], vec![("weights", s("w"))]));
+    check_predict("lm.weighted", &weighted, &lx, true, None);
+    check_predict("lm.weighted.w", &weighted, &lx, true, Some("nw"));
+}
+
+/// Criterion 5: the zero group's response-scale interval answers no
+/// `upper` key and its `lower`, ε through the clamped `log` inverse.
+#[test]
+fn model_predict_leaves_an_infinite_end_out() {
+    let zero = fit_glm(
+        &glm_design(
+            &[3.0, 5.0, 4.0, 0.0, 0.0, 0.0],
+            vec![("g", fl(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0]))],
+            &["g"],
+            vec![],
+        ),
+        "poisson",
+        None,
+    )
+    .unwrap();
+    let p = predict_on(
+        &zero,
+        raw(&["g"], vec![fl(&[1.0])], vec![]),
+        vec![("interval", s("confidence"))],
+    );
+    let m = p.as_map().cloned().unwrap_or_default();
+    assert!(!m.contains_key("upper"));
+    assert_eq!(floats_of(get(&p, "lower")), [f64::EPSILON]);
+    assert_eq!(f64::EPSILON, 2.220446049250313e-16);
+}
+
+fn pe101(op: &str, t: &str) -> String {
+    format!("MODEL.PREDICT: E101 {op} is outside model.predict's domain: {t}")
+}
+
+/// Criterion 5: one new row of a factor design, its `site` a single level,
+/// is answered; an unseen level, a prediction interval on a Poisson fit,
+/// and an inverse-link interval across 0 are refused with their texts.
+#[test]
+fn model_predict_refusals() {
+    let d = matrix(&trial(), dose_site(), omit());
+    let fit = fit_lm(&d);
+    let one = raw(
+        &["dose", "site"],
+        vec![list(vec![int(20)]), strs(&["south"])],
+        vec![("site", strs(&["east", "north", "south"]))],
+    );
+    let p = predict_on(&fit, one, vec![]);
+    assert_eq!(floats_of(get(&p, "fit")).len(), 1);
+    let west = raw(
+        &["dose", "site"],
+        vec![list(vec![int(20)]), strs(&["west"])],
+        vec![("site", strs(&["west"]))],
+    );
+    assert_eq!(
+        predict_fails(&fit, west, vec![]),
+        pe101("frame", "column \"site\" row 1 is \"west\", not one of the fit's levels")
+    );
+    assert_eq!(
+        predict_fails(&fit, raw(&["site"], vec![strs(&["east"])], vec![("site", strs(&["east"]))]), vec![]),
+        pe101("frame", "no column \"dose\"")
+    );
+    let text = raw(&["dose", "site"], vec![list(vec![int(1)]), strs(&["east"])], vec![]);
+    assert_eq!(
+        predict_fails(&fit, text, vec![]),
+        pe101("frame", "column \"site\" is string, where the fit coded a factor")
+    );
+    let dobson = fit_glm(&dobson_design(), "poisson", None).unwrap();
+    assert_eq!(
+        predict_fails(
+            &dobson,
+            raw(&["x"], vec![fl(&[1.0])], vec![]),
+            vec![("interval", s("prediction"))]
+        ),
+        pe101("opts", "interval \"prediction\" needs a gaussian identity fit")
+    );
+    // A Gamma inverse fit, a new row whose link-scale interval contains 0.
+    let gamma = fit_glm(&glm_design(&POS, vec![("x", xs(8))], &["x"], vec![]), "gamma", None).unwrap();
+    let far = raw(&["x"], vec![fl(&[60.0])], vec![]);
+    let link = predict_on(
+        &gamma,
+        far.clone(),
+        vec![("type", s("link")), ("interval", s("confidence"))],
+    );
+    let (lo, hi) = (floats_of(get(&link, "lower"))[0], floats_of(get(&link, "upper"))[0]);
+    assert!(lo < 0.0 && hi > 0.0, "{lo} {hi}");
+    assert_eq!(
+        predict_fails(&gamma, far, vec![("interval", s("confidence"))]),
+        pe101(
+            "frame",
+            "row 1's interval crosses 0 under the inverse link; type \"link\" answers it"
+        )
+    );
+    // A fit whose spec codes other columns than its names.
+    let mut m = fit.as_map().cloned().unwrap_or_default();
+    m.insert("names".into(), strs(&["a", "b", "c", "d", "e", "f"]));
+    assert_eq!(
+        predict_fails(&BundValue::map(m), raw(&[], vec![], vec![]), vec![]),
+        "MODEL.PREDICT: E101 fit is outside model.predict's domain: spec codes column 1 as \
+         \"(intercept)\", names has \"a\""
+    );
+    // A fit whose lengths disagree.
+    let mut m = fit.as_map().cloned().unwrap_or_default();
+    m.insert("se".into(), fl(&[1.0]));
+    assert_eq!(
+        predict_fails(&BundValue::map(m), raw(&[], vec![], vec![]), vec![]),
+        "MODEL.PREDICT: E101 fit is outside model.predict's domain: se has 1 items, where coef has 6"
+    );
+    // NONE under "refuse", and under "omit" counted.
+    let gaps = raw(
+        &["dose", "site"],
+        vec![list(vec![int(20), none()]), strs(&["south", "east"])],
+        vec![("site", strs(&["east", "north", "south"]))],
+    );
+    assert_eq!(
+        predict_fails(&fit, gaps.clone(), vec![]),
+        pe101("frame", "column \"dose\" row 2 is none (na \"refuse\")")
+    );
+    let p = predict_on(&fit, gaps, vec![("na", s("omit"))]);
+    assert_eq!(get(&p, "dropped").as_int(), Some(1));
+    assert_eq!(
+        predict_fails(&fit, raw(&[], vec![], vec![]), vec![("conf", int(1))]),
+        pe101("opts", "conf is 1")
+    );
+}
+
+/// Criterion 8: the M4 words on malformed fits and frames answer or
+/// refuse, every name and form.
+#[test]
+fn m4_words_never_abort() {
+    let ok = |e: &str| e.contains(": E1") || e.contains("too shallow") || e.contains("returned");
+    let fit = fit_lm(&dose_design(&["dose", "patient"], vec![]));
+    let mut m = fit.as_map().cloned().unwrap_or_default();
+    m.insert("vcov".into(), list(vec![fl(&[1.0])]));
+    let bad_vcov = BundValue::map(m);
+    let mut m = fit.as_map().cloned().unwrap_or_default();
+    m.insert("hat".into(), fl(&[1.0; 7]));
+    let unit_hat = BundValue::map(m);
+    let fits = [fit.clone(), bad_vcov, unit_hat, int(1), map(vec![]), trial()];
+    let others = [
+        map(vec![]),
+        map(vec![("type", s("link"))]),
+        map(vec![("interval", s("confidence"))]),
+        dose_frame(),
+        trial(),
+        int(2),
+        none(),
+    ];
+    for f in &fits {
+        for w in ["model.influence", "model.influence."] {
+            let r = if w.ends_with('.') {
+                run_on(&[], Some(f), w).map(|_| ())
+            } else {
+                on(std::slice::from_ref(f), w).map(|_| ())
+            };
+            if let Err(e) = r {
+                assert!(ok(&e), "{w}: {e}");
+            }
+        }
+        for a in &others {
+            if let Err(e) = on(&[f.clone(), a.clone()], "model.residuals") {
+                assert!(ok(&e), "model.residuals: {e}");
+            }
+            for b in &others {
+                if let Err(e) = on(&[f.clone(), a.clone(), b.clone()], "model.predict") {
+                    assert!(ok(&e), "model.predict: {e}");
+                }
+                if let Err(e) = run_on(&[f.clone(), a.clone()], Some(b), "model.predict.").map(|_| ()) {
+                    assert!(ok(&e), "model.predict.: {e}");
                 }
             }
         }
