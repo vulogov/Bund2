@@ -1,0 +1,40 @@
+-- 1. a design from a frame
+columns:          [ (intercept) ::  dose ::  site.north ::  site.south :: ]
+rows dropped:     2
+y:                [ 4.2 ::  5.9 ::  3.8 ::  4.6 ::  6.3 ::  7.1 ::  6.8 :: ]
+
+-- 2. fit.lm
+coefficients:     [ 3.2 ::  0.15 ::  -0.466667 ::  -0.9 :: ]
+standard errors:  [ 0.149071 ::  0.007027 ::  0.140546 ::  0.153156 :: ]
+r²:               0.993611
+F and its p:      155.514286 0.000865
+residual df:      3
+
+-- 3. residuals and influence
+residuals:        [ -0.033333 ::  0.166667 ::  0.0 ::  -0.1 ::  0.1 ::  -0.133333 ::  0.0 :: ]
+standardized:     [ -0.33541 ::  1.369306 ::  0.0 ::  -1.006231 ::  1.006231 ::  -1.341641 ::  0.0 :: ]
+leverages:        [ 0.555556 ::  0.333333 ::  0.722222 ::  0.555556 ::  0.555556 ::  0.555556 ::  0.722222 :: ]
+Cook's distances: [ 0.035156 ::  0.234375 ::  0.0 ::  0.316406 ::  0.316406 ::  0.5625 ::  0.0 :: ]
+
+-- 4. predictions at new rows
+fitted:           [ 4.983333 ::  6.95 :: ]
+95% confidence:   [ 4.687486 ::  6.546828 :: ] [ 5.279181 ::  7.353172 :: ]
+95% prediction:   [ 4.424235 ::  6.327414 :: ] [ 5.542432 ::  7.572586 :: ]
+a new level:      Lambda content evaluation returned error: MODEL.PREDICT: E101 frame is outside model.predict's domain: column "site" row 1 is "west", not one of the fit's levels
+
+-- 5. fit.glm, Poisson
+columns:          [ (intercept) ::  outcome.o2 ::  outcome.o3 ::  treatment.t2 ::  treatment.t3 :: ]
+coefficients:     [ 3.044522 ::  -0.454255 ::  -0.292987 ::  0.0 ::  0.0 :: ]
+deviance:         5.129141
+null deviance:    10.581446
+AIC:              56.761318
+iterations:       4
+expected counts:  [ 21.0 ::  13.333333 ::  15.666667 ::  21.0 ::  13.333333 ::  15.666667 ::  21.0 ::  13.333333 ::  15.666667 :: ]
+
+-- 6. comparing nested models
+test and df:      LR 2
+deviance and p:   0.0 1.0
+terms:            [ (intercept) ::  outcome ::  treatment :: ]
+residual df:      [ 8 ::  6 ::  4 :: ]
+residual dev.:    [ 10.581446 ::  5.129141 ::  5.129141 :: ]
+p after the null: [ 0.065471 ::  1.0 :: ]

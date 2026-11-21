@@ -1,0 +1,149 @@
+//
+// RFC-0018's models over frames: a design from a frame, a linear model
+// and a generalised one, their residuals and influence, predictions at
+// new rows, and nested models compared. Run it:
+//
+//   bund2 demo.bund
+//
+// Nothing is drawn at random, so a run prints the same lines each time,
+// and `expected.txt` beside this file is what it must print.
+//
+// A design and a fit are plain MAPs. `model.matrix` codes a frame's
+// columns as a design; `fit.lm` and `fit.glm` fit one; the other `model.`
+// words read a fit. Operands go deepest first, so
+// `frame response terms opts model.matrix` codes `frame`.
+//
+
+// A FLOAT, or each FLOAT of a LIST, to six decimals, so that the printed
+// lines do not depend on the last bits of a long computation; adding 0.0
+// prints a rounded -0.0 as 0.0.
+:round { 1000000.0 * math.round 1000000.0 swap / 0.0 + } register
+:roundall { list swap { round swap + } loop } register
+
+//
+// 1. A design. The dose trial of `bund_examples/frames/`: nine patients
+//    at three sites, two with no response. `model.matrix` codes the
+//    response on dose and site: an intercept, dose, and site as one
+//    column per level after its first, `east`. Under `"omit"` the rows
+//    with a NONE are left out, and `dropped` says how many.
+//
+"-- 1. a design from a frame" println
+:trial
+"patient,site,dose,response
+1,north,10,4.2
+2,north,20,5.9
+3,south,10,3.8
+4,south,20,
+5,east,10,4.6
+6,east,20,6.3
+7,north,30,7.1
+8,south,30,6.8
+9,east,30,NA
+" var
+:t :trial var? dict [ "site" ] "factors" swap set frame.csv.parse var
+:d :t var? "response" [ "dose" "site" ] dict "na" "omit" set model.matrix var
+"columns:          " print :d var? "names" get println
+"rows dropped:     " print :d var? "dropped" get println
+"y:                " print :d var? "y" get println
+"" println
+
+//
+// 2. A linear model. `fit.lm` fits the design by least squares and
+//    answers a MAP: coefficients with their standard errors and p values,
+//    r², the F test against the intercept alone, and what the `model.`
+//    words read.
+//
+"-- 2. fit.lm" println
+:lm :d var? dict fit.lm var
+"coefficients:     " print :lm var? "coef" get roundall println
+"standard errors:  " print :lm var? "se" get roundall println
+"r²:               " print :lm var? "r2" get round println
+"F and its p:      " print :lm var? "f" get round print " " print :lm var? "f.p" get round println
+"residual df:      " print :lm var? "df.residual" get println
+"" println
+
+//
+// 3. Checking it. `model.residuals` answers a residual per row, the
+//    deviance residual by default; `model.influence` answers each row's
+//    leverage, standardized residual and Cook's distance.
+//
+"-- 3. residuals and influence" println
+"residuals:        " print :lm var? dict model.residuals roundall println
+"standardized:     " print :lm var? dict "type" "standardized" set model.residuals roundall println
+:inf :lm var? model.influence var
+"leverages:        " print :inf var? "hat" get roundall println
+"Cook's distances: " print :inf var? "cooks" get roundall println
+"" println
+
+//
+// 4. Predicting. New rows are coded by the fit's own record of how it
+//    coded the design, so a site must be one of the fit's levels. A
+//    confidence interval is for the mean response at the row; a
+//    prediction interval, for a Gaussian fit, for one new patient.
+//
+"-- 4. predictions at new rows" println
+:new "dose,site
+15,north
+25,east
+" dict [ "site" ] "factors" swap set frame.csv.parse var
+:p :lm var? :new var? dict "interval" "confidence" set model.predict var
+"fitted:           " print :p var? "fit" get roundall println
+"95% confidence:   " print :p var? "lower" get roundall print " " print :p var? "upper" get roundall println
+:q :lm var? :new var? dict "interval" "prediction" set model.predict var
+"95% prediction:   " print :q var? "lower" get roundall print " " print :q var? "upper" get roundall println
+?try
+  :try { :lm var? "dose,site
+15,west
+" dict [ "site" ] "factors" swap set frame.csv.parse dict model.predict println } set
+  :except { "a new level:      " print :context get println } set
+!
+"" println
+
+//
+// 5. A generalised linear model. Dobson's trial (R's `glm` example):
+//    counts by outcome and treatment, fitted as Poisson with a log link.
+//    A factor is a column of STRINGs, so the codes are written o1, t1.
+//    `fit.glm` takes the family, and the link when it is not the
+//    family's canonical one.
+//
+"-- 5. fit.glm, Poisson" println
+:dobson "counts,outcome,treatment
+18,o1,t1
+17,o2,t1
+15,o3,t1
+20,o1,t2
+10,o2,t2
+20,o3,t2
+25,o1,t3
+13,o2,t3
+12,o3,t3
+" dict [ "outcome" "treatment" ] "factors" swap set frame.csv.parse var
+:poisson dict "family" "poisson" set var
+:full :dobson var? "counts" [ "outcome" "treatment" ] dict model.matrix var
+:big :full var? :poisson var? fit.glm var
+"columns:          " print :big var? "names" get println
+"coefficients:     " print :big var? "coef" get roundall println
+"deviance:         " print :big var? "deviance" get round println
+"null deviance:    " print :big var? "null.deviance" get round println
+"AIC:              " print :big var? "aic" get round println
+"iterations:       " print :big var? "iterations" get println
+"expected counts:  " print :big var? :dobson var? dict "type" "response" set model.predict "fit" get roundall println
+"" println
+
+//
+// 6. Comparing. `model.compare` tests whether a larger model improves on
+//    a smaller one nested in it: a likelihood-ratio test here, since the
+//    Poisson's dispersion is fixed. Treatment adds nothing to outcome.
+//    `model.anova` adds the terms one at a time and answers a frame, one
+//    row per model, its first row the null model's.
+//
+"-- 6. comparing nested models" println
+:small :dobson var? "counts" [ "outcome" ] dict model.matrix :poisson var? fit.glm var
+:c :small var? :big var? dict model.compare var
+"test and df:      " print :c var? "test" get print " " print :c var? "df" get println
+"deviance and p:   " print :c var? "deviance" get round print " " print :c var? "p" get round println
+:a :full var? :poisson var? model.anova var
+"terms:            " print :a var? "term" frame.column println
+"residual df:      " print :a var? "resid.df" frame.column println
+"residual dev.:    " print :a var? "resid.deviance" frame.column roundall println
+"p after the null: " print :a var? "p" frame.column na.omit roundall println
