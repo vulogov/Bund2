@@ -17841,3 +17841,103 @@ What the ruling fixes:
 
 - **RFC-0018's text does not change** except its status lines.
 - **Nothing in RFC-0018 is open** except its acceptance.
+
+## D264 — RFC-0018's [author] choices added by its fifth revision
+
+**Raised 2026-11-20** by `docs/rfc/RFC-0018-models.md` (§Open
+questions), revised after its fifth review
+(`docs/rfc/reviews/RFC-0018-review-2026-11-20-5.md`). The revision
+added seven **[author]** choices after D263. Each fills a case the
+review found undefined, or marks a difference from R the text had left
+unmarked:
+
+- a response-scale interval maps through the inverse link, which is
+  an interval only inside the link's valid η: under `inverse` an
+  interval across 0 maps to two half-lines, and under `sqrt` one across
+  0 folds (B1). R's `predict.glm` applies `linkinv` to η̂ wherever it
+  lies (R 4.4.2's `src/library/stats/R/predict.glm.R:61`);
+- the zero-count Poisson group, answered under D262, gives an upper end
+  of exp(about 4.8·10⁴) = ∞. D251's A3 leaves an infinite end's key
+  out, but rules a scalar, and `lower` and `upper` are LISTs (B1);
+- R's `:` takes the union of its members' variables
+  (`src/library/stats/src/model.c:1343-1349`), so `a:a` is `a` and
+  `b:a` is `a:b` (SF1);
+- R varies an interaction's first member fastest (`model.c:263-278`)
+  (SF3);
+- R's `predict.glm` defaults to `type = "link"` (`predict.glm.R:20`)
+  (SF3);
+- R stops IRLS with a warning on a non-finite coefficient
+  (`src/library/stats/R/glm.R:249-253`) (N3).
+
+- Blocks: RFC-0018's acceptance
+- Depends on: D250 (B12), D251 (A3), D261 (K6, K16), D262, D263
+- Status: **RESOLVED** by the repository owner, 2026-11-20, ruling every
+  choice as written: "rule on the author choices: recommendations".
+
+| | Choice | Ruled, as written |
+|---|---|---|
+| 1 | A response-scale prediction or interval end outside the link's valid η (§S6) | E101 naming the row and the link; `type` `"link"` answers it |
+| 2 | An infinite interval end (§S6) | D251's A3 applied to a LIST: the whole `lower` or `upper` key left out, the other answered |
+| 3 | An interval end outside the family's valid μ (§S6) | answered as computed |
+| 4 | An interaction's members (§S2) | distinct, else E101; the same members in any order are one term, a repeat refused |
+| 5 | An interaction's column order (§S2) | R's: the first member varying fastest |
+| 6 | `model.predict`'s default `type` (§S6) | `"response"`, where R's is `"link"` |
+| 7 | A non-finite coefficient from a solve (§S4) | E114 naming the coefficient and the iteration |
+
+What the ruling fixes:
+
+- **RFC-0018's text does not change** except its status lines.
+- **Nothing in RFC-0018 is open** except its acceptance.
+
+**Note, 2026-11-20, after the RFC's sixth review**
+(`docs/rfc/reviews/RFC-0018-review-2026-11-20-6.md`, SF1). The fourth
+premise above misreads its citation. `addfactor`
+(`src/library/stats/src/model.c:263-278`) places the next variable's
+columns after the existing ones; it does not choose which variable comes
+next. R's column loop takes a term's variables in the order the formula
+first names them (`model.c:701`, `model.c:1091-1112`), and the term's label
+follows that order (`model.c:2053-2075`). R varies the member written first
+fastest only when the interaction writes its members in that order:
+`y ~ b + a + a:b` varies `b` fastest and labels the term `b:a`. Choice 5
+was ruled as "R's" order. The sixth revision states R's variable order,
+and restates the choice for the owner's ruling (RFC-0018 §Open
+questions), so it is open again until that ruling.
+
+
+**Note, 2026-11-20, after the RFC's sixth review**
+(`docs/rfc/reviews/RFC-0018-review-2026-11-20-6.md`, N9). The premise
+list above has six bullets for seven choices. Choice 3, an interval end
+outside the family's valid μ answered as computed, has none: R's
+`predict.glm` maps every end through `linkinv` and does not check the
+family's range (R 4.4.2's `src/library/stats/R/predict.glm.R:60-61`),
+so the choice keeps R's behaviour and needed no difference marked.
+
+## D265 — RFC-0018's interaction column order, restated by its sixth revision
+
+**Raised 2026-11-20** by `docs/rfc/RFC-0018-models.md` (§Open
+questions), revised after its sixth review
+(`docs/rfc/reviews/RFC-0018-review-2026-11-20-6.md`, SF1). D264's fifth
+choice ruled "R's order" on a misread premise (D264's dated note). R
+takes a term's variables in the order the formula first names them
+(R 4.4.2's `src/library/stats/src/model.c:701`, `model.c:1091-1112`), places
+each next variable's columns after the existing ones, so the first
+varies fastest (`model.c:263-278`), and labels the term in the same order
+(`model.c:2053-2075`). So `y ~ b + a + a:b` varies `b` fastest and names the
+term `b:a`. The member an interaction writes first is therefore not
+always R's first.
+
+- Blocks: RFC-0018's acceptance
+- Depends on: D261 (K6), D264 (choice 5)
+- Status: **RESOLVED** by the repository owner, 2026-11-20, ruling the
+  choice as written: "rule on the author choices: recommendations".
+
+| | Choice | Ruled, as written |
+|---|---|---|
+| 1 | An interaction's column order and names (§S2) | R's variable order: the members taken in the order their columns first appear in `terms`, the first fastest, the names joined in that order; the order an interaction writes its members in changes neither |
+
+What the ruling fixes:
+
+- **D264's fifth choice** is read as this ruling. D264's other six
+  choices are unchanged.
+- **RFC-0018's text does not change** except its status lines.
+- **Nothing in RFC-0018 is open** except its acceptance.
