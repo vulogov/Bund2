@@ -14,7 +14,7 @@
 //! M1 reads `model.matrix`'s four: `intercept`, `weights`, `offset` and
 //! `na`, the last with the frame words' text. M3 reads `fit.glm`'s `family`
 //! and `link`, each a STRING whose value the word checks. M4 reads `type`,
-//! `interval` and `conf`.
+//! `interval` and `conf`, and M5 `test`.
 
 use bund2_api::Error;
 use bund2_value::{BOOL, BundValue, FLOAT, MAP, STRING};
@@ -59,6 +59,8 @@ pub(crate) struct Opts {
     /// `conf` (`model.predict`): a FLOAT in (0, 1), as RFC-0016 §S1 reads
     /// it, so an INTEGER is refused.
     pub conf: Option<f64>,
+    /// `test` (`model.compare`, `model.anova`): checked by the word.
+    pub test: Option<String>,
 }
 
 /// E101 on the `opts` operand.
@@ -109,6 +111,7 @@ pub(crate) fn read(word: &str, v: &BundValue, takes: &[&str]) -> Result<Opts, Er
             "link" => o.link = Some(name(word, k, x)?),
             "type" => o.kind = Some(name(word, k, x)?),
             "interval" => o.interval = Some(name(word, k, x)?),
+            "test" => o.test = Some(name(word, k, x)?),
             "conf" => {
                 o.conf = Some(match x.unboxed() {
                     BundValue::Float(c, _) if x.dt() == FLOAT && *c > 0.0 && *c < 1.0 => *c,

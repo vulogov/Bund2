@@ -92,16 +92,27 @@ fn scale(d: &Design) -> Scaled {
     Scaled { a, ys, tss }
 }
 
-/// The fit's least squares: `stat.lm`'s computation on √W·X.
-fn solve(d: &Design, s: &Scaled) -> Result<LeastSquares, Error> {
+/// The fit's least squares: `stat.lm`'s computation on √W·X, its
+/// refusals naming `word`; `constant` refuses a constant `y − offset` with
+/// an intercept, as `fit.lm` does and `model.anova`'s rows do not (§S7).
+fn solve(word: &str, d: &Design, s: &Scaled, constant: bool) -> Result<LeastSquares, Error> {
     let singular = |i: usize| {
         let column = d
             .names
             .get(i)
             .map_or_else(|| format!("{}", i + 1), |n| render::text(n));
-        Refusal::SingularColumn { column }.error(W)
+        Refusal::SingularColumn { column }.error(word)
     };
-    least_squares(W, "design", &s.a, &s.ys, s.tss, d.spec.intercept, &singular)
+    least_squares(word, "design", &s.a, &s.ys, s.tss, constant && d.spec.intercept, &singular)
+}
+
+/// A Gaussian identity row of `model.anova` (§S7): the RSS of `d`'s least
+/// squares, every refusal of `fit.lm`'s computation but the constant one,
+/// and the TSS, the deviance of its intercept-and-offset model.
+pub(crate) fn sums(word: &str, d: &Design) -> Result<(f64, f64), Error> {
+    let s = scale(d);
+    let ls = solve(word, d, &s, false)?;
+    Ok((ls.rss, s.tss))
 }
 
 /// `fit.lm` (`design opts -- fit`).
@@ -133,7 +144,7 @@ fn fit(d: &Design, spec: BundValue) -> Result<BundValue, Error> {
     let k = d.names.len();
     let i = usize::from(d.spec.intercept);
     let s = scale(d);
-    let ls = solve(d, &s)?;
+    let ls = solve(W, d, &s, true)?;
     let (nf, kf) = (n as f64, k as f64);
     let rss = ls.rss;
     let tss = s.tss;

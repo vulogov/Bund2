@@ -859,7 +859,9 @@ mod honesty_tests {
         // a column's name looked up in that frame; its form's are too.
         // Neither is a stack's name. `model.predict`'s first operand is a
         // fit, refused unless it passes §S7's check; its form's is too.
-        const UNVARIED: [&str; 79] = [
+        // `model.compare`'s first two are fits, each refused unless it
+        // passes that check; its form's are too.
+        const UNVARIED: [&str; 81] = [
             "bio.align",
             "bio.align.",
             "bio.align.score",
@@ -892,6 +894,8 @@ mod honesty_tests {
             "kb.word",
             "math.betainc",
             "math.betainc.",
+            "model.compare",
+            "model.compare.",
             "model.matrix",
             "model.matrix.",
             "model.predict",

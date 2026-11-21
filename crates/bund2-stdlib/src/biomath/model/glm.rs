@@ -333,8 +333,8 @@ fn logistic_deviance(y: &[f64], eta: &[f64]) -> f64 {
 }
 
 /// E101 on the design.
-fn no(text: String) -> Error {
-    domain(W, "design", text)
+fn no(word: &str, text: String) -> Error {
+    domain(word, "design", text)
 }
 
 /// How a FLOAT reads in a refusal.
@@ -376,6 +376,7 @@ struct Problem<'a> {
     offset: &'a [f64],
     logistic: bool,
     which: Which,
+    word: &'a str,
 }
 
 /// A solve: β, and R⁻¹ of the QR of √W·X.
@@ -404,7 +405,7 @@ fn solve(p: &Problem, w: &[f64], z: &[f64]) -> Result<Solved, Error> {
             .names
             .get(i)
             .map_or_else(|| format!("{}", i + 1), |n| render::text(n));
-        Refusal::SingularColumn { column }.error(W)
+        Refusal::SingularColumn { column }.error(p.word)
     };
     if let Some(i) = failing {
         return Err(singular(i));
@@ -477,7 +478,7 @@ impl Problem<'_> {
                         self.which.suffix()
                     ),
                 }
-                .error(W));
+                .error(self.word));
             }
             w.push(self.w[i] * d * d / self.family.variance(m));
             z.push(zi);
@@ -492,7 +493,7 @@ impl Problem<'_> {
         } else {
             format!("the {} link's valid range", self.link.name())
         };
-        no(format!(
+        no(self.word, format!(
             "the first IRLS step leaves {range}, with no earlier coefficients to halve \
              towards{}",
             self.which.suffix()
@@ -503,7 +504,7 @@ impl Problem<'_> {
     fn iterate(&self, start: &[f64]) -> Result<Converged, Error> {
         let mut eta: Vec<f64> = start.iter().map(|m| self.link.link(*m)).collect();
         if let Some(i) = eta.iter().position(|e| !e.is_finite()) {
-            return Err(no(format!(
+            return Err(no(self.word, format!(
                 "y row {} is {}, whose starting η under the {} link is not finite{}",
                 i + 1,
                 shown(self.y[i]),
@@ -514,8 +515,9 @@ impl Problem<'_> {
         let mut mu = self.mu_of(&eta);
         if !self.valid(&eta, &mu) {
             return Err(Error::internal(format!(
-                "{W}: the {} family's start under the {} link is outside its valid \
+                "{}: the {} family's start under the {} link is outside its valid \
                  range; §S4's response checks were to exclude it",
+                self.word,
                 self.family.name(),
                 self.link.name()
             )));
@@ -537,7 +539,7 @@ impl Problem<'_> {
                         self.which.suffix()
                     ),
                 }
-                .error(W));
+                .error(self.word));
             }
             eta = predictor(self, &beta);
             mu = self.mu_of(&eta);
@@ -554,7 +556,7 @@ impl Problem<'_> {
                             method: format!("IRLS step halving{}", self.which.suffix()),
                             cap: CAP,
                         }
-                        .error(W));
+                        .error(self.word));
                     }
                     ii += 1;
                     halvings += 1;
@@ -576,7 +578,7 @@ impl Problem<'_> {
                             method: format!("IRLS step halving{}", self.which.suffix()),
                             cap: CAP,
                         }
-                        .error(W));
+                        .error(self.word));
                     }
                     ii += 1;
                     halvings += 1;
@@ -603,7 +605,7 @@ impl Problem<'_> {
             method: self.which.method().into(),
             cap: CAP,
         }
-        .error(W))
+        .error(self.word))
     }
 
     /// The refusals R only warns of, on the converged fit.
@@ -618,14 +620,14 @@ impl Problem<'_> {
                     c.mu.iter().any(|m| *m > 1.0 - tiny || *m < tiny)
                 };
                 if separated {
-                    return Err(no(format!(
+                    return Err(no(self.word, format!(
                         "fitted probabilities numerically 0 or 1: X separates y{suffix}"
                     )));
                 }
             }
             Family::Poisson => {
                 if let Some(i) = c.mu.iter().position(|m| *m < tiny) {
-                    return Err(no(format!(
+                    return Err(no(self.word, format!(
                         "fitted rate numerically 0 at row {}{suffix}",
                         i + 1
                     )));
@@ -722,7 +724,7 @@ fn aic(f: Family, y: &[f64], mu: &[f64], w: &[f64], dev: f64, k: usize) -> Optio
 }
 
 /// The response checks (§S4's table), each E101 naming the row.
-fn responses(f: Family, link: Link, d: &Design) -> Result<(), Error> {
+fn responses(word: &str, f: Family, link: Link, d: &Design) -> Result<(), Error> {
     for (i, y) in d.y.iter().enumerate() {
         let r = i + 1;
         let bad = match f {
@@ -749,13 +751,13 @@ fn responses(f: Family, link: Link, d: &Design) -> Result<(), Error> {
             _ => None,
         };
         if let Some(t) = bad {
-            return Err(no(t));
+            return Err(no(word, t));
         }
     }
     if f == Family::Binomial {
         let near = |x: f64| (x - x.round()).abs() <= 1e-3;
         if let Some(i) = d.weights.iter().position(|w| !near(*w)) {
-            return Err(no(format!(
+            return Err(no(word, format!(
                 "weights row {} is {}, not a count of trials",
                 i + 1,
                 shown(d.weights[i])
@@ -767,7 +769,7 @@ fn responses(f: Family, link: Link, d: &Design) -> Result<(), Error> {
             .zip(&d.weights)
             .position(|(y, w)| !near(w * y))
         {
-            return Err(no(format!(
+            return Err(no(word, format!(
                 "y row {} times its weight is {}, not a count",
                 i + 1,
                 shown(d.y[i] * d.weights[i])
@@ -778,24 +780,24 @@ fn responses(f: Family, link: Link, d: &Design) -> Result<(), Error> {
 }
 
 /// Each element finite, or E114 naming the first that is not.
-fn finite_each(what: &str, xs: Vec<f64>) -> Result<BundValue, Error> {
+fn finite_each(word: &str, what: &str, xs: Vec<f64>) -> Result<BundValue, Error> {
     if let Some(i) = xs.iter().position(|x| !x.is_finite()) {
         return Err(Refusal::Overflow {
             expression: format!("{what} at {}", i + 1),
         }
-        .error(W));
+        .error(word));
     }
     Ok(list(xs))
 }
 
-fn finite(what: &str, x: f64) -> Result<f64, Error> {
+fn finite(word: &str, what: &str, x: f64) -> Result<f64, Error> {
     if x.is_finite() {
         Ok(x)
     } else {
         Err(Refusal::Overflow {
             expression: what.into(),
         }
-        .error(W))
+        .error(word))
     }
 }
 
@@ -848,19 +850,30 @@ pub(crate) fn fit_glm(vm: &mut dyn Vm) -> Result<(), Error> {
         .as_map()
         .and_then(|m| m.get("spec").cloned())
         .ok_or_else(|| Error::internal(format!("{W}: the checked design has no spec")))?;
-    let fit = fit(&d, family, link, spec)?;
+    let fit = fit(W, &d, family, link, spec)?;
     vm.push(fit);
     Ok(())
 }
 
-/// The fit's MAP (§S4's table).
-fn fit(d: &Design, family: Family, link: Link, spec: BundValue) -> Result<BundValue, Error> {
-    responses(family, link, d)?;
-    let n = d.y.len();
-    let k = d.names.len();
-    let x = DMatrix::from_fn(n, k, |i, j| {
+/// The design's columns as a MATRIX.
+fn columns(d: &Design) -> DMatrix<f64> {
+    let (n, k) = (d.y.len(), d.names.len());
+    DMatrix::from_fn(n, k, |i, j| {
         d.x.get(i).and_then(|r| r.get(j)).copied().unwrap_or(0.0)
-    });
+    })
+}
+
+/// §S4's iteration on `d` and every refusal of it: the response checks,
+/// IRLS from `mustart`, the converged fit's checks, and a perfect fit under
+/// an estimated dispersion.
+fn converge<'a>(
+    word: &'a str,
+    d: &'a Design,
+    family: Family,
+    link: Link,
+    x: &'a DMatrix<f64>,
+) -> Result<(Problem<'a>, Converged), Error> {
+    responses(word, family, link, d)?;
     let logistic = family == Family::Binomial
         && link == Link::Logit
         && d.y.iter().all(|y| *y == 0.0 || *y == 1.0)
@@ -869,13 +882,14 @@ fn fit(d: &Design, family: Family, link: Link, spec: BundValue) -> Result<BundVa
     let p = Problem {
         family,
         link,
-        x: &x,
+        x,
         names: &d.names,
         y: &d.y,
         w: &d.weights,
         offset: &d.offset,
         logistic,
         which: Which::Full,
+        word,
     };
     let start: Vec<f64> = d
         .y
@@ -892,8 +906,39 @@ fn fit(d: &Design, family: Family, link: Link, spec: BundValue) -> Result<BundVa
     let c = p.iterate(&start)?;
     p.converged_checks(&c)?;
     if family.estimated() && c.dev <= 0.0 {
-        return Err(no("a perfect fit, its residual variance 0".into()));
+        return Err(no(word, "a perfect fit, its residual variance 0".into()));
     }
+    Ok((p, c))
+}
+
+/// The deviance §S4's fit of `d` converges to, every refusal of §S4 applying
+/// and nothing else computed: one row of `model.anova` (§S7).
+pub(crate) fn deviance(word: &str, d: &Design, family: Family, link: Link) -> Result<f64, Error> {
+    let x = columns(d);
+    let (_, c) = converge(word, d, family, link, &x)?;
+    Ok(c.dev)
+}
+
+/// The deviance at μ = linkinv(offset): the null model of no columns (§S4,
+/// §S7), where nothing is solved.
+pub(crate) fn deviance_at_offset(d: &Design, family: Family, link: Link) -> f64 {
+    let mu: Vec<f64> = d.offset.iter().map(|o| link.inverse(*o)).collect();
+    total_deviance(family, &d.y, &mu, &d.weights)
+}
+
+/// The fit's MAP (§S4's table), its refusals naming `word`.
+pub(crate) fn fit(
+    word: &str,
+    d: &Design,
+    family: Family,
+    link: Link,
+    spec: BundValue,
+) -> Result<BundValue, Error> {
+    let n = d.y.len();
+    let k = d.names.len();
+    let x = columns(d);
+    let (p, c) = converge(word, d, family, link, &x)?;
+    let logistic = p.logistic;
     // The working weights, the covariance and the leverages at the estimate.
     let ww: Vec<f64> = c
         .eta
@@ -930,7 +975,7 @@ fn fit(d: &Design, family: Family, link: Link, spec: BundValue) -> Result<BundVa
     let stat: Vec<f64> = coef.iter().zip(&se).map(|(b, s)| b / s).collect();
     let pv: Vec<f64> = if family.estimated() {
         stat.iter()
-            .map(|t| t_p(W, *t, df as f64))
+            .map(|t| t_p(word, *t, df as f64))
             .collect::<Result<Vec<f64>, Error>>()?
     } else {
         stat.iter()
@@ -946,6 +991,7 @@ fn fit(d: &Design, family: Family, link: Link, spec: BundValue) -> Result<BundVa
     let mut vcov = Vec::with_capacity(k);
     for r in 0..k {
         vcov.push(finite_each(
+            word,
             "the covariance",
             (0..k).map(|j| cov[(r, j)]).collect(),
         )?);
@@ -954,10 +1000,10 @@ fn fit(d: &Design, family: Family, link: Link, spec: BundValue) -> Result<BundVa
     let null = null_deviance(d, &p, &c, intercept)?;
     let aic = aic(family, &d.y, &c.mu, &d.weights, c.dev, k);
     let mut m = BTreeMap::new();
-    m.insert("coef".to_string(), finite_each("the coefficient", coef)?);
-    m.insert("se".to_string(), finite_each("the standard error", se)?);
+    m.insert("coef".to_string(), finite_each(word, "the coefficient", coef)?);
+    m.insert("se".to_string(), finite_each(word, "the standard error", se)?);
     let stat_key = if family.estimated() { "t" } else { "z" };
-    m.insert(stat_key.to_string(), finite_each("the test statistic", stat)?);
+    m.insert(stat_key.to_string(), finite_each(word, "the test statistic", stat)?);
     m.insert("p".to_string(), list(pv));
     m.insert(
         "names".to_string(),
@@ -968,20 +1014,20 @@ fn fit(d: &Design, family: Family, link: Link, spec: BundValue) -> Result<BundVa
     m.insert("y".to_string(), list(d.y.clone()));
     m.insert("weights".to_string(), list(d.weights.clone()));
     m.insert("offset".to_string(), list(d.offset.clone()));
-    m.insert("fitted".to_string(), finite_each("the fitted value", c.mu.clone())?);
-    m.insert("linear".to_string(), finite_each("the linear predictor", c.eta.clone())?);
-    m.insert("hat".to_string(), finite_each("the leverage", hat)?);
+    m.insert("fitted".to_string(), finite_each(word, "the fitted value", c.mu.clone())?);
+    m.insert("linear".to_string(), finite_each(word, "the linear predictor", c.eta.clone())?);
+    m.insert("hat".to_string(), finite_each(word, "the leverage", hat)?);
     m.insert(
         "working.weights".to_string(),
-        finite_each("the working weight", ww)?,
+        finite_each(word, "the working weight", ww)?,
     );
     m.insert(
         "dispersion".to_string(),
-        BundValue::float(finite("the dispersion", dispersion)?),
+        BundValue::float(finite(word, "the dispersion", dispersion)?),
     );
     m.insert(
         "deviance".to_string(),
-        BundValue::float(finite("the deviance", c.dev)?),
+        BundValue::float(finite(word, "the deviance", c.dev)?),
     );
     if let Some(nd) = null.filter(|x| x.is_finite()) {
         m.insert("null.deviance".to_string(), BundValue::float(nd));
@@ -992,9 +1038,9 @@ fn fit(d: &Design, family: Family, link: Link, spec: BundValue) -> Result<BundVa
         count((n - usize::from(intercept)) as u64),
     );
     if let Some(a) = aic {
-        let a = finite("the AIC", a)?;
+        let a = finite(word, "the AIC", a)?;
         let pk = k as f64 + if family.estimated() { 1.0 } else { 0.0 };
-        let bic = finite("the BIC", a - 2.0 * pk + pk * (n as f64).ln())?;
+        let bic = finite(word, "the BIC", a - 2.0 * pk + pk * (n as f64).ln())?;
         m.insert("aic".to_string(), BundValue::float(a));
         m.insert("bic".to_string(), BundValue::float(bic));
     }
@@ -1011,8 +1057,7 @@ fn fit(d: &Design, family: Family, link: Link, spec: BundValue) -> Result<BundVa
 fn null_deviance(d: &Design, p: &Problem, c: &Converged, intercept: bool) -> Result<Option<f64>, Error> {
     let f = p.family;
     if !intercept {
-        let mu: Vec<f64> = d.offset.iter().map(|o| p.link.inverse(*o)).collect();
-        return Ok(Some(total_deviance(f, &d.y, &mu, &d.weights)));
+        return Ok(Some(deviance_at_offset(d, f, p.link)));
     }
     if d.spec.offset.is_none() {
         let num: f64 = d.weights.iter().zip(&d.y).map(|(w, y)| w * y).sum();
@@ -1034,6 +1079,7 @@ fn null_deviance(d: &Design, p: &Problem, c: &Converged, intercept: bool) -> Res
         offset: &d.offset,
         logistic: false,
         which: Which::Null,
+        word: p.word,
     };
     let refit = q.iterate(&c.mu)?;
     q.converged_checks(&refit)?;

@@ -30,7 +30,9 @@ pub(crate) struct Fit {
     pub linear: Vec<f64>,
     pub y: Vec<f64>,
     pub weights: Vec<f64>,
+    pub offset: Vec<f64>,
     pub hat: Vec<f64>,
+    pub deviance: f64,
     pub df_residual: i64,
     pub dispersion: f64,
     pub family: Family,
@@ -137,7 +139,7 @@ pub(crate) fn check(word: &str, op: &str, v: &BundValue) -> Result<Fit, Error> {
             _ => Err(no(word, op, format!("{k} is {}", x.summary(WIDTH)))),
         }
     };
-    let _deviance = scalar("deviance")?;
+    let deviance = scalar("deviance")?;
     let dispersion = scalar("dispersion")?;
     let dv = get("df.residual")?;
     let df_residual = match dv.unboxed() {
@@ -225,7 +227,9 @@ pub(crate) fn check(word: &str, op: &str, v: &BundValue) -> Result<Fit, Error> {
         linear,
         y,
         weights,
+        offset,
         hat,
+        deviance,
         df_residual,
         dispersion,
         family,

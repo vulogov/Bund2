@@ -109,7 +109,7 @@ def lm(label, intercept, cols, weights, offset):
     return {"family": "gaussian", "link": "identity", "y": y, "w": w, "off": off,
             "mu": mu, "eta": mu, "beta": b, "cov": [[s2 * inv[a, c] for c in range(k)]
                                                     for a in range(k)],
-            "phi": s2, "df": df, "k": k,
+            "phi": s2, "df": df, "k": k, "dev": rss, "nd": tss,
             "hat": [w[r] * sum(rows[r][a] * inv[a, c] * rows[r][c]
                                for a in range(k) for c in range(k)) for r in range(n)]}
 
@@ -356,7 +356,7 @@ def glm(label, family, link, cols, y, w=None, off=None, intercept=True):
     show(f"{label} iterations", [it])
     show(f"{label} halvings", [halvings])
     return {"family": family, "link": link, "y": y, "w": w, "off": off, "mu": mu,
-            "eta": eta, "beta": beta, "phi": phi_, "df": df, "k": k,
+            "eta": eta, "beta": beta, "phi": phi_, "df": df, "k": k, "dev": dv, "nd": nd,
             "cov": [[phi_ * inv[a, c] for c in range(k)] for a in range(k)],
             "hat": [ww[r] * sum(rows[r][a] * inv[a, c] * rows[r][c]
                                 for a in range(k) for c in range(k)) for r in range(n)]}
@@ -526,3 +526,74 @@ predict("lm.weighted.w", LM_WEIGHTED, NEW_LM, ws=[2, 1, 3], prediction=True)
 # The zero group's upper end: exp of about 4.8e4, so the key is left out;
 # its lower end, through log's clamp, is eps.
 predict("glm.zero", ZERO, [[1, 1]])
+
+
+# model.compare and model.anova (RFC-0018 S7): R's stat.anova (anova.R:34-50).
+# A difference in deviance, taken as 0 when negative, over the larger
+# model's dispersion phi: LR is delta/phi on chi^2(df); F is
+# (delta/df)/phi on df and the larger model's residual df. A row of
+# model.anova is a model through one more term, the first the null model;
+# its tests take the full model's phi and residual df (glm.R:548-551).
+
+def chisq_upper(x, df):
+    return mpmath.gammainc(mpf(df) / 2, x / 2, mpmath.inf, regularized=True)
+
+
+def tested(test, delta, df, phi, df2):
+    delta = max(delta, mpf(0))
+    if delta == 0:
+        return delta, mpf(0), mpf(1)
+    if test == "F":
+        stat = (delta / df) / phi
+        return delta, stat, f_upper(stat, df, df2)
+    stat = delta / phi
+    return delta, stat, chisq_upper(stat, df)
+
+
+def compare(label, test, small, big):
+    df = small["df"] - big["df"]
+    phi = big["phi"] if big["family"] not in ("binomial", "poisson") else mpf(1)
+    d, st, p = tested(test, small["dev"] - big["dev"], df, phi, big["df"])
+    show(f"compare.{label} deviance", [d])
+    show(f"compare.{label} statistic", [st])
+    show(f"compare.{label} p", [p])
+
+
+def anova(label, test, null, n_null, fits):
+    full = fits[-1]
+    phi = full["phi"] if full["family"] not in ("binomial", "poisson") else mpf(1)
+    devs = [null] + [f["dev"] for f in fits]
+    dfs = [n_null] + [f["df"] for f in fits]
+    rows = [tested(test, devs[r - 1] - devs[r], dfs[r - 1] - dfs[r], phi, full["df"])
+            for r in range(1, len(devs))]
+    show(f"anova.{label} resid.deviance", devs)
+    show(f"anova.{label} deviance", [r[0] for r in rows])
+    show(f"anova.{label} statistic", [r[1] for r in rows])
+    show(f"anova.{label} p", [r[2] for r in rows])
+
+
+# Dobson without and with treatment: LR by default, and the frame.
+DOBSON_OUT = glm("glm.dobson.outcome", "poisson", "log", [OUT2, OUT3], COUNTS)
+compare("dobson", "LR", DOBSON_OUT, DOBSON)
+anova("dobson", "LR", DOBSON["nd"], 8, [DOBSON_OUT, DOBSON])
+# Without an intercept: the null model at linkinv(0) = 1, outcome coded
+# fully.
+OUT1 = [1, 0, 0, 1, 0, 0, 1, 0, 0]
+D0_OUT = glm("glm.dobson0.outcome", "poisson", "log", [OUT1, OUT2, OUT3], COUNTS,
+             intercept=False)
+D0 = glm("glm.dobson0", "poisson", "log", [OUT1, OUT2, OUT3, TR2, TR3], COUNTS,
+         intercept=False)
+NULL0 = sum(FAMILIES["poisson"][2](mpf(y), mpf(1), mpf(1)) for y in COUNTS)
+anova("dobson0", "LR", NULL0, 9, [D0_OUT, D0])
+
+# Gamma: the intercept-only model against x, F by default; and a design of
+# x then z, each row's F on the full model's phi and residual df.
+GAMMA_NULL = glm("glm.gamma.null", "gamma", "inverse", [], POS)
+compare("gamma", "F", GAMMA_NULL, GAMMA_INV)
+Z8 = [0, 1, 1, 0, 1, 0, 0, 1]
+GAMMA_XZ = glm("glm.gamma.xz", "gamma", "inverse", [X8, Z8], POS)
+anova("gamma", "F", GAMMA_XZ["nd"], 7, [GAMMA_INV, GAMMA_XZ])
+
+# Gaussian identity: fit.lm's least squares, dose then patient.
+LM_DOSE = lm("lm.dose", True, [DOSE], None, None)
+anova("lm", "F", LM_PLAIN["nd"], 6, [LM_DOSE, LM_PLAIN])

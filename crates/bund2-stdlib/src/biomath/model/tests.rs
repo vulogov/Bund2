@@ -163,6 +163,8 @@ fn every_word_is_registered_with_its_effect() {
     for w in WORDS {
         let e = i.registry.effect_of(w).unwrap_or_else(|| panic!("{w}"));
         let consumes: u8 = match w.trim_end_matches('.') {
+            "model.anova" => 2,
+            "model.compare" => 3,
             "model.matrix" => 4,
             "model.predict" => 3,
             "model.residuals" => 2,
@@ -1954,3 +1956,355 @@ fn m4_words_never_abort() {
         }
     }
 }
+
+// RFC-0018 criterion 6: comparison.
+
+fn compare(small: &BundValue, big: &BundValue, opts: BundValue) -> Result<BundValue, String> {
+    on(&[small.clone(), big.clone(), opts], "model.compare")
+}
+
+fn anova(d: &BundValue, opts: Vec<(&str, BundValue)>) -> Result<BundValue, String> {
+    on(&[d.clone(), map(opts)], "model.anova")
+}
+
+fn scalar(v: &BundValue, k: &str) -> f64 {
+    match get(v, k).unboxed() {
+        BundValue::Float(x, _) => *x,
+        other => panic!("{k} is {other:?}"),
+    }
+}
+
+/// A column of a frame.
+fn column(f: &BundValue, c: &str) -> Vec<BundValue> {
+    get(get(f, "data"), c).as_list().unwrap_or_default().to_vec()
+}
+
+/// A numeric column's cells after its first, which is NONE.
+fn after_none(f: &BundValue, c: &str) -> Vec<f64> {
+    let cells = column(f, c);
+    assert_eq!(cells.first().map(BundValue::dt), Some(bund2_value::NONE), "{c}");
+    crate::biomath::testkit::floats(&list(cells[1..].to_vec()))
+}
+
+fn dobson_outcome_design() -> BundValue {
+    glm_design(
+        &[18.0, 17.0, 15.0, 20.0, 10.0, 20.0, 25.0, 13.0, 12.0],
+        vec![
+            ("foutcome", strs(&["1", "2", "3", "1", "2", "3", "1", "2", "3"])),
+            ("ftreatment", strs(&["1", "1", "1", "2", "2", "2", "3", "3", "3"])),
+        ],
+        &["foutcome"],
+        vec![],
+    )
+}
+
+const Z8: [f64; 8] = [0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0];
+
+fn gamma_design(terms: &[&str], opts: Vec<(&str, BundValue)>) -> BundValue {
+    glm_design(&POS, vec![("x", xs(8)), ("z", fl(&Z8))], terms, opts)
+}
+
+fn mc_e101(op: &str, t: &str) -> String {
+    format!("MODEL.COMPARE: E101 {op} is outside model.compare's domain: {t}")
+}
+
+fn ma_e101(op: &str, t: &str) -> String {
+    format!("MODEL.ANOVA: E101 {op} is outside model.anova's domain: {t}")
+}
+
+fn shown(x: f64) -> String {
+    float(x).summary(crate::biomath::operand::WIDTH)
+}
+
+/// Criterion 6: Dobson's model without and with `treatment`, LR by
+/// default; the treatment adds nothing, so 0, 0 and 1.
+#[test]
+fn model_compare_dobson_is_lr() {
+    let small = fit_glm(&dobson_outcome_design(), "poisson", None).unwrap();
+    let big = fit_glm(&dobson_design(), "poisson", None).unwrap();
+    let r = compare(&small, &big, map(vec![])).unwrap();
+    assert_eq!(get(&r, "test").as_str().as_deref(), Some("LR"));
+    assert_eq!(get(&r, "df").as_int(), Some(2));
+    assert!(r.as_map().is_some_and(|m| !m.contains_key("df2")));
+    for k in ["deviance", "statistic", "p"] {
+        near_irls(k, &[scalar(&r, k)], &want("compare.dobson", k), k == "p");
+    }
+}
+
+/// Criterion 6: two Gamma fits, F by default on the larger model's
+/// residual df; LR when asked, scaled by its dispersion.
+#[test]
+fn model_compare_gamma_is_f() {
+    let small = fit_glm(&gamma_design(&[], vec![]), "gamma", None).unwrap();
+    let big = fit_glm(&gamma_design(&["x"], vec![]), "gamma", None).unwrap();
+    let r = compare(&small, &big, map(vec![])).unwrap();
+    assert_eq!(get(&r, "test").as_str().as_deref(), Some("F"));
+    assert_eq!(get(&r, "df").as_int(), Some(1));
+    assert_eq!(get(&r, "df2").as_int(), Some(6));
+    for k in ["deviance", "statistic", "p"] {
+        near_irls(k, &[scalar(&r, k)], &want("compare.gamma", k), k == "p");
+    }
+    let lr = compare(&small, &big, map(vec![("test", s("LR"))])).unwrap();
+    assert_eq!(get(&lr, "test").as_str().as_deref(), Some("LR"));
+    assert!(lr.as_map().is_some_and(|m| !m.contains_key("df2")));
+    let stat = scalar(&lr, "deviance") / scalar(&big, "dispersion");
+    assert_eq!(scalar(&lr, "statistic"), stat);
+    let p = crate::biomath::dist::Family::ChiSq { df: 1.0 }
+        .tails("t", stat)
+        .unwrap()
+        .1;
+    assert_eq!(scalar(&lr, "p"), p);
+}
+
+/// A `fit.lm` fit and a `fit.glm` Gaussian identity fit compare, and the
+/// F agrees with `model.anova`'s last row and with `fit.lm`'s own t².
+#[test]
+fn model_compare_takes_fit_lm_and_fit_glm() {
+    let small = fit_lm(&dose_design(&["dose"], vec![]));
+    let big_d = dose_design(&["dose", "patient"], vec![]);
+    let big = fit_lm(&big_d);
+    let big_glm = fit_glm(&big_d, "gaussian", None).unwrap();
+    let a = compare(&small, &big, map(vec![])).unwrap();
+    let b = compare(&small, &big_glm, map(vec![])).unwrap();
+    for k in ["deviance", "statistic", "p"] {
+        near(k, &[scalar(&a, k)], &[scalar(&b, k)]);
+    }
+    let f = anova(&big_d, vec![("family", s("gaussian"))]).unwrap();
+    near("statistic", &[scalar(&a, "statistic")], &after_none(&f, "statistic")[1..]);
+    let t = floats_of(get(&big, "t"))[2];
+    near("t²", &[scalar(&a, "statistic")], &[t * t]);
+}
+
+/// Criterion 6: `model.anova` of the Dobson design, and without its
+/// intercept.
+#[test]
+fn model_anova_dobson() {
+    let f = anova(&dobson_design(), vec![("family", s("poisson"))]).unwrap();
+    let terms: Vec<String> = column(&f, "term").iter().filter_map(BundValue::as_str).collect();
+    assert_eq!(terms, ["(intercept)", "foutcome", "ftreatment"]);
+    assert!(crate::biomath::frame::check::check("t", "frame", &f).is_ok());
+    assert_eq!(get(&f, "columns").display(), strs(&[
+        "term", "df", "deviance", "resid.df", "resid.deviance", "statistic", "p"
+    ]).display());
+    assert_eq!(ints_of(&list(column(&f, "resid.df"))), [8, 6, 4]);
+    assert_eq!(ints_of(&list(column(&f, "df")[1..].to_vec())), [2, 2]);
+    let rd = crate::biomath::testkit::floats(&list(column(&f, "resid.deviance")));
+    near_irls("resid.deviance", &rd, &want("anova.dobson", "resid.deviance"), false);
+    for k in ["deviance", "statistic", "p"] {
+        near_irls(k, &after_none(&f, k), &want("anova.dobson", k), k == "p");
+    }
+    // The first row's resid.deviance is fit.glm's null deviance.
+    let fit = fit_glm(&dobson_design(), "poisson", None).unwrap();
+    assert_eq!(rd[0], scalar(&fit, "null.deviance"));
+    assert_eq!(rd[2], scalar(&fit, "deviance"));
+
+    let no = dobson_design_without_intercept();
+    let f = anova(&no, vec![("family", s("poisson"))]).unwrap();
+    let terms: Vec<String> = column(&f, "term").iter().filter_map(BundValue::as_str).collect();
+    assert_eq!(terms, ["NULL", "foutcome", "ftreatment"]);
+    assert_eq!(ints_of(&list(column(&f, "resid.df"))), [9, 6, 4]);
+    assert_eq!(ints_of(&list(column(&f, "df")[1..].to_vec())), [3, 2]);
+    let rd = crate::biomath::testkit::floats(&list(column(&f, "resid.deviance")));
+    near_irls("resid.deviance", &rd, &want("anova.dobson0", "resid.deviance"), false);
+    for k in ["deviance", "statistic", "p"] {
+        near_irls(k, &after_none(&f, k), &want("anova.dobson0", k), k == "p");
+    }
+}
+
+fn dobson_design_without_intercept() -> BundValue {
+    glm_design(
+        &[18.0, 17.0, 15.0, 20.0, 10.0, 20.0, 25.0, 13.0, 12.0],
+        vec![
+            ("foutcome", strs(&["1", "2", "3", "1", "2", "3", "1", "2", "3"])),
+            ("ftreatment", strs(&["1", "1", "1", "2", "2", "2", "3", "3", "3"])),
+        ],
+        &["foutcome", "ftreatment"],
+        vec![("intercept", BundValue::boolean(false))],
+    )
+}
+
+/// Criterion 6: a Gamma design's F on the full model's dispersion and
+/// residual df; and a Gaussian identity design by least squares.
+#[test]
+fn model_anova_gamma_and_gaussian() {
+    let f = anova(&gamma_design(&["x", "z"], vec![]), vec![("family", s("gamma"))]).unwrap();
+    assert_eq!(ints_of(&list(column(&f, "resid.df"))), [7, 6, 5]);
+    let rd = crate::biomath::testkit::floats(&list(column(&f, "resid.deviance")));
+    near_irls("resid.deviance", &rd, &want("anova.gamma", "resid.deviance"), false);
+    for k in ["deviance", "statistic", "p"] {
+        near_irls(k, &after_none(&f, k), &want("anova.gamma", k), k == "p");
+    }
+    let full = fit_glm(&gamma_design(&["x", "z"], vec![]), "gamma", None).unwrap();
+    let st = after_none(&f, "statistic");
+    let dv = after_none(&f, "deviance");
+    assert_eq!(st[0], dv[0] / scalar(&full, "dispersion"));
+
+    let d = dose_design(&["dose", "patient"], vec![]);
+    let f = anova(&d, vec![("family", s("gaussian"))]).unwrap();
+    assert_eq!(ints_of(&list(column(&f, "resid.df"))), [6, 5, 4]);
+    let rd = crate::biomath::testkit::floats(&list(column(&f, "resid.deviance")));
+    near("resid.deviance", &rd, &want("anova.lm", "resid.deviance"));
+    for k in ["deviance", "statistic", "p"] {
+        near(k, &after_none(&f, k), &want("anova.lm", k));
+    }
+    let fit = fit_lm(&d);
+    assert_eq!(rd[0], scalar(&fit, "null.deviance"));
+    assert_eq!(rd[2], scalar(&fit, "deviance"));
+}
+
+/// Criterion 6: §S8's rows for the two words, with their texts.
+#[test]
+fn model_compare_and_anova_refusals() {
+    let gx = gamma_design(&["x"], vec![]);
+    let big = fit_glm(&gx, "gamma", None).unwrap();
+    let null = gamma_design(&[], vec![]);
+    let cases = [
+        (
+            fit_glm(&null, "gaussian", None).unwrap(),
+            "family is \"gaussian\", where big's is \"gamma\"".to_string(),
+        ),
+        (
+            fit_glm(&null, "gamma", Some("log")).unwrap(),
+            "link is \"log\", where big's is \"inverse\"".to_string(),
+        ),
+        (
+            with(&fit_glm(&null, "gamma", None).unwrap(), "y", fl(&[9.0, 3.4, 1.9, 5.6, 4.2, 6.8, 7.5, 3.3])),
+            format!("y row 1 is {}, where big's is {}", shown(9.0), shown(2.1)),
+        ),
+        (
+            with(&fit_glm(&null, "gamma", None).unwrap(), "weights", fl(&[2.0; 8])),
+            format!("weights row 1 is {}, where big's is {}", shown(2.0), shown(1.0)),
+        ),
+        (
+            with(&fit_glm(&null, "gamma", None).unwrap(), "offset", fl(&[0.5; 8])),
+            format!("offset row 1 is {}, where big's is {}", shown(0.5), shown(0.0)),
+        ),
+        (
+            fit_glm(&gamma_design(&["z"], vec![]), "gamma", None).unwrap(),
+            "names item 2, \"z\", is not among big's names".to_string(),
+        ),
+        (big.clone(), "has 2 columns, not fewer than big's 2".to_string()),
+        (
+            with(&fit_glm(&null, "gamma", None).unwrap(), "df.residual", int(6)),
+            "df.residual is 6, not above big's 6".to_string(),
+        ),
+    ];
+    for (small, text) in cases {
+        assert_eq!(compare(&small, &big, map(vec![])).unwrap_err(), mc_e101("small", &text));
+    }
+    let small = fit_glm(&null, "gamma", None).unwrap();
+    assert_eq!(
+        compare(&small, &with(&big, "dispersion", float(0.0)), map(vec![])).unwrap_err(),
+        mc_e101("big", &format!("dispersion is {}, not above 0", shown(0.0)))
+    );
+    // test: unknown, and F under a fixed dispersion.
+    assert_eq!(
+        compare(&small, &big, map(vec![("test", s("Chisq"))])).unwrap_err(),
+        mc_e101("opts", "test is \"Chisq\"")
+    );
+    let ps = fit_glm(&dobson_outcome_design(), "poisson", None).unwrap();
+    let pb = fit_glm(&dobson_design(), "poisson", None).unwrap();
+    let f_poisson = "test \"F\" needs an estimated dispersion, and the poisson family's is 1";
+    assert_eq!(
+        compare(&ps, &pb, map(vec![("test", s("F"))])).unwrap_err(),
+        mc_e101("opts", f_poisson)
+    );
+    assert_eq!(
+        anova(&dobson_design(), vec![("family", s("poisson")), ("test", s("F"))]).unwrap_err(),
+        ma_e101("opts", f_poisson)
+    );
+    // Deepest first: a malformed small before bad opts, small before big.
+    assert_eq!(
+        compare(&int(1), &int(2), int(3)).unwrap_err(),
+        mc_e101("small", "1")
+    );
+    assert_eq!(
+        compare(&small, &int(2), int(3)).unwrap_err(),
+        mc_e101("big", "2")
+    );
+    assert!(
+        anova(&int(1), vec![("family", s("nope"))])
+            .unwrap_err()
+            .starts_with("MODEL.ANOVA: E101 design is outside")
+    );
+    assert_eq!(
+        anova(&dobson_design(), vec![("weights", s("w"))]).unwrap_err(),
+        ma_e101("opts", "the key \"weights\", which this word does not take")
+    );
+    assert_eq!(
+        anova(&dobson_design(), vec![]).unwrap_err(),
+        ma_e101("opts", "family is required")
+    );
+    // The null model of no columns at linkinv(0), its deviance not finite.
+    let no = gamma_design(&["x"], vec![("intercept", BundValue::boolean(false))]);
+    assert_eq!(
+        anova(&no, vec![("family", s("gamma"))]).unwrap_err(),
+        "MODEL.ANOVA: E114 the answer overflows a FLOAT: the null model's deviance at \
+         linkinv(offset)"
+    );
+    // A row's refusal names the row: x alone steps out of μ > 0 first,
+    // where x and z converge.
+    let row = glm_design(
+        &[0.0, 0.0, 5.0, 5.0, 1.0, 1.0],
+        vec![("x", xs(6)), ("z", fl(&[0.0, 1.0, 0.0, 1.0, 0.0, 0.0]))],
+        &["x", "z"],
+        vec![],
+    );
+    assert!(fit_glm(&row, "poisson", Some("identity")).is_ok());
+    assert_eq!(
+        anova(&row, vec![("family", s("poisson")), ("link", s("identity"))]).unwrap_err(),
+        ma_e101(
+            "design",
+            "the first IRLS step leaves the poisson family's valid range, with no earlier \
+             coefficients to halve towards, fitting the model through term \"x\""
+        )
+    );
+    // A constant y under Gaussian identity: the perfect-fit refusal, not
+    // the constant one, which fit.lm gives. Three rows, so the RSS is
+    // exactly 0; at four it is a rounding's, and the table is answered,
+    // as fit.lm's perfect-fit test is on an exact 0 (§S3).
+    let constant = glm_design(&[1.0; 3], vec![("x", xs(3))], &[], vec![]);
+    assert_eq!(
+        anova(&constant, vec![("family", s("gaussian"))]).unwrap_err(),
+        ma_e101("design", "a perfect fit, its residual variance 0")
+    );
+    assert!(
+        on(&[constant.clone(), map(vec![])], "fit.lm")
+            .unwrap_err()
+            .contains("constant")
+    );
+}
+
+#[test]
+fn m5_words_never_abort() {
+    let ok = |e: &str| e.contains(": E1") || e.contains("too shallow");
+    let fit = fit_glm(&dobson_design(), "poisson", None).unwrap();
+    let values = [
+        fit.clone(),
+        with(&fit, "names", int(1)),
+        with(&fit, "dispersion", float(-1.0)),
+        dobson_design(),
+        map(vec![]),
+        map(vec![("test", int(1))]),
+        map(vec![("family", s("gamma"))]),
+        int(2),
+        none(),
+    ];
+    for a in &values {
+        for b in &values {
+            if let Err(e) = on(&[a.clone(), b.clone()], "model.anova") {
+                assert!(ok(&e), "model.anova: {e}");
+            }
+            if let Err(e) = run_on(std::slice::from_ref(a), Some(b), "model.anova.").map(|_| ()) {
+                assert!(ok(&e), "model.anova.: {e}");
+            }
+            for c in &values {
+                if let Err(e) = on(&[a.clone(), b.clone(), c.clone()], "model.compare") {
+                    assert!(ok(&e), "model.compare: {e}");
+                }
+            }
+        }
+    }
+}
+
+

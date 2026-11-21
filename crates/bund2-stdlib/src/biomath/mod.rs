@@ -97,9 +97,12 @@
 //! and `.factor.levels`. Its M3 adds §S6, in [`frame::csv`]:
 //! `frame.csv.parse`, `frame.csv.text` and `frame.text`.
 //!
-//! RFC-0018 adds models over frames. Its M1 adds §S2:
+//! RFC-0018 adds models over frames:
 //!
-//! - [`model`]: `model.matrix`, the design and its check.
+//! - [`model`]: `model.matrix`, the design and its check (§S2);
+//!   `model.residuals`, `model.influence` and `model.predict` (§S5, §S6);
+//!   `model.compare` and `model.anova` (§S7). `fit.lm` and `fit.glm` are
+//!   registered beside `fit.logistic` in [`fit`].
 
 pub mod align;
 pub mod describe;

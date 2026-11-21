@@ -8,7 +8,8 @@
 //! M3 adds §S4's `fit.glm` ([`glm`]): five families, R's links and IRLS.
 //! M4 adds §S5 and §S6: `model.residuals` and `model.influence`
 //! ([`resid`]) and `model.predict` ([`predict`]), over §S7's check of a
-//! fit ([`reading`]).
+//! fit ([`reading`]). M5 adds the rest of §S7: `model.compare` and
+//! `model.anova` ([`compare`]).
 //!
 //! **A design is a plain MAP** (§S2): `matrix`, a MATRIX of FLOATs, the
 //! intercept's column first; `names`; `assign`, each column's term; `y`,
@@ -21,6 +22,7 @@
 //! takes from the program is rendered by RFC-0017's `render`.
 
 pub(crate) mod code;
+pub(crate) mod compare;
 pub mod design;
 pub(crate) mod glm;
 pub(crate) mod lm;
@@ -41,6 +43,8 @@ pub fn register(r: &mut Registry) {
             crate::wb::bench!(r, $name, $f, $n, 0);
         };
     }
+    word!("model.anova", compare::model_anova, 2);
+    word!("model.compare", compare::model_compare, 3);
     word!("model.influence", resid::model_influence, 1);
     word!("model.matrix", code::model_matrix, 4);
     word!("model.predict", predict::model_predict, 3);
@@ -48,7 +52,11 @@ pub fn register(r: &mut Registry) {
 }
 
 /// The `model.` words with their forms.
-pub const WORDS: [&str; 8] = [
+pub const WORDS: [&str; 12] = [
+    "model.anova",
+    "model.anova.",
+    "model.compare",
+    "model.compare.",
     "model.influence",
     "model.influence.",
     "model.matrix",
