@@ -116,8 +116,10 @@ pub mod linalg;
 pub mod model;
 pub mod na;
 pub(crate) mod operand;
+pub mod optim;
 pub mod phylo;
 pub mod popgen;
+pub(crate) mod quadpack;
 pub mod refuse;
 pub mod rng;
 pub mod round;
@@ -147,6 +149,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     na::register(r);
     frame::register(r);
     model::register(r);
+    optim::register(r);
 }
 
 #[cfg(test)]

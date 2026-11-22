@@ -39,6 +39,11 @@
 //! of Bund2's own, since `statrs` has no family to check them; their tails
 //! and densities are `noncentral`'s series; their draws are by definition.
 //!
+//! **The studentized range** (RFC-0019 §S3), `tukey`, is Bund2's own too:
+//! `nmeans` an INTEGER from 2 to 10⁴ and `df` at least 2, else E104; its
+//! cdf, sf and quantile are `tukey`'s double integral by QUADPACK; its
+//! density, draws, mean and variance are E105, as R has none of them.
+//!
 //! **No NaN or ±∞ [B12].** A NaN or ±∞ operand is E101; a density, moment
 //! or draw that is not finite is E114; a quantile at an unbounded end of the
 //! support is E114 too.
@@ -56,6 +61,9 @@ use super::operand::{WIDTH, domain, finite, operands, real};
 use super::refuse::Refusal;
 use super::rng::with_rng;
 use super::special::{beta_both, eti, gamma_both, lgamma};
+
+/// The most means `dist.tukey` takes (RFC-0019 §S3), E104 above.
+const TUKEY_NMEANS: u64 = 10_000;
 
 /// The most draws one `dist.sample*` makes (§S7, D39).
 const DRAW_CAP: u64 = 100_000_000;
@@ -96,7 +104,7 @@ use Kind::{Count, Real, Reals};
 
 /// Each family, its parameters in the constructor's operand order, deepest
 /// first.
-const FAMILIES: [(&str, &[(&str, Kind)]); 20] = [
+const FAMILIES: [(&str, &[(&str, Kind)]); 21] = [
     ("normal", &[("mean", Real), ("sd", Real)]),
     ("lognormal", &[("meanlog", Real), ("sdlog", Real)]),
     ("uniform", &[("min", Real), ("max", Real)]),
@@ -121,6 +129,8 @@ const FAMILIES: [(&str, &[(&str, Kind)]); 20] = [
     ("nct", &[("df", Real), ("ncp", Real)]),
     ("ncchisq", &[("df", Real), ("ncp", Real)]),
     ("ncf", &[("df1", Real), ("df2", Real), ("ncp", Real)]),
+    // RFC-0019 §S3.
+    ("tukey", &[("nmeans", Count), ("df", Real)]),
 ];
 
 fn keys_of(name: &str) -> &'static [(&'static str, Kind)] {
@@ -171,6 +181,7 @@ pub(crate) enum Family {
     Nct { df: f64, ncp: f64 },
     NcChiSq { df: f64, ncp: f64 },
     NcF { df1: f64, df2: f64, ncp: f64 },
+    Tukey { nmeans: u64, df: f64 },
 }
 
 /// One draw's work, built once per `dist.sample*`.
@@ -294,6 +305,10 @@ impl Family {
                 df2: *df2,
                 ncp: *ncp,
             },
+            ("tukey", [P::Count(nmeans), P::Real(df)]) => Family::Tukey {
+                nmeans: *nmeans,
+                df: *df,
+            },
             _ => return None,
         })
     }
@@ -320,6 +335,7 @@ impl Family {
             Family::Nct { .. } => "nct",
             Family::NcChiSq { .. } => "ncchisq",
             Family::NcF { .. } => "ncf",
+            Family::Tukey { .. } => "tukey",
         }
     }
 
@@ -507,6 +523,25 @@ impl Family {
                     drawn(name, top / (below.sample(g) / df2))
                 })
             }
+            // RFC-0019 §S3: the check only; `sampler_of` refuses a draw
+            // before this closure is reached.
+            Family::Tukey { nmeans, df } => {
+                if nmeans < 2 {
+                    return Err(format!("nmeans is {nmeans}, below 2"));
+                }
+                if nmeans > TUKEY_NMEANS {
+                    return Err(format!("nmeans is {nmeans}, above {TUKEY_NMEANS}"));
+                }
+                if df < 2.0 {
+                    return Err(format!("df is {df}, below 2"));
+                }
+                Box::new(move |_| {
+                    Err(Refusal::Undefined {
+                        family: name.into(),
+                        operation: "sample".into(),
+                    })
+                })
+            }
         })
     }
 
@@ -636,6 +671,8 @@ impl Family {
                 .series_lpdf("dist.lpdf", x)
                 .and_then(Result::ok)
                 .unwrap_or(f64::NAN),
+            // No word answers it (§S3); the quantile's Newton steps ask it.
+            Family::Tukey { nmeans, df } => tukey::lpdf(nmeans, df, x),
         }
     }
 
@@ -804,6 +841,7 @@ impl Family {
                     noncentral::ncf_tails(word, df1, df2, ncp, x)?
                 }
             }
+            Family::Tukey { nmeans, df } => tukey::tails(nmeans, df, x),
         })
     }
 
@@ -827,6 +865,7 @@ impl Family {
             | Family::F { .. }
             | Family::NcChiSq { .. }
             | Family::NcF { .. }
+            | Family::Tukey { .. }
             | Family::Poisson { .. }
             | Family::Geometric { .. } => (0.0, INF),
             Family::NegBinomial { size, prob } => {
@@ -889,6 +928,7 @@ impl Family {
             Family::NcF { df1, df2, ncp } => {
                 (df1 + ncp) / df1 * if df2 > 2.0 { df2 / (df2 - 2.0) } else { 1.0 }
             }
+            Family::Tukey { nmeans, .. } => tukey::guess(nmeans, p),
             _ => return Err(self.undefined(word, "quantile")),
         };
         self.polish(word, p, guess, lo, hi)
@@ -1112,6 +1152,8 @@ impl Family {
                         / ((df2 - 2.0).powi(2) * (df2 - 4.0))
                 }),
             ),
+            // RFC-0019 §S3: R has neither, and neither does Bund2.
+            Family::Tukey { .. } => (None, None),
         }
     }
 
@@ -1396,6 +1438,10 @@ fn num(x: f64) -> String {
 
 /// `x d` to the density's logarithm, as the word asks it.
 fn ln_density(word: &str, x: &BundValue, f: &Family) -> Result<f64, Error> {
+    if let Family::Tukey { .. } = f {
+        let op = word.strip_prefix("dist.").unwrap_or(word);
+        return Err(f.undefined(word, op));
+    }
     if f.multivariate() {
         let xs = reals(word, "x", x)?;
         f.lpdf_at(word, &xs)
@@ -1495,6 +1541,9 @@ fn dist_var(vm: &mut dyn Vm) -> Result<(), Error> {
 }
 
 fn sampler_of(word: &str, f: &Family) -> Result<Draw, Error> {
+    if let Family::Tukey { .. } = f {
+        return Err(f.undefined(word, "sample"));
+    }
     f.sampler().map_err(|m| parameters(word, f.name(), m))
 }
 
@@ -1565,6 +1614,7 @@ pub fn register(r: &mut Registry) {
     family!("dist.nct", "nct", 2);
     family!("dist.ncchisq", "ncchisq", 2);
     family!("dist.ncf", "ncf", 3);
+    family!("dist.tukey", "tukey", 2);
     word!("dist.pdf", dist_pdf, 2);
     word!("dist.lpdf", dist_lpdf, 2);
     word!("dist.cdf", dist_cdf, 2);
@@ -1576,9 +1626,9 @@ pub fn register(r: &mut Registry) {
     word!("dist.sample*", dist_sample_n, 2);
 }
 
-/// §S7's words, and RFC-0019 §S2's three constructors after the
-/// seventeen; each also has its `.` form.
-pub const WORDS: [&str; 29] = [
+/// §S7's words, and RFC-0019 §S2's three constructors and §S3's
+/// `dist.tukey` after the seventeen; each also has its `.` form.
+pub const WORDS: [&str; 30] = [
     "dist.normal",
     "dist.lognormal",
     "dist.uniform",
@@ -1599,6 +1649,7 @@ pub const WORDS: [&str; 29] = [
     "dist.nct",
     "dist.ncchisq",
     "dist.ncf",
+    "dist.tukey",
     "dist.pdf",
     "dist.lpdf",
     "dist.cdf",
@@ -1611,6 +1662,7 @@ pub const WORDS: [&str; 29] = [
 ];
 
 mod noncentral;
+mod tukey;
 
 #[cfg(test)]
 mod tests;

@@ -1,0 +1,16 @@
+root cubic 1.2599210498948732
+root cos 7.3908513321516064e-1
+root yes 1.0e+1
+root upX.lower -4.0
+root upX.upper 1.0e+1
+root downX 7.0
+extend yes -0.001023 11.23 10
+extend upX.lower -4.194303000000001 1.0 22
+extend upX.upper 0.0 11.23 10
+extend downX 0.0 11.23 10
+integral polynomial 1.425e+1
+integral gaussian 1.772453850905516
+integral rsqrt 2.0
+integral peak 3.0939869151241494e+2
+integral exp.upper 1.0
+integral exp.lower 1.0

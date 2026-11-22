@@ -105,6 +105,32 @@ pub(super) fn call(
     }
 }
 
+/// `call`'s sibling for a lambda `x -- y` (RFC-0019 §S1): run `f` on the
+/// FLOAT `x` through the same bridge and read the one finite number it
+/// leaves on top, an INTEGER converting, or E112.
+pub(super) fn call1(vm: &mut dyn Vm, word: &str, f: &[BundValue], x: f64) -> Result<f64, Error> {
+    let left = crate::kb::bridge::ask(vm, f, BundValue::float(x))?;
+    let refuse = |left: String| {
+        Refusal::Model {
+            left,
+            expected: "one finite number".into(),
+        }
+        .error(word)
+    };
+    let Some(v) = left else {
+        return Err(refuse("nothing".into()));
+    };
+    let y = match v.unboxed() {
+        BundValue::Float(y, _) => Some(*y),
+        BundValue::Int(i, _) => Some(*i as f64),
+        _ => None,
+    };
+    match y {
+        Some(y) if y.is_finite() => Ok(y),
+        _ => Err(refuse(v.summary(WIDTH))),
+    }
+}
+
 fn state(word: &str, what: &str, y: &[f64]) -> Result<(), Error> {
     if y.iter().all(|x| x.is_finite()) {
         Ok(())

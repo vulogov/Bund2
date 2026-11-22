@@ -367,6 +367,20 @@ fn no_operand_aborts() {
             answer(&format!("{d} {w}"));
         }
     }
+    // RFC-0019 §S3's family, outside FAMILIES since it draws nothing: each
+    // word over the palette, the quantile over a few, its polish being
+    // a double integral per step.
+    for o in operands {
+        for w in ["dist.pdf", "dist.lpdf", "dist.cdf", "dist.sf"] {
+            answer(&format!("{o} {TUKEY} {w}"));
+        }
+    }
+    for o in ["float.NaN", "-0.1", "1.1", "0", "1", "0.5", "\"x\""] {
+        answer(&format!("{o} {TUKEY} dist.quantile"));
+    }
+    for w in ["dist.mean", "dist.var", "dist.sample"] {
+        answer(&format!("{TUKEY} {w}"));
+    }
     // Each constructor, its operands all one value.
     let arity = |w: &str| match w {
         "dist.hypergeometric" | "dist.ncf" => 3,
@@ -374,7 +388,7 @@ fn no_operand_aborts() {
         | "dist.bernoulli" | "dist.dirichlet" => 1,
         _ => 2,
     };
-    for w in &WORDS[..20] {
+    for w in &WORDS[..21] {
         for o in operands {
             answer(&format!(
                 "{} {w} 0.5 swap dist.cdf",
@@ -733,5 +747,101 @@ fn a_large_ncp_keeps_both_tails() {
         // beta's accuracy at a near 5 000, not to the bit.
         assert!((lo + hi - 1.0).abs() <= 1e-10, "{x}: {lo} + {hi}");
         assert!(lo > 0.0 && hi > 0.0, "{x}: {lo}, {hi}");
+    }
+}
+
+// RFC-0019 criterion 3: the studentized range.
+
+const TUKEY: &str = "3 10.0 dist.tukey";
+const TUKEY_FIXTURE: &str = include_str!("../fixtures/tukey.txt");
+
+/// The cdf and sf against mpmath's 50-digit double integral, k from 2 to
+/// 1000, df from 2 to 1000, and each tail's far end.
+#[test]
+fn the_studentized_range_against_the_fixture() {
+    let mut seen = 0;
+    for line in TUKEY_FIXTURE.lines() {
+        let (program, want) = line.rsplit_once(' ').unwrap();
+        within(program, one(program), want.parse().unwrap());
+        seen += 1;
+    }
+    assert_eq!(seen, 9 * 2);
+}
+
+#[test]
+fn a_tukey_quantile_inverts_its_cdf() {
+    for d in ["2 2.0 dist.tukey", TUKEY, "20 60.0 dist.tukey"] {
+        for p in [0.001, 0.5, 0.95, 0.999] {
+            let got = one(&format!("{p} {d} dist.quantile {d} dist.cdf"));
+            assert!((got - p).abs() <= 1e-12, "{d} at {p}: {got}");
+        }
+    }
+    assert_eq!(one(&format!("0.0 {TUKEY} dist.quantile")), 0.0);
+    assert_eq!(one(&format!("0.0 {TUKEY} dist.cdf")), 0.0);
+    assert_eq!(one(&format!("-1.0 {TUKEY} dist.sf")), 1.0);
+}
+
+#[test]
+fn a_tukey_map_reads_as_its_constructor() {
+    let m = run(TUKEY).unwrap().pull().unwrap();
+    assert_eq!(
+        m.display(),
+        run("dict \"dist\" \"tukey\" set \"nmeans\" 3 set \"df\" 10.0 set")
+            .unwrap()
+            .pull()
+            .unwrap()
+            .display()
+    );
+}
+
+#[test]
+fn each_tukey_refusal_is_its_template() {
+    for (src, want) in [
+        (
+            format!("1.0 {TUKEY} dist.pdf"),
+            "DIST.PDF: E105 tukey has no pdf",
+        ),
+        (
+            format!("1.0 {TUKEY} dist.lpdf"),
+            "DIST.LPDF: E105 tukey has no lpdf",
+        ),
+        (
+            format!("{TUKEY} dist.sample"),
+            "DIST.SAMPLE: E105 tukey has no sample",
+        ),
+        (
+            format!("{TUKEY} 0 dist.sample*"),
+            "DIST.SAMPLE*: E105 tukey has no sample",
+        ),
+        (
+            format!("{TUKEY} dist.mean"),
+            "DIST.MEAN: E105 tukey has no mean",
+        ),
+        (
+            format!("{TUKEY} dist.var"),
+            "DIST.VAR: E105 tukey has no variance",
+        ),
+        (
+            "3 1.5 dist.tukey".to_string(),
+            "DIST.TUKEY: E104 invalid tukey parameters: df is 1.5, below 2",
+        ),
+        (
+            "1 10.0 dist.tukey".to_string(),
+            "DIST.TUKEY: E104 invalid tukey parameters: nmeans is 1, below 2",
+        ),
+        (
+            "10001 10.0 dist.tukey".to_string(),
+            "DIST.TUKEY: E104 invalid tukey parameters: nmeans is 10001, above 10000",
+        ),
+        (
+            "3.0 10.0 dist.tukey".to_string(),
+            "DIST.TUKEY: E101 nmeans is outside dist.tukey's domain: 3.0",
+        ),
+        (
+            "1.0 dict \"dist\" \"tukey\" set \"nmeans\" 3 set \"df\" 1.0 set dist.cdf".to_string(),
+            "DIST.CDF: E104 invalid tukey parameters: df is 1, below 2",
+        ),
+    ] {
+        assert_eq!(err(&src), want, "{src}");
     }
 }
