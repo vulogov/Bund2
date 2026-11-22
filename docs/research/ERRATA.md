@@ -278,3 +278,29 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
   offset and spec, rather than "a design MATRIX" (`:111`). "Weights and
   offsets for every model word" (`:116`) holds for RFC-0018's words;
   `stat.lm` and `fit.logistic` take neither, unchanged under K15.
+
+- `07-statistical-research.md:149,155-160,171` -> narrowed and renamed
+  by RFC-0019, recorded here on 2026-11-22 at its acceptance (D266's N1,
+  N9 and N11, ruled A). Phases D and E (`:219-220`) are built as drawn:
+  the bootstrap and the jackknife, the permutation test, `optim`'s
+  minimisers, `fit.mle`, root finding and quadrature; the noncentral
+  distributions, power, the studentized range with Tukey's HSD, and the
+  further tests. Four places depart from §3.4–§3.6:
+  - §3.5's `stat.bootstrap` (`data statistic B -- MAP`, `:155`) is
+    `boot.sample` (`data statistic R opts -- MAP`), under N1's `boot.`
+    prefix. The replicate count is R, as `boot` names it, and the
+    interval types are asked for in `opts`. No name proposed is
+    `bootstrap` or begins with it, which keeps the reference's
+    `bootstrap` word apart;
+  - §3.5's permutation tests "for two samples and for a statistic over
+    a frame" (`:158-160`) are narrowed to two samples.
+    `stat.test.permutation` takes `a b statistic opts`; a test over a
+    frame is left to a later RFC;
+  - §3.6's "bounds by transformation" (`:171`) are not built (N11). The
+    minimisers are unconstrained, and a later RFC can add `lower` and
+    `upper` keys;
+  - §3.4's Dunnett test (`:149`) is not built (N9). Its multivariate t
+    cdf is Genz's randomised quasi-Monte Carlo in R's `multcomp`, so its
+    answer varies between runs.
+  MCMC, which §3.6 lists, is not a departure: research 07's own §4 puts
+  it in Phase H (`:223`).

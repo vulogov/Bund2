@@ -1,14 +1,30 @@
 # RFC-0019: Resampling, optimisation and power — the bootstrap, permutation tests, minimisers, maximum likelihood, noncentral distributions, power and further tests
 
-- Status: Draft. Its owner questions N1–N13 are D266, **RESOLVED
+- Status: **Accepted** (2026-11-22) by the repository owner ("accepting
+  RFC-0019"), after three reviews and their revisions
+  (`docs/rfc/reviews/RFC-0019-review-2026-11-21.md`, `-2026-11-22.md`
+  and `-2026-11-22-2.md`). Accepting means D266–D269 as ruled, with
+  their dated notes; S1–S13 as specified, each **[author]** choice
+  listed under §Open questions included; the milestones built in order,
+  each gated by its criteria and by criteria 1, 14 and 15; `boot.`,
+  `optim.`, `power.` and the other names as Bund2's own (D72), as
+  RFC-0015's to RFC-0018's families are; and research 07's departures
+  recorded in `docs/research/ERRATA.md`.
+- Its owner questions N1–N13 are D266, **RESOLVED
   2026-11-21** as recommended ("N1–N13: recomendations"); its five
   **[author]** choices are D267, **RESOLVED 2026-11-21** as written
   ("rule on the author choices: recommendations").
 - Revised 2026-11-21 after its first review
   (`docs/rfc/reviews/RFC-0019-review-2026-11-21.md`), answering B1, B2
-  and SF1–SF7 as the review recommended, on the owner's "answering B1,
+  and SF1–SF7 as recommended, on the owner's "answering B1,
   B2 and SF1–SF7: reccomendations" (D268). The review's notes N1–N8 and
   assumptions U1–U6 are not taken in this revision.
+- Revised again 2026-11-22 after the second and third reviews
+  (`docs/rfc/reviews/RFC-0019-review-2026-11-22.md` and `…-22-2.md`), on
+  the owner's "revise with recommendations" (D269): the second review's
+  SF1–SF6, the third's SF1–SF4, and every open note and assumption of
+  the three reviews. D268's note of 2026-11-22 records which of the first
+  revision's choices were the author's.
 - Drafted 2026-11-21 on the owner's "RFC-0019 for one of the statistics
   roadmap's next phases: D and E", in 0.57.0, after
   `docs/research/07-statistical-research.md` (§4, Phases D and E). D260's
@@ -22,7 +38,8 @@
   2026-11-21 on C8), D250 (B4, B5, B8, B10, B11, B12, B15), D251 (A7,
   A8), D21, D36, D37, D38, D39, D72, D252, **D266** (N1–N13, as
   recommended), **D267** (the [author] choices, as written) and
-  **D268** (the first review's fixes).
+  **D268** (the first review's fixes) and **D269** (the second and third
+  reviews' fixes).
 - Reference SHA: `reference/rust_multistackvm`
   4605832678d4792c2b8e0564b7757d5aee1539a4; `reference/Bund`
   21b40b0213a76f3f39bd6de0d2bdfdf0a53b0dca; `reference/rust_dynamic`
@@ -211,8 +228,18 @@ stated where it falls.
 
 - **Power** (`src/library/stats/R/power.R:19-66`, `:83-117`;
   `power.anova.test.R:19-45`). Each function solves for the one
-  parameter given as `NULL`, by `uniroot` over a stated interval with
-  `extendInt`. Power for the t test is the upper tail of the noncentral
+  parameter given as `NULL`, by `uniroot` over a stated interval:
+  - `power.t.test`: n over (2, 10⁷), sd over delta·(10⁻⁷, 10⁷), delta
+    over sd·(10⁻⁷, 10⁷), and `sig.level` over (10⁻¹⁰, 1 − 10⁻¹⁰), each
+    with `extendInt` (`power.R:53-64`);
+  - `power.prop.test`: n over (1, 10⁷), p1 over (0, p2), p2 over (p1, 1)
+    and `sig.level` as above, each with `extendInt` (`power.R:121-135`);
+  - `power.anova.test`: n over (2, 10⁵), `within.var` over
+    between.var·(10⁻⁷, 10⁷), `between.var` over within.var·(10⁻⁷, 10⁷)
+    and `sig.level` as above, **with no `extendInt`**
+    (`power.anova.test.R:45-55`).
+
+  Power for the t test is the upper tail of the noncentral
   t, with ν = (n − 1)·tsample and ncp = √(n/tsample)·δ/sd, at
   `qt(sig.level/tside, ν)`. `strict = FALSE` by default counts only that
   tail. The proportions' test uses the normal approximation. ANOVA's
@@ -220,16 +247,17 @@ stated where it falls.
 - **The noncentral t.** R's `pnt` is Lenth's AS 243 (`src/nmath/pnt.c:21`),
   which sums from the Poisson term 0 upward, its first weight
   ½·exp(−ncp²/2) (`pnt.c:100-101`). That weight underflows for a large
-  ncp, and R then warns and answers 0 (`:105-110`). R answers 0 outright
-  for one tail when ncp > 40 (`:75`), and its own comment calls the
-  result wrong for ncp > 100 (`:49`). So R is not a check beyond ncp ≈
-  38 to 40.
+  ncp, and R then warns and answers 0 for any t (`:105-110`), once
+  ncp exceeds about 37.62 (`:78-79`). Its own comment calls the result
+  wrong for ncp > 100 (`:49`). So R is not a check beyond ncp ≈ 38. (Its
+  quick 0 for the lower tail at t < 0 and ncp > 40, `:75`, is right: that
+  tail is below Φ(−40), under the smallest double.)
 - **The studentized range.** `ptukey` is Copenhaver and Holland's
   Gauss–Legendre quadrature (`src/nmath/ptukey.c:35`, `wprob`, `:45`).
   `qtukey` is a secant iteration that stops when two iterates differ by
   less than 10⁻⁴, at most 50 iterations (`qtukey.c:119-190`, `eps`,
   `maxiter` at `:122-123`). Both answer NaN with a warning for df < 2
-  (`ptukey.c:321`). So R's `qtukey`, and the intervals
+  (`ptukey.c:321`, `qtukey.c:136`). So R's `qtukey`, and the intervals
   `TukeyHSD` builds from it (`TukeyHSD.R:66-76`), are accurate to about
   four digits. Bund2's quantile is polished to 10⁻¹² (§S3).
 - **The rank tests** (`wilcox.test.R:23-24`, `:60-80`;
@@ -244,10 +272,12 @@ stated where it falls.
   Mantel–Haenszel common odds ratio (`mantelhaen.test.R:22`, `:66-112`).
   It stops on a table dimension below 2 (`:28`) and on a stratum whose
   counts sum below 2, "sample size in each stratum must be > 1"
-  (`:49-50`). Any dimension above 2 is the generalised I×J×K test.
+  (`:49-50`). A table that is not 2×2×K is the generalised I×J×K test
+  (`:57`, `:256`).
 - **Shapiro–Wilk refuses identical values**: "all 'x' values are
-  identical" (`shapiro.test.R:28`).
-- **Shapiro–Wilk** is Royston's AS R94 (`swilk.c:3-4`), for 3 ≤ n ≤ 5000
+  identical" (`shapiro.test.R:28`). A range below 10⁻¹⁰ is rescaled by
+  dividing x by it, "to avoid ifault=6" (`:29`).
+- **Shapiro–Wilk** is Royston's AS R94 (`swilk.c:5`, `:42`), for 3 ≤ n ≤ 5000
   (`shapiro.test.R:25`; `swilk.c:127`). Its W uses Royston's
   polynomial approximations to the coefficients, and its p uses his
   normalising transformation. Neither is fixed by a definition.
@@ -264,11 +294,18 @@ stated where it falls.
     when none is given.
   - At the cap R answers `convergence = 1` and does not stop.
 - **`uniroot`** is Brent's `zeroin`, `tol` ε^¼ ≈ 1.2·10⁻⁴, 1000
-  iterations (`nlm.R:55-60`).
+  iterations (`nlm.R:55-60`). Its `extendInt` is `"no"`, `"yes"`,
+  `"downX"` or `"upX"`. `"upX"` and `"downX"` say that f increases or
+  decreases through its root, not which end to move (`nlm.R:50-53`,
+  `:68-73`). An end moves by δ = 0.01·max(10⁻⁴, |end|), and δ doubles
+  each step (`:85`, `:111`, `:116-133`). `"yes"` moves both ends at once
+  and, where f is not finite, steps back and quarters δ (`:89-112`). The
+  steps count against `maxiter`, and R stops with "no sign change found
+  in %d iterations" (`:93-95`).
 - **`integrate`** is QUADPACK's `dqags`, the 21-point Gauss–Kronrod rule
   with Wynn's ε-algorithm, and `dqagi`, 15-point on a transformed range,
   on an infinite one, with
-  `rel.tol` ε^¼ and 100 subdivisions (`integrate.R:19-35`;
+  `rel.tol` ε^¼ and 100 subdivisions (`integrate.R:19-35`, `:49`;
   `integrate.c:57`, `rdqk21`).
 - **The bootstrap** (`boot` 1.3-32, `R/bootfuns.q`):
   - Percentile, basic and BCa intervals take order statistics
@@ -278,9 +315,16 @@ stated where it falls.
     is a = ΣL³/(6(ΣL²)^1.5), from the empirical influence values L
     (`:1205-1213`).
   - **By default `empinf` estimates L by regression when R ≥ n, and by
-    the jackknife only when R < n** (`:1638-1650`). This is the one
+    the jackknife only when R < n** (`:1646-1653`, the test at `:1651`).
+    That is the default path: an ordinary bootstrap of an index statistic
+    (`boot`'s `stype` `"i"`), with no `t` passed, as `boot.ci` passes
+    none (`:891`, `:953-955`). A weighted statistic (`stype` `"w"`) gets
+    the infinitesimal jackknife instead (`:1647`). This is the one
     algorithmic choice in the bootstrap that a definition does not fix
     (N4).
+  - The normal interval is `norm.ci`'s: bias = mean(t*) − t₀, se² =
+    `var(t*)` on R − 1, and t₀ − bias ∓ z·se (`:1080-1117`, `:1107`,
+    `:1112-1115`).
 
 ## Design
 
@@ -308,8 +352,21 @@ stated where it falls.
   its cap is E110 (N6, as `fit.nls`). A lambda that leaves the wrong
   thing is E112, as `call` refuses one. A work cap reached is E111
   before the work (D39).
+- **Every E101 is `Refusal::Domain`**, rendered `<operand> is outside
+  <word>'s domain: <value>` (`refuse.rs`, `Refusal::text`). "E101 naming
+  the key" (or the group, the stratum, the operand) puts that name in
+  `<operand>`, and its value, or the reason when no one value is at
+  fault, in `<value>`: for example `f is outside optim.root's domain:
+  the same sign at lower and upper`. No new E101 text is added.
+- **E110 outside an iteration** reads as its template: a failed search
+  for a sign change is `the search for a sign change did not converge
+  within <maxiter> iterations`.
 - **Lambdas** are run by `dynamics.rs`'s `call`, or a sibling of it
-  reading one FLOAT, on the scratch stack. A word that calls a lambda is
+  reading one FLOAT, on the scratch stack. The sibling lives in
+  `dynamics.rs` beside `call` and reaches the VM only through
+  `kb::bridge::ask`, as `call` does, so the re-entry audits need no new
+  name (§S13). It refuses as `call` does: E112, `the model lambda left
+  <x>, where one finite number was required`. A word that calls a lambda is
   opaque, with the plain form only (B10). One that also takes a named
   statistic (§S8, D260 C7) is opaque whichever it is given, since its
   effect is declared once.
@@ -327,7 +384,10 @@ stated where it falls.
   included, refuses a NONE value as a value of the wrong type, E101
   naming the key, as RFC-0016 §S1 does. This NONE is not D252's missing
   value: it marks a parameter, not a cell, and no data operand is read
-  with it, so no `na` option applies.
+  with it, so no `na` option applies. A program writes it with
+  RFC-0017's `na` (`-- x`), for example `dict "sd" na set`. `power.`
+  reads its options with a reader of its own, in its module; RFC-0016's
+  reader is unchanged and keeps refusing NONE.
 - **Names.** §S2 to §S12 list every name. Each fixed word has its `.`
   form; each opaque word has none.
 
@@ -351,9 +411,17 @@ existing MAP changes meaning.
 - **Every existing distribution word takes them:** `dist.pdf`,
   `dist.lpdf`, `dist.cdf`, `dist.sf`, `dist.quantile`, `dist.sample`,
   `dist.sample*`, `dist.mean` and `dist.var`.
-- **Computation.** Each tail is a Poisson-weighted mixture: of central
-  χ² tails for `ncchisq`, and of incomplete-beta tails for `ncf` and
-  `nct`. The series is Bund2's own, for all three: it starts at the
+- **Computation.** Each tail is a mixture with Poisson weights: of
+  central χ² tails for `ncchisq`, of incomplete-beta tails for `ncf`, and
+  for `nct`, two interleaved series. For t ≥ 0, with x = t²/(t² + ν),
+  z = δ²/2, pⱼ = e^(−z)zʲ/j! and qⱼ = δ·e^(−z)zʲ/(√2·Γ(j + 3/2)):
+  - P(T ≤ t) = Φ(−δ) + ½Σⱼ[pⱼ·I_x(j + ½, ν/2) + qⱼ·I_x(j + 1, ν/2)];
+  - P(T > t) = ½Σⱼ[pⱼ·I_{1−x}(ν/2, j + ½) + qⱼ·I_{1−x}(ν/2, j + 1)],
+    summed directly, since Σpⱼ = 1 and Σqⱼ = 2Φ(δ) − 1 make the two add
+    to 1;
+  - for t < 0, P(T ≤ t; ν, δ) = P(T ≥ −t; ν, −δ).
+
+  The series is Bund2's own, for all three families: it starts at the
   Poisson mode and sums outward until the remaining weight is below
   10⁻¹⁵ of the sum, so a large ncp does not underflow its first term.
   For `nct` this is not R's AS 243, which sums from term 0 and fails
@@ -403,9 +471,9 @@ E101, naming the parameters that are missing.
 | Word | Parameters (keys) | Power is |
 |---|---|---|
 | `power.t` | `n`, `delta`, `sd` (1.0), `sig.level` (0.05), `power`; `type` `"two.sample"` (default), `"one.sample"`, `"paired"`; `sides` 2 (default) or 1; `strict` (false) | R's `power.t.test` body, the noncentral t upper tail |
-| `power.prop` | `n`, `p1`, `p2`, `sig.level`, `power`; `sides`; `strict` | R's `power.prop.test` body, normal |
-| `power.anova` | `groups`, `n`, `between.var`, `within.var`, `sig.level`, `power` | R's `power.anova.test` body, the noncentral F upper tail |
-| `power.chisq` | `w`, `n`, `df`, `sig.level`, `power` | the noncentral χ² upper tail at λ = n·w² above the central (1 − α) quantile on df (Cohen's w) |
+| `power.prop` | `n`, `p1`, `p2`, `sig.level` (0.05), `power`; `sides` 2 (default) or 1; `strict` (false) | R's `power.prop.test` body, normal |
+| `power.anova` | `groups`, `n`, `between.var`, `within.var`, `sig.level` (0.05), `power` | R's `power.anova.test` body, the noncentral F upper tail |
+| `power.chisq` | `w`, `n`, `df`, `sig.level` (0.05), `power` | the noncentral χ² upper tail at λ = n·w² above the central (1 − α) quantile on df (Cohen's w) |
 
 - **`sides`** is an INTEGER, 1 or 2, else E101. It is R's
   `alternative` (`"one.sided"`, `"two.sided"`, `power.R:22`, `:35`), a
@@ -415,21 +483,41 @@ E101, naming the parameters that are missing.
   (`power.R:36`), and for `power.prop` takes |p1 − p2| either way
   (`:113`). The answer MAP holds `sides`; an `alternative` key is E101,
   a key the word does not take.
-- **Defaults.** A key with a default above is never the one solved for
+- **Defaults** are those in brackets above, which are R's
+  (`power.R:20-22`, `:84-85`; `power.anova.test.R:21`). Every other key
+  has none. A key with a default above is never the one solved for
   unless the program sets it explicitly to NONE (§S1). That is the one way
   to leave out `sd` or `sig.level`, since a missing key takes its default.
-- **Solving** uses §S6's Brent root finder, over R's intervals and with
-  R's interval extension (`extendInt`, §What R does). The tolerance is
-  10⁻¹⁰ relative, not R's ε^¼ (N7). `n` is answered as a FLOAT, as R
-  answers it; a program rounds it up itself.
+- **Solving** uses §S6's `optim.root`, with R's intervals and R's
+  extension rule as §S6 ports it (§What R does):
+  - `power.t`: R's intervals and `extendInt`, as `power.R:53-64`.
+  - `power.prop`: n and `sig.level` as `power.R:121-135`. p1 over
+    (0, p2) and p2 over (p1, 1), **without extension**, since R's
+    `"yes"` can leave (0, 1). A solved p1 is below p2 and a solved p2
+    above p1, as R's are, though |p1 − p2| makes the mirror a root too.
+  - `power.anova`: R's intervals, without extension, as R
+    (`power.anova.test.R:45-55`).
+  - `power.chisq`, Bund2's own: n over (1, 10⁷) with `"upX"`, w over
+    (10⁻⁷, 10⁷) with `"upX"`, and `sig.level` over (10⁻¹⁰, 1 − 10⁻¹⁰)
+    with `"upX"`. **`df` cannot be solved for**: it is an INTEGER ≥ 1
+    with no default, and leaving it out is E101 naming `df`.
+  - An interval that is empty is E101 naming the key that empties it:
+    solving `sd` with `delta` 0, `within.var` with `between.var` 0, or
+    `between.var` with `within.var` 0.
+  - No root is E110, as §S1's search for a sign change, or as
+    `the power equation's root` when Brent's method reaches its cap.
+
+  The tolerance is 10⁻¹⁰ relative, not R's ε^¼ (N7). `n` is answered as
+  a FLOAT, as R answers it; a program rounds it up itself.
 - **Domains:**
   - `sig.level` and `power` must be in (0, 1);
-  - `n` must be ≥ 2, and `groups` ≥ 2;
+  - a given `n` must be ≥ 2 for `power.t` and `power.anova`, and ≥ 1 for
+    `power.prop` and `power.chisq`, the lower ends of R's (and §S4's)
+    intervals; `groups` must be ≥ 2;
   - `sd`, `within.var` and `w` must be > 0;
   - p1 and p2 must be in (0, 1);
   - each out-of-domain value is E101 naming the key;
-  - no root in the extended interval is E110, method `the power
-    equation's root`.
+  - no root is E110, as under Solving.
 - **Forms.** Fixed, `opts -- MAP`, each with a `.` form taking `opts`
   from the workbench.
 
@@ -474,7 +562,9 @@ form takes the top operand from the workbench.
 - **Shapiro–Wilk** ports `swilk.c`'s arithmetic. Its reference values
   are R's (criterion 6, D260 C4 option D; N10). A sample whose values
   are all identical is E101 naming `x`, as R refuses it
-  (`shapiro.test.R:28`), since W's denominator is 0.
+  (`shapiro.test.R:28`), since W's denominator is 0. A range below
+  10⁻¹⁰ is rescaled first, as R rescales it (`:29`), so that the port
+  answers what R answers there.
 - **The one-sample KS test** is exact by the Marsaglia–Tsang–Wang
   matrix power, as R's `pkolmogorov_two_exact` cites it
   (`src/library/stats/src/ks.c:403-422`), when n < 100 with no ties, and otherwise Kolmogorov's
@@ -484,8 +574,9 @@ form takes the top operand from the workbench.
   - A stratum whose counts sum below 2 is E101 naming the stratum, as R
     stops on it (`mantelhaen.test.R:49-50`).
   - A stratum that is not a 2×2 MATRIX is E101 naming the stratum. R
-    takes any dimension ≥ 2 (`:28`) as the generalised I×J×K test,
-    which this RFC does not add.
+    refuses a dimension below 2 (`:28`), and takes a table that is not
+    2×2×K as the generalised I×J×K test (`:57`, `:256`), which this RFC
+    does not add.
 
 ### S6. Roots and quadrature
 
@@ -499,11 +590,17 @@ form takes the top operand from the workbench.
 - **`optim.root`** is Brent's method as `zeroin`. `opts` takes:
   - `tol`, absolute, default 10⁻¹²·max(1, |lower|, |upper|) (N7);
   - `maxiter`, default 1000;
-  - `extend`, `"no"` (default), `"yes"`, `"up"` or `"down"`, R's
-    `extendInt`, doubling the interval at most 60 times.
+  - `extend`, R's `extendInt` ported (§What R does): `"no"` (default),
+    `"yes"`, `"downX"` or `"upX"`, with R's meanings. Each end moves by
+    δ = 0.01·max(10⁻⁴, |end|), δ doubling each step. The steps count
+    against `maxiter`, as R's do. Under `"yes"`, R steps back from a
+    non-finite f; here f is a lambda, and a non-finite f is E112 (B12).
 
   f(lower) and f(upper) of the same sign with `extend` `"no"` is E101,
-  `f has the same sign at both ends`. A cap reached is E110.
+  `f is outside optim.root's domain: the same sign at lower and upper`.
+  An extension that finds no sign change within `maxiter` steps is E110,
+  `the search for a sign change did not converge within <maxiter>
+  iterations`. Brent's method at `maxiter` is E110, method `optim.root`.
 - **`optim.integrate`** is QUADPACK's QAGS: the 21-point Gauss–Kronrod
   rule, bisection of the worst subinterval, and Wynn's ε-algorithm.
   `opts` takes:
@@ -511,7 +608,8 @@ form takes the top operand from the workbench.
   - `abs.tol`, default `rel.tol`;
   - `subdivisions`, default 100.
 
-  **An infinite end** is the STRING `"inf"` or `"-inf"` (N8). It is
+  **An infinite end** is the STRING `"inf"` or `"-inf"` (N8). Any other
+  STRING at either end is E101 naming the end. It is
   QUADPACK's QAGI: the range is mapped to (0, 1] by x = bound ±
   (1 − t)/t, and QAGI's 15-point Kronrod rule is used
   (`integrate.c:1633-1643`, `rdqk15i`). When the subdivisions
@@ -529,7 +627,11 @@ always answers the same INTEGER within a Bund2 version, so a study of
 many VMs reproduces from one seed (D260 C6, option C). `vm.spawn` is
 unchanged. Plain only (a producer).
 
-`StdRng` is a cryptographic generator, so its successive outputs are
+Each `rng.derive` advances the parent's stream by one `u64`. A program
+that wants the parent's own draws unchanged by how many children it
+seeds derives every child seed first.
+
+**Assumed:** `rand` 0.8's `StdRng` is ChaCha12. `StdRng` is a cryptographic generator, so its successive outputs are
 independent for this purpose. That `seed_from_u64` of successive outputs
 gives streams that do not overlap in practice rests on `rand`'s
 documentation and is [UNGROUNDED] (Q66).
@@ -545,11 +647,17 @@ documentation and is [UNGROUNDED] (Q66).
   (RFC-0017), resampled by row (N12).
 - **statistic** is a LAMBDA, `resample -- FLOAT`, or one of the named
   statistics (D260 C7; N5). The names are `"mean"`, `"median"`, `"sd"`
-  and `"var"` over a LIST of numbers, each computed by the named
-  `stat.` word's own function, so a named statistic's replicates equal
-  the lambda's to the bit.
+  and `"var"` over a LIST of numbers. Each is the function behind
+  `stat.mean`, `stat.median`, `stat.sd` and `stat.var` (`describe.rs`;
+  `stat.sd` and `stat.var` divide by n − 1), so a named statistic's
+  replicates equal a lambda calling that word to the bit. A name with a
+  frame as data is E101 naming `statistic`.
 - **Resampling** draws from the VM's generator: each replicate is n
-  `gen_range(0..n)` draws, as `rng.choice.replace` draws (`sample.rs`).
+  `gen_range(0..n)` draws, as `rng.choice.replace` draws (`sample.rs`),
+  replicate by replicate: all n draws of the first, then its statistic,
+  then the second. A frame is resampled by `Frame::rows` of the drawn
+  indices (`frame/check.rs`), which keeps its columns' order and its
+  levels.
   After the same `rng.seed`, `boot.sample` repeats exactly.
 - **R** is an INTEGER ≥ 2. R·n above 10⁸ is E111 before any draw (D39).
 - **`opts`:**
@@ -561,13 +669,17 @@ documentation and is [UNGROUNDED] (Q66).
     `norm.inter`'s interpolation on the normal-quantile scale, its
     end-point rules, and `bca.ci`'s bias correction w and adjusted
     levels.
-  - `"normal"` is t₀ − bias ∓ z·se.
+  - `"normal"` is `norm.ci`'s t₀ − bias ∓ z·se, z = Φ⁻¹((1 + conf)/2).
+- **`bias` and `se`** are `boot`'s: bias = mean(t*) − t₀, and se the
+  standard deviation of the replicates on R − 1 (§What R does).
   - **The arithmetic is one crate-internal function** of t₀, the
     replicates, the jackknife values, `conf` and the types, which
     `boot.sample` calls once its replicates are drawn. It draws nothing,
     so criterion 10 checks it on a committed replicate vector.
   - **BCa's acceleration is the jackknife's** by N4's option A:
-    a = Σ(t̄₍.₎ − t₍ᵢ₎)³ / (6(Σ(t̄₍.₎ − t₍ᵢ₎)²)^1.5). This costs n
+    a = Σ(t̄₍.₎ − t₍ᵢ₎)³ / (6(Σ(t̄₍.₎ − t₍ᵢ₎)²)^1.5). The values are
+    `boot.jackknife`'s, by the same function, computed only when `"bca"`
+    is asked for, and then answered as `jack`. This costs n
     more statistic calls. It equals `boot`'s default only when R < n
     (§What R does).
   - A w or a that is not finite (every replicate on one side of t₀, or
@@ -582,9 +694,9 @@ documentation and is [UNGROUNDED] (Q66).
 
 `stat.test.permutation` (`a b statistic opts -- MAP`) tests whether two
 samples come from one distribution:
-- the statistic is a LAMBDA `a b -- FLOAT`, or a name: `"mean.diff"`
-  (the default when the operand is NONE), `"median.diff"`, or `"t"`,
-  Welch's t;
+- the statistic is a LAMBDA `a b -- FLOAT`, or a name: `"mean.diff"`,
+  `"median.diff"`, or `"t"`, Welch's t. It has no default: NONE is E101
+  naming `statistic`, as D252 has numeric operands refuse NONE;
 - **exact** when C(n + m, n) ≤ 10⁶: every split is enumerated in
   lexicographic order, and p is the share of splits as or more extreme;
 - **Monte Carlo** otherwise, or when `opts` says so: B shuffles, B = 9999
@@ -609,8 +721,9 @@ samples come from one distribution:
   one finite number, else E112. x0 is a LIST of k ≥ 1 finite numbers.
 - **Bund2's own** (N3, option A), as Levenberg–Marquardt is (D250 B8):
   - **Nelder–Mead:** R's coefficients α = 1, β = ½, γ = 2; R's initial
-    simplex, each vertex stepped by 0.1·max|x0ᵢ| (0.1 when that is 0)
-    (`appl/optim.c:316-318`); stopped when the simplex's highest value
+    simplex, each vertex stepped by 0.1·max|x0ᵢ| (0.1 when that is 0),
+    one step size for every coordinate, the largest over all of them
+    (`appl/optim.c:313-318`); stopped when the simplex's highest value
     is within `reltol`·(|f(x0)| + `reltol`) of its lowest, f(x0)
     computed once at the start, as R's `convtol` is (`appl/optim.c:302`,
     `:367`); `reltol` = √ε by default; at most 500 iterations.
@@ -646,7 +759,14 @@ LAMBDA (`par -- FLOAT`, par a LIST) from `start`:
   template `the Hessian of -loglik at par is not positive definite:
   pivot <j> is <v>`. j is the 1-based Cholesky pivot that is not
   positive, and v its value. The code stays E106; only the text is new.
-  The standard errors do not exist there;
+  The standard errors do not exist there. A pivot counts as not
+  positive when it is ≤ 10⁻⁸ times the largest diagonal entry, so that a
+  flat direction, whose central-difference pivot is rounding, is
+  refused rather than answered with a huge `se`;
+- **cost:** a profile end is a root-find whose every step re-optimises
+  the other k − 1 parameters. `fit.mle` counts its lambda calls and
+  refuses at 10⁷ with E111, as the ODE words count steps (`dynamics.rs`,
+  `STEP_CAP`);
 - B12: a non-finite `se` is E114;
 - opaque, plain only. It joins `fit.rs`'s `WORDS`, as `fit.lm` and
   `fit.glm` did, so that `fit/tests.rs`'s registration test counts it.
@@ -664,7 +784,8 @@ LAMBDA (`par -- FLOAT`, par a LIST) from `start`:
   the one-way fit, the standard error √(MSE/2·(1/nᵢ + 1/nⱼ)), p from
   §S3's sf, and the interval from §S3's quantile. `pair` names the
   groups by their 1-based positions, `"2-1"`, as R orders them.
-  `opts` takes `conf`.
+  `opts` takes `conf`. N − k < 2 is E101 naming `groups`, before §S3's
+  E104 can be reached.
 - **d's interval** inverts the noncentral t on nₐ + n_b − 2 df at the
   observed pooled t = d·√(nₐn_b/(nₐ + n_b)), with α = 1 − `conf`, each
   ncp by §S6's root finder:
@@ -673,7 +794,9 @@ LAMBDA (`par -- FLOAT`, par a LIST) from `start`:
   - the upper end's ncp δ_U leaves the lower tail α/2 at t:
     P(T ≤ t; δ_U) = α/2;
   - each end for d is δ·√(1/nₐ + 1/n_b), the ncp mapped back to d's
-    scale.
+    scale;
+  - each root is searched from (t − 1, t + 1): with `extend` `"upX"` for
+    δ_L, whose tail increases in δ, and `"downX"` for δ_U.
 - All fixed, plain and `.`.
 
 ### S13. The tiers, the audits and the generated files
@@ -701,7 +824,22 @@ Each milestone states its additions against the audit's own selection.
   with an exclusion in that test, as RFC-0016 did;
 - `fit.mle` joins `fit.rs`'s `WORDS`;
 - `boot.`, `optim.` and `power.` are modules of their own, each with a
-  counting test.
+  counting test;
+- `stat.effect.cohend.opts` joins `effect.rs`'s `WORDS`, so that
+  `describe/tests.rs`'s `every_word_and_form_is_registered`, which
+  requires every `stat.` name outside `stat.count*` and `stat.mean*` to
+  be listed or excluded, counts it;
+- `refuse.rs`'s `every_code_renders_its_template` gains a case for
+  §S11's E106 variant.
+
+**The re-entry audits** (`lib.rs`,
+`every_native_that_changes_the_current_stack_is_named` and
+`every_reentering_function_is_named`) scan source for stack switching
+and evaluation. Every new lambda word reaches the VM only through
+`dynamics.rs`'s `call`, its one-FLOAT sibling beside it, and
+`kb::bridge::ask`, which the audits already cover. A word that called
+`ask` or `scoped_call` itself would fail the scan until named, so none
+does.
 
 ## Preservation analysis
 
@@ -715,8 +853,10 @@ Each milestone states its additions against the audit's own selection.
 | The reference's `bootstrap` (`bund_load.rs:197`, `:203`) | **Preserved exactly:** no name proposed is `bootstrap` or begins with it |
 | A program that defines one of the new names itself | **Preserved:** a program's word is found before a native (cited above) |
 | A program that asks whether one of the new names exists (`?stdlib`, `?word`) | **Changed by design:** the answer becomes true. No such program is known |
-| Registration counting tests (`dist/tests.rs`, `every_word_is_registered_with_its_dot_form`; `infer`'s; `fit/tests.rs`) | **Amended deliberately**, each milestone stating its additions (§S13) |
-| RFC-0015 §S11's refusals, their codes and texts | **Preserved exactly.** `refuse.rs` gains one E106 variant with a new text (§S11); no existing variant's text changes |
+| Registration counting tests (`dist/tests.rs`, `every_word_is_registered_with_its_dot_form`; `infer`'s; `fit/tests.rs`; `describe/tests.rs`, `every_word_and_form_is_registered`) | **Amended deliberately**, each milestone stating its additions (§S13) |
+| RFC-0015 §S11's refusals, their codes and texts | **Preserved exactly.** `refuse.rs` gains one E106 variant with a new text (§S11), and `every_code_renders_its_template` a case for it; no existing variant's text changes |
+| RFC-0016 §S1's options reader, which refuses NONE | **Preserved exactly:** `power.` reads NONE with its own reader (§S1) |
+| The re-entry audits, `every_native_that_changes_the_current_stack_is_named` and `every_reentering_function_is_named` | **Preserved exactly:** no new function calls `ask`, `eval_lambda`, `apply` or `scoped_call` except through `call` and its sibling (§S13) |
 | `UNVARIED` | **Extended** by §S13's names, each with its reason |
 | `PROMOTABLE.txt`, `bund2 effects`, `docs/arity.md` | **Regenerated**, existing name lines not moving |
 | `conform` 143/159, CEILING 143/159; IMPLEMENTED 597/602, COVERAGE 577/602 | **Preserved exactly** (D72): no reference word is touched |
@@ -753,6 +893,10 @@ Each milestone states its additions against the audit's own selection.
   one-sided bodies have no direction for proportions (|p1 − p2|,
   `power.R:113`), so `"less"` would need a meaning of Bund2's own.
   `sides` keeps R's bodies as they are.
+- **Bund2's own `extend` rule for `optim.root`** (D269). Doubling the
+  interval is simpler, but the power words solve with R's intervals, and
+  near their ends the answer depends on the extension rule. Porting R's
+  keeps those answers R's.
 - **Dunnett's test** (N9). It needs the multivariate t's cdf, which R's
   `multcomp` computes by Genz's randomised quasi-Monte Carlo. Its answer
   varies between runs and depends on the algorithm. Left out.
@@ -799,6 +943,8 @@ criterion says otherwise, and a p below 10⁻⁶ is compared absolutely at
      the fixture is written; Q67].
    - Each answer matches the fixture's definition-based value at 10⁻⁹.
    - Each solved parameter, put back, gives the stated power to 10⁻⁹.
+   - Leaving out `df` in `power.chisq`, and each empty interval, gives
+     its E101 text.
 5. **Rank and table tests.**
    - The signed-rank test is exact against the fixture's enumeration,
      and the normal path matches the fixture's formula.
@@ -809,7 +955,8 @@ criterion says otherwise, and a p below 10⁻⁶ is compared absolutely at
    - Shapiro–Wilk's W and p match R's `shapiro.test`, at the version its
      output records (≥ 4.4), on the inputs
      of a committed script (`fixtures/shapiro.R`), with R's version in
-     its output, at 10⁻⁹ (N10). Identical values are E101.
+     its output, at 10⁻⁹ (N10). Identical values are E101. One input has
+     a range below 10⁻¹⁰, so that the rescale is checked.
    - The one-sample KS test's exact p matches the fixture's
      Marsaglia–Tsang–Wang value, and the asymptotic p Kolmogorov's limit.
    - Bartlett's and Levene's tests match the fixture's formulas.
@@ -827,8 +974,12 @@ criterion says otherwise, and a p below 10⁻⁶ is compared absolutely at
    - `optim.integrate` matches closed-form integrals to 10⁻¹⁰ relative:
      a polynomial, e^(−x²) over (−inf, inf), 1/√x on (0, 1], a
      peaked function.
-   - Each refusal (same sign, the cap, f not finite, f not a lambda)
-     gives its text.
+   - Each refusal (same sign, no sign change found by `extend`, the cap,
+     f not finite, f not a lambda, a STRING end other than `"inf"` and
+     `"-inf"`) gives its text.
+   - An extension under each of `"yes"`, `"upX"` and `"downX"` reaches
+     the end that R's rule reaches, which the fixture computes by the
+     same steps.
 9. **`rng.derive`.** After `42 rng.seed`, three `rng.derive` calls answer
    the same three INTEGERs every run. A VM seeded with each of them
    repeats its own stream.
@@ -838,11 +989,14 @@ criterion says otherwise, and a p below 10⁻⁶ is compared absolutely at
       statistic, to the bit.
     - The interval function (§S8) matches the fixture on a committed
       replicate vector and jackknife vector: `fixtures/boot.py` applies
-      `norm.inter`, `basic.ci`, `perc.ci` and `bca.ci`'s formulas, with
+      `norm.ci`, `norm.inter`, `basic.ci`, `perc.ci` and `bca.ci`'s formulas, with
       the jackknife's acceleration, at 50 digits, and the test runs the
       function on the same vectors.
+    - `boot.sample`'s `bias` and `se` match the fixture's on the same
+      vector.
     - `boot.sample`'s intervals equal that function applied to its own
-      `t`, `t0` and jackknife values, to the bit.
+      `t`, `t0` and `jack`, to the bit, and its `jack` equals
+      `boot.jackknife`'s `values` for the same data and statistic.
     - A named statistic's replicates equal the lambda's.
     - `boot.jackknife` matches the fixture's leave-one-out values.
 11. **Permutation.**
@@ -860,7 +1014,10 @@ criterion says otherwise, and a p below 10⁻⁶ is compared absolutely at
     - `fit.mle`'s profile interval for an exponential rate matches the
       fixture's χ² inversion to 10⁻⁶.
     - The caps give E110, and a likelihood whose Hessian is indefinite at
-      `par` gives §S11's E106 text.
+      `par` gives §S11's E106 text. The input is ℓ(a, b) = −(a − 1)²
+      from (0, 0). It does not depend on b, so every difference in b is
+      exactly 0: BFGS converges to a = 1, and the text is `pivot 2 is
+      0`.
 13. **Example.** `bund_examples/inference/` plans a sample size, tests,
     resamples and fits by maximum likelihood, prints `expected.txt`, and
     a test in `crates/bund2-cli/tests` compares the two, as

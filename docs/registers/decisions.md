@@ -18078,3 +18078,53 @@ What the ruling fixes:
 
 - **RFC-0019's text** changes as the table says; nothing else in it does.
 - **The review's notes N1–N8 and assumptions U1–U6** are not ruled here.
+
+**Dated note, 2026-11-22 (the second review's SF6).** "Ruling every fix
+as the review recommended" overstates what the review did. For SF4,
+SF6 and SF7, the first review offered options and recommended none:
+- df ≥ 2 for `dist.tukey`;
+- an E106 variant for the indefinite Hessian;
+- the `sides` key.
+
+Those three were the author's choices, ruled under the owner's
+"reccomendations" as D267's were. The table above stands as the ruling.
+RFC-0019's status line is corrected to match (D269).
+
+## D269 — RFC-0019's second and third reviews: the fixes, and every open note
+
+**Raised 2026-11-22** by `docs/rfc/reviews/RFC-0019-review-2026-11-22.md`
+(SF1–SF6, N1–N8, U1–U3) and `…-22-2.md` (SF1–SF4, N1–N4), with the
+first review's notes N1–N8 and assumptions U1–U5 still open. Where a
+finding offered a choice, the author's recommendation was taken.
+
+- Blocks: RFC-0019's acceptance
+- Depends on: D266, D267, D268, D252
+- Status: **RESOLVED** by the repository owner, 2026-11-22: "revise with
+  recommendations".
+
+| | Choice | Ruled |
+|---|---|---|
+| 1 | `optim.root`'s `extend` (third review SF2) | R's `extendInt` ported: `"no"`, `"yes"`, `"downX"`, `"upX"` with R's meanings, δ = 0.01·max(10⁻⁴, \|end\|) doubling, steps counted against `maxiter`; a non-finite lambda value during extension is E112, where R steps back |
+| 2 | The power solves (third review SF1, N2, N3) | R's intervals per word; `power.anova` without extension, as R; `power.prop`'s p1 and p2 without extension, inside (0, 1); `power.chisq`'s own intervals, `df` not solvable; an empty interval E101 naming the key that empties it |
+| 3 | A given `n`'s domain (third review SF1) | ≥ 2 for `power.t` and `power.anova`, ≥ 1 for `power.prop` and `power.chisq` |
+| 4 | E101 and E110 texts (second review SF3, N6) | every E101 is `Refusal::Domain`'s template, with no new E101 text; a failed search for a sign change is E110 `the search for a sign change did not converge within <maxiter> iterations` |
+| 5 | The power defaults (second review SF4) | R's: `sig.level` 0.05 for all four; `sides` 2 and `strict` false for `power.t` and `power.prop`; `sd` 1 and `type` `"two.sample"` for `power.t` |
+| 6 | `boot.sample` (second review SF5, U3) | `boot`'s `bias` and `se` on R − 1; the normal interval is `norm.ci`'s, in the fixture; the jackknife only when `"bca"` is asked for, by `boot.jackknife`'s function, answered as `jack` |
+| 7 | An indefinite Hessian (second review N3) | a pivot ≤ 10⁻⁸ times the largest diagonal counts as not positive; criterion 12's input is ℓ(a, b) = −(a − 1)² |
+| 8 | `fit.mle`'s cost (first review N8) | lambda calls counted, E111 at 10⁷ |
+| 9 | `stat.test.permutation`'s statistic (first review N4) | no default; NONE is E101 |
+| 10 | `stat.test.tukey` with N − k < 2 (second review N7) | E101 naming `groups` |
+| 11 | Shapiro–Wilk's tiny range (second review N2) | rescaled as R rescales (`shapiro.test.R:29`) |
+
+The rest are citations corrected or behaviour stated without a choice:
+- the second review's SF1, SF2 and N1, N4, N5;
+- the third review's SF3, SF4 and N1;
+- the first review's N1–N3, N5–N7, U1–U5 and its Preservation note.
+
+RFC-0019 records each in its text.
+
+What the ruling fixes:
+
+- **Nothing in RFC-0019 is open** except its acceptance, and the ERRATA
+  entry that acceptance writes: `boot.sample`'s name, the permutation
+  test narrowed to two samples, no bounds, no Dunnett.
