@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 522 promotable of 531 reached, of 826 fixed-effect natives; 9 reached natives
+# 528 promotable of 537 reached, of 832 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -169,6 +169,12 @@ dist.lognormal
 dist.lognormal.
 dist.multinomial
 dist.multinomial.
+dist.ncchisq
+dist.ncchisq.
+dist.ncf
+dist.ncf.
+dist.nct
+dist.nct.
 dist.normal
 dist.normal.
 dist.poisson
