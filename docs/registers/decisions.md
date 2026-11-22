@@ -17670,6 +17670,13 @@ What the rulings fix, for the RFCs that follow:
 - **One RFC per phase.** Phase C is next by the order of work; D and E
   do not depend on C3 and may go first if the owner prefers.
 
+**Note, 2026-11-21: C8 changed for Phases D and E** by the repository
+owner. Asked for "RFC-0019 for one of the statistics roadmap's next
+phases: D and E", and shown that this reverses C8's option A, the owner
+chose "One RFC, amend D260": Phases D and E are one RFC, RFC-0019, in
+0.57.0. That is C8's option C for these two phases. Option A still
+stands for Phases F, G and H, which this note does not rule.
+
 ## D261 — RFC-0018's owner questions K1–K16: models over frames
 
 **Raised 2026-11-19** by `docs/rfc/RFC-0018-models.md` (§Open
@@ -17941,3 +17948,113 @@ What the ruling fixes:
   choices are unchanged.
 - **RFC-0018's text does not change** except its status lines.
 - **Nothing in RFC-0018 is open** except its acceptance.
+
+## D266 — RFC-0019's owner questions N1–N13: resampling, optimisation, power and further tests
+
+**Raised 2026-11-21** by `docs/rfc/RFC-0019-resampling-optimisation-power.md`
+(§Open questions), drafted on the owner's "RFC-0019 for one of the
+statistics roadmap's next phases: D and E" for research 07's Phases D
+and E (D260's note of 2026-11-21). Ruled before the RFC's first review.
+Findings that bear on the rulings:
+
+- **Q61 is answered.** `argmin` 0.10.0 is in the lock through
+  `augurs-forecaster`, but `argmin-math` 0.4.0 is compiled with
+  `primitives` and `num-complex_0_4` only, and implements Nelder–Mead's
+  and BFGS's arithmetic for `Vec<f64>` only under `vec`
+  (`argmin-math-0.4.0/src/lib.rs:213-214`). No solver builds from the
+  lock as compiled (N3).
+- **`dist.rs`'s `decode` ignores keys it does not list**, so a MAP
+  holding an `ncp` key reads today as the central family (N2).
+- **`boot` 1.3-32's BCa acceleration** comes from regression influence
+  values when R ≥ n and from the jackknife below that
+  (`R/bootfuns.q:1638-1650`); only the jackknife's is fixed by a
+  definition (N4).
+- **R's `qtukey` stops at 10⁻⁴** (R 4.4.2's `src/nmath/qtukey.c:122`),
+  and its `uniroot` and `integrate` default to ε^¼ (`nlm.R:60`,
+  `integrate.R:20`) (N7).
+- **The reference's `bootstrap`** is its world loader
+  (`reference/Bund/src/stdlib/functions/bund/bund_load.rs:197`, `:203`),
+  which N1's `boot.` prefix avoids.
+
+- Blocks: RFC-0019's acceptance
+- Depends on: D260 (C4, C5, C6, C7, and its note on C8), D250 (B8, B10,
+  B11, B12), D251 (A8), D39, D72
+- Status: **RESOLVED** by the repository owner, 2026-11-21, ruling all
+  thirteen as recommended: "N1–N13: recomendations".
+
+| | Question | Options | Ruled |
+|---|---|---|---|
+| **N1** | Names | **A** `boot.` for resampling; `optim.` for minimising, roots, quadrature and the Hessian; `power.` for power; `dist.`, `stat.test.`, `stat.effect.`, `rng.`, `fit.` as now. **B** as A, with `num.root`, `num.integrate`, `num.hessian`. **C** everything under `stat.` | **A** |
+| **N2** | Noncentral distributions | **A** new families `nct`, `ncchisq`, `ncf`, each with a constructor. **B** an optional `ncp` key on `t`, `chisq`, `f` | **A** |
+| **N3** | Minimisers | **A** Bund2's own Nelder–Mead and BFGS. **B** `argmin`, enabling `argmin-math`'s `vec` feature | **A** |
+| **N4** | BCa's acceleration | **A** the jackknife's. **B** `boot`'s default, regression when R ≥ n | **A** |
+| **N5** | Named statistics | **A** `"mean"`, `"median"`, `"sd"`, `"var"` for `boot.`; `"mean.diff"`, `"median.diff"`, `"t"` for permutation. **B** lambdas only | **A** |
+| **N6** | A method at its cap | **A** E110. **B** answer with `converged` false | **A** |
+| **N7** | Default tolerances | **A** Bund2's tight ones. **B** R's ε^¼ | **A** |
+| **N8** | An infinite end in `optim.integrate` | **A** the STRINGs `"inf"` and `"-inf"`. **B** none | **A** |
+| **N9** | Dunnett's test | **A** left out. **B** included, with an R fixture | **A** |
+| **N10** | R for Shapiro–Wilk's fixture | **A** CRAN's R 4.4.2, script and output committed. **B** any R ≥ 4.4, version recorded. **C** no R, Royston's published examples only | **A** |
+| **N11** | Bounds in the minimisers | **A** none. **B** `lower` and `upper` by transformation | **A** |
+| **N12** | What `boot.` resamples | **A** a LIST by element, or a frame by row. **B** a LIST only | **A** |
+| **N13** | `fit.mle`'s profile intervals | **A** with `profile` true, off by default. **B** always. **C** none | **A** |
+
+What the rulings fix:
+
+- **RFC-0019 is written against these options already.** No text
+  changes with the ruling except its status lines.
+- **Its five [author] choices** (§Open questions) were not part of this
+  ruling and remain to be ruled.
+- **N10 puts a setup step on the owner's machine** before M5: CRAN's R
+  4.4.2, from which `fixtures/shapiro.R`'s output is committed with R's
+  version in it.
+
+## D267 — RFC-0019's [author] choices
+
+**Raised 2026-11-21** by `docs/rfc/RFC-0019-resampling-optimisation-power.md`
+(§Open questions), whose five **[author]** choices D266 did not rule.
+
+- Blocks: RFC-0019's acceptance
+- Depends on: D266
+- Status: **RESOLVED** by the repository owner, 2026-11-21, ruling the
+  five choices as written: "rule on the author choices: recommendations".
+
+| | Choice | Ruled, as written |
+|---|---|---|
+| 1 | `exact` true with ties or zeros in the signed-rank test (§S5) | E101, where R falls back to the normal approximation with a warning |
+| 2 | `dist.tukey`'s operations (§S3) | cdf, sf and quantile only; density, draws and moments E105, as R has none |
+| 3 | `stat.test.tukey`'s `pair` (§S12) | the groups' 1-based positions, `"2-1"`, in R's order |
+| 4 | The exact permutation test's cap (§S9) | C(n + m, n) ≤ 10⁶ splits enumerated; above it, Monte Carlo |
+| 5 | `power.`'s solved `n` (§S4) | a FLOAT, as R answers it; a program rounds it up |
+
+What the ruling fixes:
+
+- **RFC-0019's text does not change** except its status lines.
+- **Nothing in RFC-0019 is open** except its acceptance.
+
+## D268 — RFC-0019's first review: the fixes to B1, B2 and SF1–SF7
+
+**Raised 2026-11-21** by `docs/rfc/reviews/RFC-0019-review-2026-11-21.md`,
+which found 2 blocking and 7 should-fix defects in RFC-0019's Draft.
+Five of the fixes offered a choice.
+
+- Blocks: RFC-0019's acceptance
+- Depends on: D266, D267, D252, D260 (C4)
+- Status: **RESOLVED** by the repository owner, 2026-11-21, ruling every
+  fix as the review recommended: "answering B1, B2 and SF1–SF7:
+  reccomendations".
+
+| | Finding | Ruled |
+|---|---|---|
+| B1 | Cohen's d interval's scale | each end is δ·√(1/nₐ + 1/n_b); the lower end's ncp leaves the upper tail α/2 at the observed t, the upper end's the lower tail |
+| B2 | Criterion 10's interval check | a crate-internal interval function, checked against `fixtures/boot.py`'s 50-digit values on a committed replicate vector; `boot.sample`'s intervals equal that function on its own replicates |
+| SF1, SF2 | Citations | corrected: `bootfuns.q:1205-1213`, `:1206`, `:1212`; `stat.count` to `count.rs:52-55`; the 513 named as literal registrations |
+| SF3 | The noncentral t's series | Bund2's own mode-outward series, not AS 243; the 50-digit fixture is the only check beyond ncp ≈ 40 |
+| SF4 | `dist.tukey`'s df | df ≥ 2, as R (`ptukey.c:321`); df < 2 is E104 |
+| SF5 | Unstated rules | CMH: a stratum summing below 2, or not 2×2, is E101 naming it; Nelder–Mead's tolerance uses |f(x0)|; identical values in Shapiro–Wilk are E101 |
+| SF6 | An indefinite Hessian in `fit.mle` | E106 by a new variant with the template `the Hessian of -loglik at par is not positive definite: pivot <j> is <v>` |
+| SF7 | `power.`'s sidedness and NONE | a `sides` key, 1 or 2, for R's `alternative`; NONE as an option value is a stated rule for `power.` only, distinct from D252's missing value |
+
+What the ruling fixes:
+
+- **RFC-0019's text** changes as the table says; nothing else in it does.
+- **The review's notes N1–N8 and assumptions U1–U6** are not ruled here.
