@@ -1,4 +1,5 @@
-//! RFC-0015 criteria 2, 3, 5, 6, 10 and 11, for §S7 and §S8.
+//! RFC-0015 criteria 2, 3, 5, 6, 10 and 11, for §S7 and §S8; RFC-0019
+//! criteria 1, 2 and 14 for §S2's noncentral families.
 
 use bund2_api::Vm as _;
 use bund2_value::BundValue;
@@ -9,7 +10,7 @@ use crate::biomath::testkit::{close, err, floats, run, top};
 const FIXTURE: &str = include_str!("../fixtures/dist.txt");
 
 /// Each family with parameters it accepts, as a program that pushes it.
-const FAMILIES: [&str; 17] = [
+const FAMILIES: [&str; 20] = [
     "1.0 2.0 dist.normal",
     "0.5 0.75 dist.lognormal",
     "-1.0 3.0 dist.uniform",
@@ -27,6 +28,10 @@ const FAMILIES: [&str; 17] = [
     "0.3 dist.bernoulli",
     "6 0.2 list + 0.3 swap + 0.5 swap + dist.multinomial",
     "2.0 list + 3.0 swap + 4.0 swap + dist.dirichlet",
+    // RFC-0019 §S2.
+    "5.5 1.5 dist.nct",
+    "4.5 2.5 dist.ncchisq",
+    "4.0 7.5 3.0 dist.ncf",
 ];
 
 const CONTINUOUS: usize = 9;
@@ -364,12 +369,12 @@ fn no_operand_aborts() {
     }
     // Each constructor, its operands all one value.
     let arity = |w: &str| match w {
-        "dist.hypergeometric" => 3,
+        "dist.hypergeometric" | "dist.ncf" => 3,
         "dist.exponential" | "dist.chisq" | "dist.t" | "dist.poisson" | "dist.geometric"
         | "dist.bernoulli" | "dist.dirichlet" => 1,
         _ => 2,
     };
-    for w in &WORDS[..17] {
+    for w in &WORDS[..20] {
         for o in operands {
             answer(&format!(
                 "{} {w} 0.5 swap dist.cdf",
@@ -522,4 +527,211 @@ fn rng_uniform_draws_from_the_unit_interval() {
         stack("9 rng.seed rng.uniform"),
         stack("9 . rng.seed. rng.uniform")
     );
+}
+
+// RFC-0019 §S2: the noncentral t, χ² and F.
+
+const NONCENTRAL: &str = include_str!("../fixtures/noncentral.txt");
+
+/// RFC-0019's tolerance: |a − b| ≤ 10⁻⁹|b| + 10⁻¹².
+fn within(what: &str, got: f64, want: f64) {
+    assert!(
+        (got - want).abs() <= 1e-9 * want.abs() + 1e-12,
+        "{what}: {got:e} against {want:e}"
+    );
+}
+
+/// Criterion 2: pdf, cdf, sf, quantile, mean and variance against mpmath's
+/// closed forms and quadratures, over a grid with ncp 0, ncp 100 and a
+/// negative ncp for the t.
+#[test]
+fn each_noncentral_family_against_the_fixture() {
+    let mut seen = 0;
+    for line in NONCENTRAL.lines() {
+        let (program, want) = line.rsplit_once(' ').unwrap();
+        within(program, one(program), want.parse().unwrap());
+        seen += 1;
+    }
+    assert_eq!(seen, 11 * 14);
+}
+
+#[test]
+fn a_noncentral_quantile_inverts_its_cdf() {
+    for d in &FAMILIES[17..] {
+        for p in [1e-6, 0.001, 0.3, 0.5, 0.999, 1.0 - 1e-6] {
+            let got = one(&format!("{p} {d} dist.quantile {d} dist.cdf"));
+            assert!((got - p).abs() <= 1e-12, "{d} at {p}: {got}");
+        }
+    }
+}
+
+/// At ncp = 0 each family is its central one, within the tolerance and not
+/// to the bit (§S2).
+#[test]
+fn at_ncp_zero_each_is_its_central_family() {
+    for (nc, central, xs) in [
+        (
+            "7.0 0.0 dist.nct",
+            "7.0 dist.t",
+            [-3.0, -0.5, 0.0, 1.5, 6.0],
+        ),
+        (
+            "3.5 0.0 dist.ncchisq",
+            "3.5 dist.chisq",
+            [0.1, 1.0, 3.0, 9.0, 30.0],
+        ),
+        (
+            "4.0 9.0 0.0 dist.ncf",
+            "4.0 9.0 dist.f",
+            [0.05, 0.5, 1.0, 3.0, 20.0],
+        ),
+    ] {
+        for x in xs {
+            for w in ["dist.pdf", "dist.cdf", "dist.sf"] {
+                let what = format!("{x} {nc} {w}");
+                within(&what, one(&what), one(&format!("{x} {central} {w}")));
+            }
+        }
+        for p in [0.01, 0.5, 0.99] {
+            let what = format!("{p} {nc} dist.quantile");
+            within(
+                &what,
+                one(&what),
+                one(&format!("{p} {central} dist.quantile")),
+            );
+        }
+        for w in ["dist.mean", "dist.var"] {
+            let what = format!("{nc} {w}");
+            within(&what, one(&what), one(&format!("{central} {w}")));
+        }
+    }
+}
+
+/// The closed-form moments at parameters the fixture does not hold.
+#[test]
+fn the_noncentral_moments_are_their_closed_forms() {
+    // nct, df 6, ncp 2: E[T] = δ√(ν/2)·Γ((ν−1)/2)/Γ(ν/2) = 2√3·Γ(5/2)/Γ(3),
+    // Γ(5/2) = 3√π/4, so 3√(3π)/4; Var = ν(1 + δ²)/(ν − 2) − E[T]².
+    let mean = 3.0 * (3.0 * std::f64::consts::PI).sqrt() / 4.0;
+    within("nct mean", one("6.0 2.0 dist.nct dist.mean"), mean);
+    within(
+        "nct var",
+        one("6.0 2.0 dist.nct dist.var"),
+        7.5 - mean * mean,
+    );
+    within("ncchisq mean", one("3.0 4.0 dist.ncchisq dist.mean"), 7.0);
+    within("ncchisq var", one("3.0 4.0 dist.ncchisq dist.var"), 22.0);
+    // ncf, 3, 10, 2: 10·5/(3·8); 2·(10/3)²·(25 + 7·8)/(64·6).
+    within(
+        "ncf mean",
+        one("3.0 10.0 2.0 dist.ncf dist.mean"),
+        50.0 / 24.0,
+    );
+    within(
+        "ncf var",
+        one("3.0 10.0 2.0 dist.ncf dist.var"),
+        2.0 * (100.0 / 9.0) * 81.0 / 384.0,
+    );
+}
+
+/// 10⁵ seeded draws have a sample mean within four standard errors.
+#[test]
+fn each_noncentral_sampler_draws_its_family() {
+    for d in [
+        "5.5 1.5 dist.nct",
+        "10.0 -2.0 dist.nct",
+        "4.5 2.5 dist.ncchisq",
+        "3.0 100.0 dist.ncchisq",
+        "4.0 7.5 3.0 dist.ncf",
+        "5.0 12.0 100.0 dist.ncf",
+    ] {
+        let xs = draws(&format!("19 rng.seed {d} 100000 dist.sample*"));
+        let n = xs.len() as f64;
+        let mean = xs.iter().sum::<f64>() / n;
+        let (mu, var) = (
+            one(&format!("{d} dist.mean")),
+            one(&format!("{d} dist.var")),
+        );
+        assert!(
+            (mean - mu).abs() <= 4.0 * (var / n).sqrt(),
+            "{d}: {mean} against {mu}"
+        );
+    }
+}
+
+#[test]
+fn each_noncentral_refusal_is_its_template() {
+    for (src, want) in [
+        (
+            "0.0 1.0 dist.nct",
+            "DIST.NCT: E104 invalid nct parameters: df is 0, not above 0",
+        ),
+        (
+            "3.0 -1.0 dist.ncchisq",
+            "DIST.NCCHISQ: E104 invalid ncchisq parameters: ncp is -1, below 0",
+        ),
+        (
+            "3.0 -2.0 1.0 dist.ncf",
+            "DIST.NCF: E104 invalid ncf parameters: df2 is -2, not above 0",
+        ),
+        (
+            "0.5 dict \"dist\" \"ncf\" set \"df1\" 3.0 set \"df2\" 5.0 set dist.cdf",
+            "DIST.CDF: E104 invalid ncf parameters: ncp is missing",
+        ),
+        (
+            "2.0 1.0 dist.nct dist.var",
+            "DIST.VAR: E105 nct with df = 2 has no variance",
+        ),
+        (
+            "1.0 1.0 dist.nct dist.mean",
+            "DIST.MEAN: E105 nct with df = 1 has no mean",
+        ),
+        (
+            "3.0 4.0 1.0 dist.ncf dist.var",
+            "DIST.VAR: E105 ncf with df2 = 4 has no variance",
+        ),
+        (
+            "5.0 3.0 10000000000000.0 dist.ncchisq dist.cdf",
+            "DIST.CDF: E111 a noncentral series' terms exceeds its cap of 1000000",
+        ),
+        (
+            "1.0 5.0 10000000.0 dist.nct dist.pdf",
+            "DIST.PDF: E111 a noncentral series' terms exceeds its cap of 1000000",
+        ),
+        (
+            "float.NaN 3.0 dist.nct",
+            "DIST.NCT: E101 df is outside dist.nct's domain: NaN",
+        ),
+        (
+            "1 5.0 1.0 dist.nct dist.quantile",
+            "DIST.QUANTILE: E114 the answer overflows a FLOAT: the nct quantile at 1",
+        ),
+    ] {
+        assert_eq!(err(src), want, "{src}");
+    }
+}
+
+/// A t MAP with an `ncp` key is still the central t (§Preservation): only
+/// the new families read `ncp`.
+#[test]
+fn a_central_map_ignores_an_ncp_key() {
+    let by_hand = "1.5 dict \"dist\" \"t\" set \"df\" 5.0 set \"ncp\" 2.0 set dist.cdf";
+    assert_eq!(one(by_hand), one("1.5 5.0 dist.t dist.cdf"));
+    let nc = one("1.5 5.0 2.0 dist.nct dist.cdf");
+    assert!((one(by_hand) - nc).abs() > 0.1);
+}
+
+/// A large ncp sums from the mode, so its first term does not underflow:
+/// the t at ncp 100, where R's AS 243 fails, answers the fixture's value
+/// above; here, its two tails add to 1 far into either side.
+#[test]
+fn a_large_ncp_keeps_both_tails() {
+    for x in [40.0, 80.0, 100.0, 140.0, 400.0] {
+        let lo = one(&format!("{x} 8.0 100.0 dist.nct dist.cdf"));
+        let hi = one(&format!("{x} 8.0 100.0 dist.nct dist.sf"));
+        // Each tail is summed on its own, so they agree to the incomplete
+        // beta's accuracy at a near 5 000, not to the bit.
+        assert!((lo + hi - 1.0).abs() <= 1e-10, "{x}: {lo} + {hi}");
+        assert!(lo > 0.0 && hi > 0.0, "{x}: {lo}, {hi}");
+    }
 }

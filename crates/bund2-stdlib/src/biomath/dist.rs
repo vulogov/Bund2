@@ -33,6 +33,12 @@
 //!   the Dirichlet by their gamma mixtures here, since `statrs`'s Dirichlet
 //!   returns its gamma draws without dividing by their sum.
 //!
+//! **The noncentral families** (RFC-0019 §S2) are Bund2's own throughout:
+//! `nct`, `ncchisq` and `ncf`, new `dist` names so that no existing MAP
+//! changes meaning (N2). Their parameters are checked here, E104 with a text
+//! of Bund2's own, since `statrs` has no family to check them; their tails
+//! and densities are `noncentral`'s series; their draws are by definition.
+//!
 //! **No NaN or ±∞ [B12].** A NaN or ±∞ operand is E101; a density, moment
 //! or draw that is not finite is E114; a quantile at an unbounded end of the
 //! support is E114 too.
@@ -90,7 +96,7 @@ use Kind::{Count, Real, Reals};
 
 /// Each family, its parameters in the constructor's operand order, deepest
 /// first.
-const FAMILIES: [(&str, &[(&str, Kind)]); 17] = [
+const FAMILIES: [(&str, &[(&str, Kind)]); 20] = [
     ("normal", &[("mean", Real), ("sd", Real)]),
     ("lognormal", &[("meanlog", Real), ("sdlog", Real)]),
     ("uniform", &[("min", Real), ("max", Real)]),
@@ -111,6 +117,10 @@ const FAMILIES: [(&str, &[(&str, Kind)]); 17] = [
     ("bernoulli", &[("prob", Real)]),
     ("multinomial", &[("size", Count), ("prob", Reals)]),
     ("dirichlet", &[("alpha", Reals)]),
+    // RFC-0019 §S2.
+    ("nct", &[("df", Real), ("ncp", Real)]),
+    ("ncchisq", &[("df", Real), ("ncp", Real)]),
+    ("ncf", &[("df1", Real), ("df2", Real), ("ncp", Real)]),
 ];
 
 fn keys_of(name: &str) -> &'static [(&'static str, Kind)] {
@@ -158,13 +168,16 @@ pub(crate) enum Family {
     Bernoulli { prob: f64 },
     Multinomial { size: u64, prob: Vec<f64> },
     Dirichlet { alpha: Vec<f64> },
+    Nct { df: f64, ncp: f64 },
+    NcChiSq { df: f64, ncp: f64 },
+    NcF { df1: f64, df2: f64, ncp: f64 },
 }
 
 /// One draw's work, built once per `dist.sample*`.
 type Draw = Box<dyn Fn(&mut StdRng) -> Result<BundValue, Refusal>>;
 
 /// x·ln v, taken as 0 when x is 0 whatever v is: 0·ln 0 is 0 in a mass.
-fn xlny(x: f64, lnv: f64) -> f64 {
+pub(super) fn xlny(x: f64, lnv: f64) -> f64 {
     if x == 0.0 { 0.0 } else { x * lnv }
 }
 
@@ -172,7 +185,7 @@ fn lchoose(n: f64, k: f64) -> f64 {
     lgamma(n + 1.0) - lgamma(k + 1.0) - lgamma(n - k + 1.0)
 }
 
-fn lbeta(a: f64, b: f64) -> f64 {
+pub(super) fn lbeta(a: f64, b: f64) -> f64 {
     lgamma(a) + lgamma(b) - lgamma(a + b)
 }
 
@@ -182,7 +195,7 @@ fn z_of(p: f64) -> f64 {
 }
 
 /// The normal tails of z, from `libm`'s `erfc` (§S4).
-fn normal_tails(z: f64) -> (f64, f64) {
+pub(super) fn normal_tails(z: f64) -> (f64, f64) {
     let r = std::f64::consts::FRAC_1_SQRT_2;
     (0.5 * libm::erfc(-z * r), 0.5 * libm::erfc(z * r))
 }
@@ -274,6 +287,13 @@ impl Family {
             ("dirichlet", [P::Reals(alpha)]) => Family::Dirichlet {
                 alpha: alpha.clone(),
             },
+            ("nct", [P::Real(df), P::Real(ncp)]) => Family::Nct { df: *df, ncp: *ncp },
+            ("ncchisq", [P::Real(df), P::Real(ncp)]) => Family::NcChiSq { df: *df, ncp: *ncp },
+            ("ncf", [P::Real(df1), P::Real(df2), P::Real(ncp)]) => Family::NcF {
+                df1: *df1,
+                df2: *df2,
+                ncp: *ncp,
+            },
             _ => return None,
         })
     }
@@ -297,6 +317,9 @@ impl Family {
             Family::Bernoulli { .. } => "bernoulli",
             Family::Multinomial { .. } => "multinomial",
             Family::Dirichlet { .. } => "dirichlet",
+            Family::Nct { .. } => "nct",
+            Family::NcChiSq { .. } => "ncchisq",
+            Family::NcF { .. } => "ncf",
         }
     }
 
@@ -456,6 +479,34 @@ impl Family {
                     }
                 })
             }
+            // RFC-0019 §S2's draws, by definition.
+            Family::Nct { df, ncp } => {
+                above_zero("df", df)?;
+                let z = sd::Normal::new(0.0, 1.0).map_err(|e| s(&e))?;
+                let v = sd::ChiSquared::new(df).map_err(|e| s(&e))?;
+                // (Z + ncp)/√(χ²_df/df), Z drawn first.
+                Box::new(move |g| {
+                    let top = z.sample(g) + ncp;
+                    drawn(name, top / (v.sample(g) / df).sqrt())
+                })
+            }
+            Family::NcChiSq { df, ncp } => {
+                above_zero("df", df)?;
+                not_negative("ncp", ncp)?;
+                // A χ² on df + 2K, K drawn first from Poisson(ncp/2).
+                Box::new(move |g| drawn(name, mixed_chisq(g, name, df, ncp)?))
+            }
+            Family::NcF { df1, df2, ncp } => {
+                above_zero("df1", df1)?;
+                above_zero("df2", df2)?;
+                not_negative("ncp", ncp)?;
+                let below = sd::ChiSquared::new(df2).map_err(|e| s(&e))?;
+                // (χ²_df1(ncp)/df1)/(χ²_df2/df2), the numerator drawn first.
+                Box::new(move |g| {
+                    let top = mixed_chisq(g, name, df1, ncp)? / df1;
+                    drawn(name, top / (below.sample(g) / df2))
+                })
+            }
         })
     }
 
@@ -579,7 +630,30 @@ impl Family {
                 }
             }
             Family::Multinomial { .. } | Family::Dirichlet { .. } => NEG,
+            // A series can refuse; `ln_pdf` says why, and is what the words
+            // and the polish ask.
+            Family::Nct { .. } | Family::NcChiSq { .. } | Family::NcF { .. } => self
+                .series_lpdf("dist.lpdf", x)
+                .and_then(Result::ok)
+                .unwrap_or(f64::NAN),
         }
+    }
+
+    /// A noncentral family's ln f(x), its series' refusal included; `None`
+    /// for any other family.
+    fn series_lpdf(&self, word: &str, x: f64) -> Option<Result<f64, Error>> {
+        Some(match *self {
+            Family::Nct { df, ncp } => noncentral::nct_lpdf(word, df, ncp, x),
+            Family::NcChiSq { df, ncp } => noncentral::ncchisq_lpdf(word, df, ncp, x),
+            Family::NcF { df1, df2, ncp } => noncentral::ncf_lpdf(word, df1, df2, ncp, x),
+            _ => return None,
+        })
+    }
+
+    /// ln f(x), as `lpdf`, or a noncentral series' refusal.
+    pub(crate) fn ln_pdf(&self, word: &str, x: f64) -> Result<f64, Error> {
+        self.series_lpdf(word, x)
+            .unwrap_or_else(|| Ok(self.lpdf(x)))
     }
 
     /// (P(X ≤ x), P(X > x)).
@@ -715,6 +789,21 @@ impl Family {
             Family::Multinomial { .. } | Family::Dirichlet { .. } => {
                 return Err(self.undefined(word, "cdf"));
             }
+            Family::Nct { df, ncp } => noncentral::nct_tails(word, df, ncp, x)?,
+            Family::NcChiSq { df, ncp } => {
+                if x <= 0.0 {
+                    below
+                } else {
+                    noncentral::ncchisq_tails(word, df, ncp, x)?
+                }
+            }
+            Family::NcF { df1, df2, ncp } => {
+                if x <= 0.0 {
+                    below
+                } else {
+                    noncentral::ncf_tails(word, df1, df2, ncp, x)?
+                }
+            }
         })
     }
 
@@ -730,12 +819,14 @@ impl Family {
     fn support(&self) -> (f64, f64) {
         const INF: f64 = f64::INFINITY;
         match *self {
-            Family::Normal { .. } | Family::T { .. } => (-INF, INF),
+            Family::Normal { .. } | Family::T { .. } | Family::Nct { .. } => (-INF, INF),
             Family::LogNormal { .. }
             | Family::Exponential { .. }
             | Family::Gamma { .. }
             | Family::ChiSq { .. }
             | Family::F { .. }
+            | Family::NcChiSq { .. }
+            | Family::NcF { .. }
             | Family::Poisson { .. }
             | Family::Geometric { .. } => (0.0, INF),
             Family::NegBinomial { size, prob } => {
@@ -792,6 +883,11 @@ impl Family {
                 } else {
                     1.0
                 }
+            }
+            Family::Nct { df, ncp } => ncp + z * (1.0 + ncp * ncp / (2.0 * df)).sqrt(),
+            Family::NcChiSq { df, ncp } => df + ncp + z * (2.0 * (df + 2.0 * ncp)).sqrt(),
+            Family::NcF { df1, df2, ncp } => {
+                (df1 + ncp) / df1 * if df2 > 2.0 { df2 / (df2 - 2.0) } else { 1.0 }
             }
             _ => return Err(self.undefined(word, "quantile")),
         };
@@ -850,7 +946,7 @@ impl Family {
             } else {
                 b = x;
             }
-            let d = self.lpdf(x).exp();
+            let d = self.ln_pdf(word, x)?.exp();
             let newton = x - f / d;
             let next = if d > 0.0 && d.is_finite() && newton > a && newton < b {
                 newton
@@ -996,6 +1092,26 @@ impl Family {
             ),
             Family::Bernoulli { prob } => (Some(prob), Some(prob * (1.0 - prob))),
             Family::Multinomial { .. } | Family::Dirichlet { .. } => (None, None),
+            // RFC-0019 §S2's closed forms.
+            Family::Nct { df, ncp } => {
+                let mean = (df > 1.0).then(|| {
+                    ncp * (df / 2.0).sqrt() * (lgamma((df - 1.0) / 2.0) - lgamma(df / 2.0)).exp()
+                });
+                let var = match mean {
+                    Some(m) if df > 2.0 => Some(df * (1.0 + ncp * ncp) / (df - 2.0) - m * m),
+                    _ => None,
+                };
+                (mean, var)
+            }
+            Family::NcChiSq { df, ncp } => (Some(df + ncp), Some(2.0 * (df + 2.0 * ncp))),
+            Family::NcF { df1, df2, ncp } => (
+                (df2 > 2.0).then(|| df2 * (df1 + ncp) / (df1 * (df2 - 2.0))),
+                (df2 > 4.0).then(|| {
+                    2.0 * (df2 / df1).powi(2)
+                        * ((df1 + ncp).powi(2) + (df1 + 2.0 * ncp) * (df2 - 2.0))
+                        / ((df2 - 2.0).powi(2) * (df2 - 4.0))
+                }),
+            ),
         }
     }
 
@@ -1005,6 +1121,8 @@ impl Family {
         match *self {
             Family::T { df } => format!("t with df = {df}"),
             Family::F { df2, .. } => format!("f with df2 = {df2}"),
+            Family::Nct { df, .. } => format!("nct with df = {df}"),
+            Family::NcF { df2, .. } => format!("ncf with df2 = {df2}"),
             _ => self.name().into(),
         }
     }
@@ -1056,7 +1174,36 @@ impl Family {
     }
 }
 
-fn gamma_lpdf(x: f64, shape: f64, rate: f64) -> f64 {
+/// E104's text for a parameter that must be above 0 (RFC-0019 §S2).
+fn above_zero(key: &str, x: f64) -> Result<(), String> {
+    if x > 0.0 {
+        Ok(())
+    } else {
+        Err(format!("{key} is {x}, not above 0"))
+    }
+}
+
+/// E104's text for a parameter that must not be negative.
+fn not_negative(key: &str, x: f64) -> Result<(), String> {
+    if x >= 0.0 {
+        Ok(())
+    } else {
+        Err(format!("{key} is {x}, below 0"))
+    }
+}
+
+/// A noncentral χ² draw on df at ncp: K from Poisson(ncp/2), then a central
+/// χ² on df + 2K.
+fn mixed_chisq(g: &mut StdRng, name: &str, df: f64, ncp: f64) -> Result<f64, Refusal> {
+    let k = poisson_draw(g, ncp / 2.0)?;
+    let c = sd::ChiSquared::new(df + 2.0 * k).map_err(|e| Refusal::Parameters {
+        family: name.into(),
+        message: e.to_string(),
+    })?;
+    Ok(c.sample(g))
+}
+
+pub(super) fn gamma_lpdf(x: f64, shape: f64, rate: f64) -> f64 {
     if x < 0.0 {
         return f64::NEG_INFINITY;
     }
@@ -1254,7 +1401,7 @@ fn ln_density(word: &str, x: &BundValue, f: &Family) -> Result<f64, Error> {
         f.lpdf_at(word, &xs)
     } else {
         let x = real(word, "x", x)?;
-        Ok(f.lpdf(x))
+        f.ln_pdf(word, x)
     }
 }
 
@@ -1415,6 +1562,9 @@ pub fn register(r: &mut Registry) {
     family!("dist.bernoulli", "bernoulli", 1);
     family!("dist.multinomial", "multinomial", 2);
     family!("dist.dirichlet", "dirichlet", 1);
+    family!("dist.nct", "nct", 2);
+    family!("dist.ncchisq", "ncchisq", 2);
+    family!("dist.ncf", "ncf", 3);
     word!("dist.pdf", dist_pdf, 2);
     word!("dist.lpdf", dist_lpdf, 2);
     word!("dist.cdf", dist_cdf, 2);
@@ -1426,8 +1576,9 @@ pub fn register(r: &mut Registry) {
     word!("dist.sample*", dist_sample_n, 2);
 }
 
-/// §S7's words; each also has its `.` form.
-pub const WORDS: [&str; 26] = [
+/// §S7's words, and RFC-0019 §S2's three constructors after the
+/// seventeen; each also has its `.` form.
+pub const WORDS: [&str; 29] = [
     "dist.normal",
     "dist.lognormal",
     "dist.uniform",
@@ -1445,6 +1596,9 @@ pub const WORDS: [&str; 26] = [
     "dist.bernoulli",
     "dist.multinomial",
     "dist.dirichlet",
+    "dist.nct",
+    "dist.ncchisq",
+    "dist.ncf",
     "dist.pdf",
     "dist.lpdf",
     "dist.cdf",
@@ -1455,6 +1609,8 @@ pub const WORDS: [&str; 26] = [
     "dist.sample",
     "dist.sample*",
 ];
+
+mod noncentral;
 
 #[cfg(test)]
 mod tests;

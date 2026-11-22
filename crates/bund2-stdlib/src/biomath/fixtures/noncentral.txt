@@ -1,0 +1,154 @@
+-1.0 5.5 1.5 dist.nct dist.pdf 1.8387287330825717e-2
+-1.0 5.5 1.5 dist.nct dist.cdf 9.0942338641564479e-3
+-1.0 5.5 1.5 dist.nct dist.sf 9.9090576613584355e-1
+2.0 5.5 1.5 dist.nct dist.pdf 2.9098264592084847e-1
+2.0 5.5 1.5 dist.nct dist.cdf 6.3620575744274795e-1
+2.0 5.5 1.5 dist.nct dist.sf 3.6379424255725205e-1
+6.0 5.5 1.5 dist.nct dist.pdf 8.9569197023119367e-3
+6.0 5.5 1.5 dist.nct dist.cdf 9.878904931164779e-1
+6.0 5.5 1.5 dist.nct dist.sf 1.2109506883522103e-2
+0.001 5.5 1.5 dist.nct dist.quantile -2.176858719066808
+0.5 5.5 1.5 dist.nct dist.quantile 1.5741798206670606
+0.999 5.5 1.5 dist.nct dist.quantile 1.0088044872218758e+1
+5.5 1.5 dist.nct dist.mean 1.7522884369479923
+5.5 1.5 dist.nct dist.var 2.036628090881219
+-4.0 10.0 -2.0 dist.nct dist.pdf 8.5247521688793821e-2
+-4.0 10.0 -2.0 dist.nct dist.cdf 7.5231663694139447e-2
+-4.0 10.0 -2.0 dist.nct dist.sf 9.2476833630586055e-1
+-1.0 10.0 -2.0 dist.nct dist.pdf 2.4137186761597515e-1
+-1.0 10.0 -2.0 dist.nct dist.cdf 8.414849404622883e-1
+-1.0 10.0 -2.0 dist.nct dist.sf 1.585150595377117e-1
+1.0 10.0 -2.0 dist.nct dist.pdf 4.8090241205533645e-3
+1.0 10.0 -2.0 dist.nct dist.cdf 9.9818356658957035e-1
+1.0 10.0 -2.0 dist.nct dist.sf 1.8164334104296491e-3
+0.001 10.0 -2.0 dist.nct dist.quantile -7.9268891309044587
+0.5 10.0 -2.0 dist.nct dist.quantile -2.0536911511184894
+0.999 10.0 -2.0 dist.nct dist.quantile 1.225169219548067
+10.0 -2.0 dist.nct dist.mean -2.1674446158782873
+10.0 -2.0 dist.nct dist.var 1.5521838371002237
+60.0 8.0 100.0 dist.nct dist.pdf 1.2763989914975547e-3
+60.0 8.0 100.0 dist.nct dist.cdf 4.5784128088518075e-3
+60.0 8.0 100.0 dist.nct dist.sf 9.9542158719114819e-1
+100.0 8.0 100.0 dist.nct dist.pdf 1.5616855759597691e-2
+100.0 8.0 100.0 dist.nct dist.cdf 4.3354815393624009e-1
+100.0 8.0 100.0 dist.nct dist.sf 5.6645184606375991e-1
+160.0 8.0 100.0 dist.nct dist.pdf 2.6045214006713475e-3
+160.0 8.0 100.0 dist.nct dist.cdf 9.2618912028972437e-1
+160.0 8.0 100.0 dist.nct dist.sf 7.3810879710275635e-2
+0.001 8.0 100.0 dist.nct dist.quantile 5.5284785139297492e+1
+0.5 8.0 100.0 dist.nct dist.quantile 1.0436805848835574e+2
+0.999 8.0 100.0 dist.nct dist.quantile 3.0560561839617761e+2
+8.0 100.0 dist.nct dist.mean 1.1077836568159475e+2
+8.0 100.0 dist.nct dist.var 1.0628203635815368e+3
+-1.0 4.0 0.0 dist.nct dist.pdf 2.1466252583997981e-1
+-1.0 4.0 0.0 dist.nct dist.cdf 1.8695048315002944e-1
+-1.0 4.0 0.0 dist.nct dist.sf 8.1304951684997056e-1
+0.5 4.0 0.0 dist.nct dist.pdf 3.2226186856038707e-1
+0.5 4.0 0.0 dist.nct dist.cdf 6.7833501840906836e-1
+0.5 4.0 0.0 dist.nct dist.sf 3.2166498159093164e-1
+2.0 4.0 0.0 dist.nct dist.pdf 6.629126073623883e-2
+2.0 4.0 0.0 dist.nct dist.cdf 9.419417382415922e-1
+2.0 4.0 0.0 dist.nct dist.sf 5.8058261758407797e-2
+0.001 4.0 0.0 dist.nct dist.quantile -7.1731822197823084
+0.5 4.0 0.0 dist.nct dist.quantile -8.9131729240198644e-63
+0.999 4.0 0.0 dist.nct dist.quantile 7.1731822197823068
+4.0 0.0 dist.nct dist.mean 2.8874790889275698e-58
+4.0 0.0 dist.nct dist.var 2.0
+1.0 4.5 2.5 dist.ncchisq dist.pdf 4.2104138016035628e-2
+1.0 4.5 2.5 dist.ncchisq dist.cdf 2.01671883990301e-2
+1.0 4.5 2.5 dist.ncchisq dist.sf 9.798328116009699e-1
+6.0 4.5 2.5 dist.ncchisq dist.pdf 9.8622224875883191e-2
+6.0 4.5 2.5 dist.ncchisq dist.cdf 4.8473964312938945e-1
+6.0 4.5 2.5 dist.ncchisq dist.sf 5.1526035687061055e-1
+15.0 4.5 2.5 dist.ncchisq dist.pdf 1.589262687759276e-2
+15.0 4.5 2.5 dist.ncchisq dist.cdf 9.4501129095664925e-1
+15.0 4.5 2.5 dist.ncchisq dist.sf 5.4988709043350753e-2
+0.001 4.5 2.5 dist.ncchisq dist.quantile 2.4949818971114306e-1
+0.5 4.5 2.5 dist.ncchisq dist.quantile 6.1559151903125287
+0.999 4.5 2.5 dist.ncchisq dist.quantile 2.7546975682595498e+1
+4.5 2.5 dist.ncchisq dist.mean 7.0
+4.5 2.5 dist.ncchisq dist.var 1.9e+1
+70.0 3.0 100.0 dist.ncchisq dist.pdf 5.2545119451079096e-3
+70.0 3.0 100.0 dist.ncchisq dist.cdf 4.0683452517256291e-2
+70.0 3.0 100.0 dist.ncchisq dist.sf 9.5931654748274371e-1
+103.0 3.0 100.0 dist.ncchisq dist.pdf 1.9727234109272039e-2
+103.0 3.0 100.0 dist.ncchisq dist.cdf 5.197259332283312e-1
+103.0 3.0 100.0 dist.ncchisq dist.sf 4.802740667716688e-1
+150.0 3.0 100.0 dist.ncchisq dist.pdf 1.5961134993537542e-3
+150.0 3.0 100.0 dist.ncchisq dist.cdf 9.8450209063733053e-1
+150.0 3.0 100.0 dist.ncchisq dist.sf 1.5497909362669468e-2
+0.001 3.0 100.0 dist.ncchisq dist.quantile 4.9403142672820186e+1
+0.5 3.0 100.0 dist.ncchisq dist.quantile 1.0200332009126034e+2
+0.999 3.0 100.0 dist.ncchisq dist.quantile 1.7363788988451968e+2
+3.0 100.0 dist.ncchisq dist.mean 1.03e+2
+3.0 100.0 dist.ncchisq dist.var 4.06e+2
+0.5 2.0 0.0 dist.ncchisq dist.pdf 3.8940039153570243e-1
+0.5 2.0 0.0 dist.ncchisq dist.cdf 2.2119921692859513e-1
+0.5 2.0 0.0 dist.ncchisq dist.sf 7.7880078307140487e-1
+2.0 2.0 0.0 dist.ncchisq dist.pdf 1.8393972058572116e-1
+2.0 2.0 0.0 dist.ncchisq dist.cdf 6.3212055882855768e-1
+2.0 2.0 0.0 dist.ncchisq dist.sf 3.6787944117144232e-1
+6.0 2.0 0.0 dist.ncchisq dist.pdf 2.4893534183931971e-2
+6.0 2.0 0.0 dist.ncchisq dist.cdf 9.5021293163213606e-1
+6.0 2.0 0.0 dist.ncchisq dist.sf 4.9787068367863943e-2
+0.001 2.0 0.0 dist.ncchisq dist.quantile 2.001000667167067e-3
+0.5 2.0 0.0 dist.ncchisq dist.quantile 1.3862943611198906
+0.999 2.0 0.0 dist.ncchisq dist.quantile 1.3815510557964272e+1
+2.0 0.0 dist.ncchisq dist.mean 2.0
+2.0 0.0 dist.ncchisq dist.var 4.0
+0.05 0.5 1.0 dist.ncchisq dist.pdf 1.3627688615017888
+0.05 0.5 1.0 dist.ncchisq dist.cdf 2.6739295890716949e-1
+0.05 0.5 1.0 dist.ncchisq dist.sf 7.3260704109283051e-1
+1.0 0.5 1.0 dist.ncchisq dist.pdf 1.7950080215797811e-1
+1.0 0.5 1.0 dist.ncchisq dist.cdf 6.0404634108442756e-1
+1.0 0.5 1.0 dist.ncchisq dist.sf 3.9595365891557244e-1
+5.0 0.5 1.0 dist.ncchisq dist.pdf 3.1116096386002018e-2
+5.0 0.5 1.0 dist.ncchisq dist.cdf 9.214337228633863e-1
+5.0 0.5 1.0 dist.ncchisq dist.sf 7.8566277136613703e-2
+0.001 0.5 1.0 dist.ncchisq dist.quantile 9.9747792765675202e-12
+0.5 0.5 1.0 dist.ncchisq dist.quantile 5.2360014651532952e-1
+0.999 0.5 1.0 dist.ncchisq dist.quantile 1.5746215804685436e+1
+0.5 1.0 dist.ncchisq dist.mean 1.5
+0.5 1.0 dist.ncchisq dist.var 5.0
+0.3 4.0 7.5 3.0 dist.ncf dist.pdf 2.5333317984364857e-1
+0.3 4.0 7.5 3.0 dist.ncf dist.cdf 4.2332209405594996e-2
+0.3 4.0 7.5 3.0 dist.ncf dist.sf 9.57667790594405e-1
+1.5 4.0 7.5 3.0 dist.ncf dist.pdf 3.0032817574798889e-1
+1.5 4.0 7.5 3.0 dist.ncf dist.cdf 4.5132801664475291e-1
+1.5 4.0 7.5 3.0 dist.ncf dist.sf 5.4867198335524709e-1
+5.0 4.0 7.5 3.0 dist.ncf dist.pdf 4.0604480886396559e-2
+5.0 4.0 7.5 3.0 dist.ncf dist.cdf 9.0307666357298291e-1
+5.0 4.0 7.5 3.0 dist.ncf dist.sf 9.6923336427017086e-2
+0.001 4.0 7.5 3.0 dist.ncf dist.quantile 4.2537624268042323e-2
+0.5 4.0 7.5 3.0 dist.ncf dist.quantile 1.6691533753956435
+0.999 4.0 7.5 3.0 dist.ncf dist.quantile 2.5721168319283589e+1
+4.0 7.5 3.0 dist.ncf dist.mean 2.3863636363636364
+4.0 7.5 3.0 dist.ncf dist.var 6.9067296340023613
+10.0 5.0 12.0 100.0 dist.ncf dist.pdf 1.8299773847651002e-2
+10.0 5.0 12.0 100.0 dist.ncf dist.cdf 3.3026362498908161e-2
+10.0 5.0 12.0 100.0 dist.ncf dist.sf 9.6697363750109184e-1
+20.0 5.0 12.0 100.0 dist.ncf dist.pdf 4.3234113372793694e-2
+20.0 5.0 12.0 100.0 dist.ncf dist.cdf 4.1899068264044948e-1
+20.0 5.0 12.0 100.0 dist.ncf dist.sf 5.8100931735955052e-1
+40.0 5.0 12.0 100.0 dist.ncf dist.pdf 8.9984960147045504e-3
+40.0 5.0 12.0 100.0 dist.ncf dist.cdf 8.8902855236835198e-1
+40.0 5.0 12.0 100.0 dist.ncf dist.sf 1.1097144763164802e-1
+0.001 5.0 12.0 100.0 dist.ncf dist.quantile 6.1102652914499024
+0.5 5.0 12.0 100.0 dist.ncf dist.quantile 2.1955092155270745e+1
+0.999 5.0 12.0 100.0 dist.ncf dist.quantile 1.2171252148171656e+2
+5.0 12.0 100.0 dist.ncf dist.mean 2.52e+1
+5.0 12.0 100.0 dist.ncf dist.var 1.8828e+2
+0.2 3.0 10.0 0.0 dist.ncf dist.pdf 6.8103907313173756e-1
+0.2 3.0 10.0 0.0 dist.ncf dist.cdf 1.0598188857927913e-1
+0.2 3.0 10.0 0.0 dist.ncf dist.sf 8.9401811142072087e-1
+1.0 3.0 10.0 0.0 dist.ncf dist.pdf 4.0412281148856268e-1
+1.0 3.0 10.0 0.0 dist.ncf dist.cdf 5.6766279697830293e-1
+1.0 3.0 10.0 0.0 dist.ncf dist.sf 4.3233720302169707e-1
+4.0 3.0 10.0 0.0 dist.ncf dist.pdf 2.6450124831745503e-2
+4.0 3.0 10.0 0.0 dist.ncf dist.cdf 9.5865231896391746e-1
+4.0 3.0 10.0 0.0 dist.ncf dist.sf 4.1347681036082542e-2
+0.001 3.0 10.0 0.0 dist.ncf dist.quantile 7.737142554171554e-3
+0.5 3.0 10.0 0.0 dist.ncf dist.quantile 8.4508057659171367e-1
+0.999 3.0 10.0 0.0 dist.ncf dist.quantile 1.2552745388943725e+1
+3.0 10.0 0.0 dist.ncf dist.mean 1.25
+3.0 10.0 0.0 dist.ncf dist.var 1.9097222222222222

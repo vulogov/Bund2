@@ -861,7 +861,10 @@ mod honesty_tests {
         // fit, refused unless it passes §S7's check; its form's is too.
         // `model.compare`'s first two are fits, each refused unless it
         // passes that check; its form's are too.
-        const UNVARIED: [&str; 81] = [
+        // RFC-0019 §S13: `dist.ncf`'s first operand is df1, a number its
+        // check refuses unless it is finite and above 0 (§S2); its form's
+        // is too.
+        const UNVARIED: [&str; 83] = [
             "bio.align",
             "bio.align.",
             "bio.align.score",
@@ -870,6 +873,8 @@ mod honesty_tests {
             "bio.pwm.scan.",
             "dist.hypergeometric",
             "dist.hypergeometric.",
+            "dist.ncf",
+            "dist.ncf.",
             "frame.aggregate",
             "frame.aggregate.",
             "frame.factor.levels",
