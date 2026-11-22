@@ -18008,6 +18008,26 @@ What the rulings fix:
   4.4.2, from which `fixtures/shapiro.R`'s output is committed with R's
   version in it.
 
+**Dated note, 2026-11-22 (N10 amended).** The owner's machine has R
+4.6.2 (Homebrew, `aarch64-apple-darwin27.0.0`), not CRAN's 4.4.2. The
+owner amended N10 from option A to option B, "R ≥ 4.4, its version
+recorded" ("Amend N10 to 4.6.2"), on these findings, from the
+`wch/r-source` mirror at the tags `R-4-4-2` and `R-4-6-2`:
+- `src/library/stats/src/swilk.c` and `src/library/stats/R/shapiro.test.R`
+  are byte-identical at the two tags. The installed 4.6.2's
+  `shapiro.test` body is the same R code.
+- `swilk.c` calls `qnorm` and `pnorm`, and nothing else from nmath.
+  `src/nmath/qnorm.c` is identical at the two tags. `src/nmath/pnorm.c`
+  differs only in the underflow bounds, ±37.5193 up to R 4.4.x and
+  ±38.4674 after. So for |x| in (37.52, 38.47), 4.6.2 answers a
+  subnormal near 10⁻³¹⁰ where 4.4.2 answers 0. RFC-0019's criterion 6
+  compares a p below 10⁻⁶ absolutely at 10⁻¹², so the two cannot be
+  told apart.
+
+`fixtures/shapiro.R`'s committed output records `R.version.string`.
+The M5 setup step is done. RFC-0019's N10 text and criterion 6 change
+to match. The first review's U6 is answered.
+
 ## D267 — RFC-0019's [author] choices
 
 **Raised 2026-11-21** by `docs/rfc/RFC-0019-resampling-optimisation-power.md`

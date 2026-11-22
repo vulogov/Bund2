@@ -768,8 +768,11 @@ Each milestone states its additions against the audit's own selection.
 Reference values follow D260 C4's option D. By default they come from
 definitions, computed with mpmath at 50 digits by fixture scripts under
 `crates/bund2-stdlib/src/biomath/fixtures/`, as RFC-0015 to RFC-0018's
-are. R, at 4.4.2 with its script committed, is used only for
-Shapiro–Wilk (N10). Tolerances are |a − b| ≤ 10⁻⁹|b| + 10⁻¹² unless a
+are. R, at the version recorded in its committed output (4.6.2 on the
+owner's machine), is used only for Shapiro–Wilk (N10, as amended).
+D266's note of 2026-11-22 finds `swilk.c`, `shapiro.test.R` and
+`qnorm.c` byte-identical at R 4.4.2 and 4.6.2, so the R 4.4.2 source
+cited here is the code that produces the fixture. Tolerances are |a − b| ≤ 10⁻⁹|b| + 10⁻¹² unless a
 criterion says otherwise, and a p below 10⁻⁶ is compared absolutely at
 10⁻¹².
 
@@ -803,7 +806,8 @@ criterion says otherwise, and a p below 10⁻⁶ is compared absolutely at
      formula on a worked input, ties included.
    - CMH's common odds ratio and interval match the fixture.
 6. **Normality and variance tests.**
-   - Shapiro–Wilk's W and p match R 4.4.2's `shapiro.test` on the inputs
+   - Shapiro–Wilk's W and p match R's `shapiro.test`, at the version its
+     output records (≥ 4.4), on the inputs
      of a committed script (`fixtures/shapiro.R`), with R's version in
      its output, at 10⁻⁹ (N10). Identical values are E101.
    - The one-sample KS test's exact p matches the fixture's
@@ -892,9 +896,9 @@ Phase E first: the power words need its distributions, and Phase D's
 | M9 | §S10, §S11: minimisers, the Hessian, `fit.mle` | 12 |
 | M10 | the example | 13 |
 
-Each milestone ends with criteria 1, 14 and 15. M5 needs R 4.4.2 for
-Shapiro–Wilk's fixture (N10), which is a setup step on the owner's
-machine.
+Each milestone ends with criteria 1, 14 and 15. M5 needs R ≥ 4.4 for
+Shapiro–Wilk's fixture (N10, as amended). R 4.6.2 is installed on the
+owner's machine, so that setup step is done.
 
 ## Open questions
 
@@ -915,7 +919,7 @@ the author choices: recommendations".
 | **N7** | Default tolerances of `optim.root`, `optim.integrate` and the power solve | **A** Bund2's tight ones (10⁻¹²·scale, 10⁻¹⁰ relative). **B** R's ε^¼ | **A** |
 | **N8** | An infinite end in `optim.integrate` | **A** the STRINGs `"inf"` and `"-inf"`. **B** none in this RFC | **A** |
 | **N9** | Dunnett's test | **A** left out. **B** included, with an R fixture | **A** |
-| **N10** | R for Shapiro–Wilk's fixture (D260 C4 rules that R is used; this asks how) | **A** CRAN's R 4.4.2 installed on the owner's machine, the script and its output committed. **B** any R ≥ 4.4, its version recorded. **C** no R: the port checked against Royston's published examples only | **A** |
+| **N10** | R for Shapiro–Wilk's fixture (D260 C4 rules that R is used; this asks how) | **A** CRAN's R 4.4.2 installed on the owner's machine, the script and its output committed. **B** any R ≥ 4.4, its version recorded. **C** no R: the port checked against Royston's published examples only | **A**, amended to **B** 2026-11-22 (D266's note): R 4.6.2 |
 | **N11** | Bounds in the minimisers | **A** none in this RFC. **B** `lower` and `upper` by transformation | **A** |
 | **N12** | What `boot.` resamples | **A** a LIST by element, or a frame by row. **B** a LIST only | **A** |
 | **N13** | `fit.mle`'s profile intervals | **A** with `profile` true, off by default. **B** always. **C** none | **A** |
