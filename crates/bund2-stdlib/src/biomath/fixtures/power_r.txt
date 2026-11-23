@@ -1,0 +1,12 @@
+# R version 4.6.2 (2026-10-29)
+dict "n" 20 set "delta" 1.0 set power.t | power 0.8689528
+dict "delta" 1.0 set "power" 0.9 set power.t | n 22.0211
+dict "delta" 1.0 set "power" 0.9 set "sides" 1 set power.t | n 17.84713
+dict "n" 50 set "p1" 0.5 set "p2" 0.75 set power.prop | power 0.7401659
+dict "p1" 0.5 set "p2" 0.75 set "power" 0.9 set power.prop | n 76.70693
+dict "n" 50 set "p1" 0.5 set "power" 0.9 set power.prop | p2 0.8026141
+dict "n" 50 set "p1" 0.5 set "p2" 0.9 set "power" 0.9 set "sig.level" na set power.prop | sig.level 0.001318068
+dict "p1" 0.5 set "p2" 0.501 set "sig.level" 0.001 set "power" 0.9 set power.prop | n 10451937
+dict "groups" 4 set "n" 5 set "between.var" 1.0 set "within.var" 3.0 set power.anova | power 0.3535594
+dict "groups" 4 set "between.var" 1.0 set "within.var" 3.0 set "power" 0.8 set power.anova | n 11.92613
+dict "groups" 4 set "between.var" 166.66666666666666 set "within.var" 500.0 set "power" 0.9 set power.anova | n 15.18834

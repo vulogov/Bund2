@@ -41,7 +41,7 @@ use super::quadpack::{self, Range};
 use super::refuse::Refusal;
 
 /// `optim.root`'s default `maxiter`, as `uniroot`'s.
-const MAXITER: u64 = 1000;
+pub(super) const MAXITER: u64 = 1000;
 
 /// `extend`, as R's `extendInt`: `Sig` NULL, −1, 0 or 1 in `uniroot`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -182,15 +182,33 @@ pub(super) fn extend<E>(
         if extend == Extend::Yes {
             // Both ends at once.
             let (mut dl, mut du) = (delta(lower), delta(upper));
+            // An end where f is NaN steps back and quarters its δ, as R's
+            // `is.na` arm; a lambda never answers NaN (E112), so only §S4's
+            // power equations, NaN outside their domains, reach it.
             while same_sign(fl, fu) {
                 step(&mut it)?;
+                let (ol, of) = (lower, fl);
                 lower -= dl;
-                upper += du;
-                if !lower.is_finite() || !upper.is_finite() {
+                if !lower.is_finite() {
                     return Err(Stop::Search);
                 }
                 fl = f(lower).map_err(Stop::F)?;
+                if fl.is_nan() {
+                    lower = ol;
+                    fl = of;
+                    dl /= 4.0;
+                }
+                let (ou, of) = (upper, fu);
+                upper += du;
+                if !upper.is_finite() {
+                    return Err(Stop::Search);
+                }
                 fu = f(upper).map_err(Stop::F)?;
+                if fu.is_nan() {
+                    upper = ou;
+                    fu = of;
+                    du /= 4.0;
+                }
                 dl *= 2.0;
                 du *= 2.0;
             }
@@ -218,7 +236,8 @@ pub(super) fn extend<E>(
             }
         }
     }
-    if same_sign(fl, fu) {
+    // R's `sign(f.lower) * sign(f.upper) <= 0`, which NaN fails.
+    if same_sign(fl, fu) || fl.is_nan() || fu.is_nan() {
         return Err(if do_x { Stop::Search } else { Stop::SameSign });
     }
     Ok(Bracket {
@@ -341,7 +360,7 @@ pub(super) fn zeroin<E>(
     })
 }
 
-fn search_failed(word: &str, maxiter: u64) -> Error {
+pub(super) fn search_failed(word: &str, maxiter: u64) -> Error {
     Refusal::NoConvergence {
         method: "the search for a sign change".into(),
         cap: maxiter,

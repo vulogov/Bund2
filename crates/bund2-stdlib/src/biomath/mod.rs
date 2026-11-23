@@ -119,6 +119,7 @@ pub(crate) mod operand;
 pub mod optim;
 pub mod phylo;
 pub mod popgen;
+pub mod power;
 pub(crate) mod quadpack;
 pub mod refuse;
 pub mod rng;
@@ -150,6 +151,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     frame::register(r);
     model::register(r);
     optim::register(r);
+    power::register(r);
 }
 
 #[cfg(test)]

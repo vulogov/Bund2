@@ -1,0 +1,27 @@
+dict "n" 20 set "delta" 1.0 set power.t | power 8.6895280169212701e-1
+dict "delta" 1.0 set "power" 0.9 set power.t | n 2.2021095570096926e+1
+dict "delta" 1.0 set "power" 0.9 set "sides" 1 set power.t | n 1.7847120626538359e+1
+dict "n" 15 set "delta" 0.8 set "sd" 1.5 set "type" "one.sample" set "strict" true set power.t | power 4.854543945996557e-1
+dict "n" 20 set "delta" -0.5 set "sides" 1 set "type" "paired" set power.t | power 7.0837522095141444e-5
+dict "n" 12 set "power" 0.8 set "type" "paired" set power.t | delta 8.8865514541563098e-1
+dict "n" 30 set "delta" 1.0 set "sd" na set "power" 0.85 set power.t | sd 1.2709887803490428
+dict "n" 20 set "delta" 1.0 set "power" 0.8 set "sig.level" na set power.t | sig.level 2.6592935488091489e-2
+dict "n" 50 set "p1" 0.5 set "p2" 0.75 set power.prop | power 7.4016590133138782e-1
+dict "p1" 0.5 set "p2" 0.75 set "power" 0.9 set power.prop | n 7.6706928451777447e+1
+dict "n" 50 set "p1" 0.5 set "power" 0.9 set power.prop | p2 8.0263058170389475e-1
+dict "n" 50 set "p1" 0.5 set "p2" 0.9 set "power" 0.9 set "sig.level" na set power.prop | sig.level 1.3213569104773162e-3
+dict "p1" 0.5 set "p2" 0.501 set "sig.level" 0.001 set "power" 0.9 set power.prop | n 1.0451936595488515e+7
+dict "n" 100 set "p2" 0.6 set "power" 0.8 set power.prop | p1 4.0306439515086189e-1
+dict "n" 40 set "p1" 0.3 set "p2" 0.5 set "strict" true set power.prop | power 4.4552739987953957e-1
+dict "n" 40 set "p1" 0.3 set "p2" 0.5 set "sides" 1 set power.prop | power 5.7329871048295101e-1
+dict "groups" 4 set "n" 5 set "between.var" 1.0 set "within.var" 3.0 set power.anova | power 3.5355942372299339e-1
+dict "groups" 4 set "between.var" 1.0 set "within.var" 3.0 set "power" 0.8 set power.anova | n 1.19261111677896e+1
+dict "groups" 4 set "between.var" 166.66666666666666 set "within.var" 500.0 set "power" 0.9 set power.anova | n 1.5188330777498137e+1
+dict "n" 10 set "between.var" 1.0 set "within.var" 3.0 set "power" 0.8 set power.anova | groups 4.9664746001307133
+dict "groups" 4 set "n" 10 set "between.var" 1.0 set "power" 0.8 set power.anova | within.var 2.4674277894640766
+dict "groups" 4 set "n" 10 set "within.var" 3.0 set "power" 0.8 set power.anova | between.var 1.2158410522934078
+dict "groups" 4 set "n" 10 set "between.var" 1.0 set "within.var" 3.0 set "power" 0.8 set "sig.level" na set power.anova | sig.level 8.969688803912971e-2
+dict "w" 0.3 set "n" 100 set "df" 2 set power.chisq | power 7.7068307772413217e-1
+dict "w" 0.3 set "df" 2 set "power" 0.8 set power.chisq | n 1.0705209853300258e+2
+dict "n" 100 set "df" 3 set "power" 0.8 set power.chisq | w 3.3019029801212011e-1
+dict "w" 0.3 set "n" 100 set "df" 2 set "power" 0.8 set "sig.level" na set power.chisq | sig.level 6.3041219637112126e-2

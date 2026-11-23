@@ -18128,3 +18128,42 @@ What the ruling fixes:
 - **Nothing in RFC-0019 is open** except its acceptance, and the ERRATA
   entry that acceptance writes: `boot.sample`'s name, the permutation
   test narrowed to two samples, no bounds, no Dunnett.
+
+## D270 — RFC-0019 criterion 4: R's printed digits against N7's tolerance
+
+**Raised 2026-11-22** by RFC-0019 M3. Criterion 4's first bullet asks
+that each of R's help-page examples for `power.t.test`,
+`power.prop.test` and `power.anova.test` give "R's printed values, to the
+digits R prints". N7 (D266) rules that the power solve uses 10⁻¹⁰
+relative, not R's ε^¼ ≈ 1.2·10⁻⁴ (`power.R:23`, `:86`; `uniroot`'s
+default, `nlm.R`, for `power.anova.test`, which passes none). R's printed
+root carries R's tolerance, so where the exact root and R's differ in the
+seventh digit, no implementation of N7 prints R's digits. Q67's run
+(`fixtures/power_r.txt`, R 4.6.2) finds five such examples of eleven:
+
+| Example | R prints | Exact (fixture, 50 digits) |
+|---|---|---|
+| `power.t.test(power=.90, delta=1, alternative="one.sided")` n | 17.84713 | 17.84712 |
+| `power.prop.test(n=50, p1=.5, power=.90)` p2 | 0.8026141 | 0.8026306 |
+| `power.prop.test(n=50, p1=.5, p2=.9, power=.90, sig.level=NULL)` sig.level | 0.001318068 | 0.001321357 |
+| `power.anova.test(groups=4, between.var=1, within.var=3, power=.80)` n | 11.92613 | 11.92611 |
+| `power.anova.test(groups=4, between.var=var(c(120,130,140,150)), within.var=500, power=.90)` n | 15.18834 | 15.18833 |
+
+R run with `tol = 1e-13` agrees with the exact column (`power.t.test`,
+`power.prop.test`; `uniroot` directly for the ANOVA body). The other six
+(three powers, n = 22.0211, 76.70693, 10451937) print R's digits.
+
+- Blocks: RFC-0019 criterion 4's first bullet, and so M3's acceptance
+- Depends on: D266 (N7), Q67
+- Status: **RESOLVED** by the repository owner, 2026-11-22: "recomendations". Option **A**.
+
+| Option | Reading |
+|---|---|
+| **A** | R's printed digits for every computed power and every solved value R's tolerance leaves unmoved; each other solved value within ε^¼, absolute, of R's print, the tolerance R solved it to. M3's test checks this as written |
+| **B** | Criterion 4's first bullet against R's examples rerun with a tolerance of 10⁻¹³ (`tol` for the t and proportions tests, `uniroot` on `power.anova.test`'s body for ANOVA), committed beside the default run |
+| **C** | Solve with R's ε^¼ for `power.` only, so that R's digits print; reverses N7 for §S4 |
+
+Recommended: **A**. It is what the help pages can check without
+rerunning R differently from its documentation, and the fixture's 10⁻⁹
+(the second bullet) already pins the exact root. C would make Bund2's
+answer depend on Brent's path through R's bracket.
