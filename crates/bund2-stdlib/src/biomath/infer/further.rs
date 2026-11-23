@@ -1,7 +1,9 @@
 //! RFC-0019 §S5's further tests. M4 builds the rank and table tests: the
 //! signed-rank test, one-sample and paired, with their `.opts` words,
 //! Kruskal–Wallis, Friedman, McNemar with its `.opts` word, and
-//! Cochran–Mantel–Haenszel.
+//! Cochran–Mantel–Haenszel. M5 adds the normality and variance tests in
+//! `normality`: Shapiro–Wilk, one-sample KS, Bartlett, and Levene with its
+//! `.opts` word.
 //!
 //! **Each answers RFC-0015's test MAP** (`statistic`, `p`, `df` where there
 //! is one, `method`, R's name for the test). The signed-rank `.opts` words
@@ -910,10 +912,15 @@ pub(super) fn register(r: &mut bund2_api::Registry) {
     word!("stat.test.mcnemar", stat_test_mcnemar, 1);
     word!("stat.test.mcnemar.opts", stat_test_mcnemar_opts, 2);
     word!("stat.test.cmh", stat_test_cmh, 1);
+    word!("stat.test.shapiro", normality::stat_test_shapiro, 1);
+    word!("stat.test.ks1", normality::stat_test_ks1, 2);
+    word!("stat.test.bartlett", normality::stat_test_bartlett, 1);
+    word!("stat.test.levene", normality::stat_test_levene, 1);
+    word!("stat.test.levene.opts", normality::stat_test_levene_opts, 2);
 }
 
-/// §S5's words with their `.` forms (M4's).
-pub const WORDS: [&str; 18] = [
+/// §S5's words with their `.` forms (M4's and M5's).
+pub const WORDS: [&str; 28] = [
     "stat.test.wilcoxon",
     "stat.test.wilcoxon.",
     "stat.test.wilcoxon.paired",
@@ -932,7 +939,19 @@ pub const WORDS: [&str; 18] = [
     "stat.test.mcnemar.opts.",
     "stat.test.cmh",
     "stat.test.cmh.",
+    "stat.test.shapiro",
+    "stat.test.shapiro.",
+    "stat.test.ks1",
+    "stat.test.ks1.",
+    "stat.test.bartlett",
+    "stat.test.bartlett.",
+    "stat.test.levene",
+    "stat.test.levene.",
+    "stat.test.levene.opts",
+    "stat.test.levene.opts.",
 ];
+
+mod normality;
 
 #[cfg(test)]
 mod tests;

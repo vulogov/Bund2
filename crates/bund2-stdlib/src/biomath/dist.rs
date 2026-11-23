@@ -1414,7 +1414,7 @@ fn checked(word: &str, name: &str, ps: &[Param]) -> Result<Family, Error> {
 
 /// The distribution a MAP describes: E101 if it is not one, E104 if a
 /// parameter is missing, of the wrong kind, or refused.
-fn decode(word: &str, v: &BundValue) -> Result<Family, Error> {
+pub(crate) fn decode(word: &str, v: &BundValue) -> Result<Family, Error> {
     let not_one = || domain(word, "d", v.summary(WIDTH));
     let m = match v.as_map() {
         Some(m) if v.dt() == MAP => m,

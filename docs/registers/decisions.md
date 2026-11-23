@@ -18193,3 +18193,26 @@ the word would answer only values an embedder builds.
 Recommended: **A**. It keeps §S5's MATRIX and its refusals, and adds the
 one shape a program can write. §S5's text reads with this amendment; the
 RFC itself is not edited.
+
+## D272 — RFC-0019 §S5 and §S12: how an F test answers its degrees of freedom
+
+**Raised 2026-11-23** by RFC-0019 M5. `stat.test.levene` is an F test on
+k − 1 and N − k. RFC-0015's answer MAP holds `df` as "a FLOAT, for the t
+and χ² tests only" (RFC-0015, "The answer"), and RFC-0019 §S5 asks for
+`df` "where there is one". An F has two, and neither RFC says how they are
+answered. §S12's `stat.test.anova1`, "the classical F on k − 1 and N − k",
+meets the same question in M6.
+
+- Blocks: RFC-0019 criterion 6's Levene bullet, and criterion 7's ANOVA
+- Depends on: RFC-0015 (the answer MAP), RFC-0019 §S5, §S12
+- Status: **RESOLVED** by the repository owner, 2026-11-23: "df1 and df2
+  keys". Option **A**.
+
+| Option | Reading |
+|---|---|
+| **A** | An F test answers `df1` (k − 1) and `df2` (N − k), each a FLOAT, and no `df`, so `df` keeps RFC-0015's meaning of one FLOAT |
+| **B** | `df` is a LIST of the two, as `stat.lm`'s `f.df` is |
+| **C** | No degrees of freedom in the answer |
+
+Recommended: **A**. A program reading `df` as a FLOAT never meets a LIST,
+and each number has a name.

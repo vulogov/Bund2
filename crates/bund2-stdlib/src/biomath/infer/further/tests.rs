@@ -1,4 +1,4 @@
-//! RFC-0019 criterion 5, and 1 and 14, for §S5's rank and table tests.
+//! RFC-0019 criteria 5 and 6, and 1 and 14, for §S5's further tests.
 
 use std::collections::BTreeMap;
 
@@ -9,6 +9,8 @@ use super::WORDS;
 use crate::biomath::testkit::{err, floats, run, run_on};
 
 const FURTHER: &str = include_str!("../../fixtures/further.txt");
+const SHAPIRO: &str = include_str!("../../fixtures/shapiro.txt");
+const NORMALITY: &str = include_str!("../../fixtures/normality.txt");
 
 fn refusal(src: &str) -> String {
     err(src)
@@ -62,6 +64,11 @@ fn every_word_is_registered_with_its_dot_form() {
         ("stat.test.mcnemar", 1),
         ("stat.test.mcnemar.opts", 2),
         ("stat.test.cmh", 1),
+        ("stat.test.shapiro", 1),
+        ("stat.test.ks1", 2),
+        ("stat.test.bartlett", 1),
+        ("stat.test.levene", 1),
+        ("stat.test.levene.opts", 2),
     ] {
         let e = i.registry.effect_of(w).unwrap_or_else(|| panic!("{w}"));
         assert!(!e.opaque, "{w}");
@@ -273,7 +280,8 @@ fn the_exact_distribution_is_the_enumeration() {
 #[test]
 fn the_dot_forms_take_the_top_from_the_workbench() {
     let mut seen = std::collections::BTreeSet::new();
-    for (program, _, _) in lines(FURTHER) {
+    let all = [FURTHER, SHAPIRO, NORMALITY];
+    for (program, _, _) in all.iter().flat_map(|t| lines(t)) {
         if !seen.insert(program) {
             continue;
         }
@@ -545,6 +553,13 @@ fn nothing_aborts() {
         "dict \"conf\" 0.01 set",
         "dict \"conf\" 0.999999 set \"exact\" false set",
         "dict \"alternative\" \"less\" set \"correct\" false set",
+        "0.0 1.0 dist.normal",
+        "6 0.2 list + 0.3 swap + 0.5 swap + dist.multinomial",
+        "[ [ 1 2 ] [ 3 4 5 ] ]",
+        "[ [ 1 1 ] [ 2 2 ] ]",
+        "[ [ 1 float.NaN ] [ 2 3 ] ]",
+        "dict \"center\" \"mean\" set",
+        "dict \"center\" 1 set",
     ];
     for w in WORDS.iter().filter(|w| !w.ends_with('.')) {
         for a in operands {
@@ -566,4 +581,180 @@ fn nothing_aborts() {
             }
         }
     }
+}
+
+// Criterion 6.
+
+/// Shapiro–Wilk against R's `shapiro.test` (N10): the version on the
+/// fixture's first line, every sample of `shapiro.R`, at 10⁻⁹.
+#[test]
+fn shapiro_wilk_matches_r() {
+    assert!(SHAPIRO.starts_with("# R version 4."), "R >= 4.4 (N10)");
+    let all = lines(SHAPIRO);
+    assert_eq!(all.len(), 24);
+    for (program, k, want) in all {
+        let got = key(&answer(program), k);
+        assert!(
+            agrees(k, got, want),
+            "{program}: {k} {got:e} against {want:e}"
+        );
+    }
+}
+
+/// The one-sample KS test (exact and limit), Bartlett and Levene against
+/// `normality.py`'s definitions.
+#[test]
+fn ks_bartlett_and_levene_match_the_fixture() {
+    let all = lines(NORMALITY);
+    assert_eq!(all.len(), 55);
+    for (program, k, want) in all {
+        let got = key(&answer(program), k);
+        assert!(
+            agrees(k, got, want),
+            "{program}: {k} {got:e} against {want:e}"
+        );
+    }
+}
+
+#[test]
+fn each_m5_method_and_key_set() {
+    let names = |src: &str| -> Vec<String> { answer(src).keys().cloned().collect() };
+    let method = |src: &str| -> String {
+        answer(src)
+            .get("method")
+            .and_then(BundValue::as_str)
+            .unwrap_or_default()
+    };
+    let g = "[ [ 4.2 4.8 5.1 3.9 ] [ 6.1 5.2 7.9 4.8 6.6 ] ]";
+    for (src, m, keys) in [
+        (
+            "[ 1 2 4 ] stat.test.shapiro".to_string(),
+            "Shapiro-Wilk normality test",
+            &["method", "p", "statistic"][..],
+        ),
+        (
+            "[ 0.1 0.5 0.7 ] 0.0 1.0 dist.uniform stat.test.ks1".into(),
+            "Exact one-sample Kolmogorov-Smirnov test",
+            &["method", "p", "statistic"][..],
+        ),
+        (
+            "[ 0.1 0.5 0.5 ] 0.0 1.0 dist.uniform stat.test.ks1".into(),
+            "Asymptotic one-sample Kolmogorov-Smirnov test",
+            &["method", "p", "statistic"][..],
+        ),
+        (
+            format!("{g} stat.test.bartlett"),
+            "Bartlett test of homogeneity of variances",
+            &["df", "method", "p", "statistic"][..],
+        ),
+        (
+            format!("{g} stat.test.levene"),
+            "Levene's test for homogeneity of variance (center = median)",
+            &["df1", "df2", "method", "p", "statistic"][..],
+        ),
+        (
+            format!("{g} dict \"center\" \"mean\" set stat.test.levene.opts"),
+            "Levene's test for homogeneity of variance (center = mean)",
+            &["df1", "df2", "method", "p", "statistic"][..],
+        ),
+    ] {
+        assert_eq!(method(&src), m, "{src}");
+        assert_eq!(names(&src), keys, "{src}");
+    }
+    // An empty options MAP is the plain word, bit for bit.
+    assert_eq!(
+        answer(&format!("{g} dict stat.test.levene.opts")),
+        answer(&format!("{g} stat.test.levene"))
+    );
+}
+
+/// The exact KS path is K2x's matrix power, which rescales by 10^140; at
+/// n = 99 and a small D the rescaling is reached and P(D < d) stays in
+/// [0, 1], and 1 − p sums with P(D < d).
+#[test]
+fn the_exact_ks_path_rescales() {
+    let xs: Vec<String> = (0..99)
+        .map(|i| format!("{:.6}", (i as f64 + 0.5) / 99.0))
+        .collect();
+    let m = answer(&format!(
+        "[ {} ] 0.0 1.0 dist.uniform stat.test.ks1",
+        xs.join(" ")
+    ));
+    let p = key(&m, "p");
+    assert!(p > 0.999 && p <= 1.0, "{p}");
+    assert_eq!(
+        m.get("method")
+            .and_then(BundValue::as_str)
+            .unwrap_or_default(),
+        "Exact one-sample Kolmogorov-Smirnov test"
+    );
+}
+
+#[test]
+fn each_m5_refusal_is_its_template() {
+    for (src, want) in [
+        (
+            "[ 1 2 ] stat.test.shapiro".to_string(),
+            "STAT.TEST.SHAPIRO: E101 x is outside stat.test.shapiro's domain: a sample of 2",
+        ),
+        (
+            "[ 3 3 3 3 ] stat.test.shapiro".into(),
+            "STAT.TEST.SHAPIRO: E101 x is outside stat.test.shapiro's domain",
+        ),
+        (
+            "[ 1 2 3 ] float.NaN push stat.test.shapiro".into(),
+            "STAT.TEST.SHAPIRO: E101 x is outside stat.test.shapiro's domain: NaN at 1",
+        ),
+        (
+            "list 0.0 1.0 dist.normal stat.test.ks1".into(),
+            "STAT.TEST.KS1: E101 x is outside stat.test.ks1's domain: an empty series",
+        ),
+        (
+            "[ 0.5 ] 6 0.2 list + 0.3 swap + 0.5 swap + dist.multinomial stat.test.ks1".into(),
+            "STAT.TEST.KS1: E105",
+        ),
+        (
+            "[ 0.5 ] 1.0 stat.test.ks1".into(),
+            "STAT.TEST.KS1: E101 d is outside stat.test.ks1's domain",
+        ),
+        (
+            "[ [ 1 2 ] [ 3 ] ] stat.test.bartlett".into(),
+            "STAT.TEST.BARTLETT: E101 group 2 is outside stat.test.bartlett's domain: a sample of 1",
+        ),
+        (
+            "[ [ 1 2 ] [ 3 3 ] ] stat.test.bartlett".into(),
+            "STAT.TEST.BARTLETT: E101 group 2 is outside stat.test.bartlett's domain",
+        ),
+        (
+            "[ [ 1 2 ] ] stat.test.bartlett".into(),
+            "STAT.TEST.BARTLETT: E101 groups is outside stat.test.bartlett's domain: a list of 1 group",
+        ),
+        (
+            "[ [ 1 ] [ 2 ] ] stat.test.levene".into(),
+            "STAT.TEST.LEVENE: E101 groups is outside stat.test.levene's domain: 2 values in 2 groups",
+        ),
+        (
+            "[ [ 1 3 ] [ 2 6 ] ] stat.test.levene".into(),
+            "STAT.TEST.LEVENE: E101 groups is outside stat.test.levene's domain: every deviation from its centre equal within its group",
+        ),
+        (
+            "[ [ 1 2 3 ] [ 2 6 7 ] ] dict \"centre\" \"mean\" set stat.test.levene.opts".into(),
+            "STAT.TEST.LEVENE.OPTS: E101 opts is outside stat.test.levene.opts's domain: an unknown key \"centre\"",
+        ),
+        (
+            "[ [ 1 2 3 ] [ 2 6 7 ] ] dict \"center\" \"trimmed\" set stat.test.levene.opts".into(),
+            "STAT.TEST.LEVENE.OPTS: E101 center is outside stat.test.levene.opts's domain",
+        ),
+    ] {
+        let e = refusal(&src);
+        assert!(e.starts_with(want), "{src}: {e}");
+    }
+    // 5000 values answer; 5001 are refused.
+    let xs = |n: usize| -> String {
+        let v: Vec<String> = (0..n).map(|i| format!("{}.0", (i * 7919) % 5003)).collect();
+        format!("[ {} ]", v.join(" "))
+    };
+    answer(&format!("{} stat.test.shapiro", xs(5000)));
+    let e = refusal(&format!("{} stat.test.shapiro", xs(5001)));
+    assert!(e.contains("a sample of 5001"), "{e}");
 }
