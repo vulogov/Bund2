@@ -112,6 +112,38 @@ fn each_family_against_the_fixture() {
     assert_eq!(seen, 177);
 }
 
+const STUDENT: &str = include_str!("../fixtures/student.txt");
+
+/// The t at a large df and near p = ½, where its cdf answered ½ (at 1e30)
+/// and its quantile failed to polish (from 2e6, and near ½): student.py's
+/// mpmath values, independent of the incomplete beta. Density and tails to
+/// 1e-12; a quantile to 1e-9, or within 1e-15 absolutely below 1e-6, since
+/// near ½ every x within ulp(p)/pdf ≈ 3e-16 of the quantile is the same p.
+#[test]
+fn the_t_at_a_large_df_and_near_one_half() {
+    let mut seen = 0;
+    for line in STUDENT.lines() {
+        let (program, want) = line.rsplit_once(' ').unwrap();
+        let want: f64 = want.parse().unwrap();
+        let got = one(program);
+        if program.ends_with("dist.quantile") && want.abs() < 1e-6 {
+            assert!(
+                (got - want).abs() <= 1e-15,
+                "{program}: {got:e} against {want:e}"
+            );
+        } else {
+            let tol = if program.ends_with("dist.quantile") {
+                1e-9
+            } else {
+                1e-12
+            };
+            close(program, &[got], &[want], tol);
+        }
+        seen += 1;
+    }
+    assert_eq!(seen, 102);
+}
+
 #[test]
 fn the_cdf_of_the_quantile_is_p() {
     for d in &FAMILIES[..CONTINUOUS] {

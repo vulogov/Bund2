@@ -104,20 +104,152 @@ pub(crate) fn beta_reg(x: f64, a: f64, b: f64) -> Result<f64, u64> {
 /// computes directly is the smaller near either tail, so a distribution's
 /// upper tail (§S7) is not 1 less something close to 1.
 pub(crate) fn beta_both(x: f64, a: f64, b: f64) -> Result<(f64, f64), u64> {
-    if x == 0.0 {
+    beta_split(
+        Split {
+            x,
+            xc: 1.0 - x,
+            ln_x: x.ln(),
+            ln_xc: (-x).ln_1p(),
+            neg_ln_beta: lgamma(a + b) - lgamma(a) - lgamma(b),
+        },
+        a,
+        b,
+    )
+}
+
+/// x and 1 − x with their logarithms, and −ln B(a, b), each computed by the
+/// caller as accurately as it can: `beta_both` derives them from x, which
+/// loses 1 − x once x is within an ulp of 1, and ln B(a, b) as a difference
+/// of `lgamma`s, which cancels when a or b is large.
+pub(crate) struct Split {
+    pub(crate) x: f64,
+    pub(crate) xc: f64,
+    pub(crate) ln_x: f64,
+    pub(crate) ln_xc: f64,
+    pub(crate) neg_ln_beta: f64,
+}
+
+/// `beta_both` with x's complement and logarithms given (`Split`).
+pub(crate) fn beta_split(s: Split, a: f64, b: f64) -> Result<(f64, f64), u64> {
+    if s.x == 0.0 {
         return Ok((0.0, 1.0));
     }
-    if x == 1.0 {
+    if s.xc == 0.0 {
         return Ok((1.0, 0.0));
     }
-    let front = (lgamma(a + b) - lgamma(a) - lgamma(b) + a * x.ln() + b * (-x).ln_1p()).exp();
-    if x < (a + 1.0) / (a + b + 2.0) {
-        let lower = (front * beta_cf(x, a, b)? / a).min(1.0);
+    let front = (s.neg_ln_beta + a * s.ln_x + b * s.ln_xc).exp();
+    if s.x < (a + 1.0) / (a + b + 2.0) {
+        let lower = (front * beta_cf(s.x, a, b)? / a).min(1.0);
         Ok((lower, 1.0 - lower))
     } else {
-        let upper = (front * beta_cf(1.0 - x, b, a)? / b).min(1.0);
+        let upper = (front * beta_cf(s.xc, b, a)? / b).min(1.0);
         Ok((1.0 - upper, upper))
     }
+}
+
+/// ln B(a, b) for a, b > 0 without the cancellation of
+/// `lgamma(a) + lgamma(b) − lgamma(a + b)` when either is large: R's `lbeta`
+/// (nmath/lbeta.c), Stirling's form with `lgammacor` once an argument
+/// reaches 10.
+pub(crate) fn ln_beta(a: f64, b: f64) -> f64 {
+    let (p, q) = if a < b { (a, b) } else { (b, a) };
+    let ln_sqrt_2pi = 0.5 * (2.0 * std::f64::consts::PI).ln();
+    if p >= 10.0 {
+        let corr = lgammacor(p) + lgammacor(q) - lgammacor(p + q);
+        -0.5 * q.ln()
+            + ln_sqrt_2pi
+            + corr
+            + (p - 0.5) * (p / (p + q)).ln()
+            + q * (-p / (p + q)).ln_1p()
+    } else if q >= 10.0 {
+        let corr = lgammacor(q) - lgammacor(p + q);
+        lgamma(p) + corr + p - p * (p + q).ln() + (q - 0.5) * (-p / (p + q)).ln_1p()
+    } else {
+        lgamma(p) + lgamma(q) - lgamma(p + q)
+    }
+}
+
+/// The terms `beta_half`'s expansion may take, toms708's `n_terms_bgrat`.
+const BGRAT_TERMS: usize = 30;
+
+/// I_x(a, ½) for a large a, from ln x: Didonato and Morris's asymptotic
+/// expansion through the incomplete gamma, R's `bgrat` (nmath/toms708.c at
+/// R 4.4.2) with b = ½ and w = 0, where Q(½, z) = erfc(√z). It replaces the
+/// continued fraction at x near 1, where each of its levels cancels to about
+/// 1/a and so loses a factor a of precision. The expansion is carried scaled
+/// by toms708's u, so e^−z in u and e^z in its `grat_r` cancel in the algebra,
+/// not in f64. The number of terms it ran out at, if it does not converge.
+pub(crate) fn beta_half(a: f64, ln_x: f64) -> Result<f64, u64> {
+    let b = 0.5;
+    let bm1 = -0.5;
+    let nu = a + bm1 * 0.5;
+    let z = -nu * ln_x;
+    if z == 0.0 {
+        return Ok(1.0);
+    }
+    let q = libm::erfc(z.sqrt());
+    if q == 0.0 {
+        // Q(½, z) underflows, and with it every term.
+        return Ok(0.0);
+    }
+    let half_ln_pi = 0.5 * std::f64::consts::PI.ln();
+    // −(algdiv(½, a) + ½ ln ν), algdiv(½, a) = ln Γ(a) − ln Γ(a + ½).
+    let s = -(ln_beta(0.5, a) - half_ln_pi + b * nu.ln());
+    // u = e^−z z^½ / Γ(½) · e^s, and u·Q/r = Q·e^s.
+    let u = (0.5 * z.ln() - z - half_ln_pi + s).exp();
+    let mut j = q * s.exp();
+    let mut sum = j;
+    let v = 0.25 / (nu * nu);
+    let t2 = 0.25 * ln_x * ln_x;
+    let (mut t, mut cn, mut n2) = (1.0, 1.0, 0.0);
+    let mut c = [0.0; BGRAT_TERMS];
+    let mut d = [0.0; BGRAT_TERMS];
+    for n in 1..=BGRAT_TERMS {
+        let bp2n = b + n2;
+        j = (bp2n * (bp2n + 1.0) * j + (z + bp2n + 1.0) * t * u) * v;
+        n2 += 2.0;
+        t *= t2;
+        cn /= n2 * (n2 + 1.0);
+        let nm1 = n - 1;
+        c[nm1] = cn;
+        let mut acc = 0.0;
+        let mut coef = b - n as f64;
+        for (k, ck) in c[..nm1].iter().enumerate() {
+            acc += coef * ck * d[nm1 - 1 - k];
+            coef += b;
+        }
+        d[nm1] = bm1 * cn + acc / n as f64;
+        let dj = d[nm1] * j;
+        sum += dj;
+        if sum <= 0.0 {
+            return Err(n as u64);
+        }
+        if dj.abs() <= EPS * sum {
+            return Ok(sum);
+        }
+    }
+    Err(BGRAT_TERMS as u64)
+}
+
+/// ln Γ(x) less Stirling's approximation, for x ≥ 10: the asymptotic
+/// series to x⁻¹³, whose next term is below 4e-17 there.
+fn lgammacor(x: f64) -> f64 {
+    // B₂ₖ / (2k(2k − 1)), k = 1..7.
+    const C: [f64; 7] = [
+        1.0 / 12.0,
+        -1.0 / 360.0,
+        1.0 / 1260.0,
+        -1.0 / 1680.0,
+        1.0 / 1188.0,
+        -691.0 / 360_360.0,
+        1.0 / 156.0,
+    ];
+    let r = 1.0 / (x * x);
+    let mut sum = 0.0;
+    for c in C.iter().rev() {
+        sum = sum * r + c;
+    }
+    sum / x
 }
 
 /// The continued fraction of I_x(a, b), by the modified Lentz method.

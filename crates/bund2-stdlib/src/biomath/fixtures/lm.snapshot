@@ -4,7 +4,7 @@ lm.fixture coef 2 3f21786ef6f14106
 lm.fixture df 0 4014000000000000
 lm.fixture p 0 3f55cdcf74e57d9e
 lm.fixture p 1 3ea8d14c30462a62
-lm.fixture p 2 3feff372755536c3
+lm.fixture p 2 3feff3727555391a
 lm.fixture r2 0 3feff67dcf3f267b
 lm.fixture se 0 3fc48bbca541b049
 lm.fixture se 1 3fb0e659e82d65a4
@@ -15,8 +15,8 @@ lm.fixture t 2 3f6088ba8e3ef4fb
 lm.forms coef 0 3cc0000000000000
 lm.forms coef 1 3ff0cccccccccccc
 lm.forms df 0 4000000000000000
-lm.forms p 0 3ff0000000000000
-lm.forms p 1 3facbbc92f4eb82f
+lm.forms p 0 3feffffffffffffc
+lm.forms p 1 3facbbc92f4eb82b
 lm.forms r2 0 3fec8253c8253c82
 lm.forms se 0 3fe6c4b5ce915235
 lm.forms se 1 3fd0a0b02501c79c

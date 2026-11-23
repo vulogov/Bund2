@@ -60,13 +60,17 @@ use statrs::function::erf::erfc_inv;
 use super::operand::{WIDTH, domain, finite, operands, real};
 use super::refuse::Refusal;
 use super::rng::with_rng;
-use super::special::{beta_both, eti, gamma_both, lgamma};
+use super::special::{Split, beta_both, beta_half, beta_split, eti, gamma_both, lgamma, ln_beta};
 
 /// The most means `dist.tukey` takes (RFC-0019 §S3), E104 above.
 const TUKEY_NMEANS: u64 = 10_000;
 
 /// The most draws one `dist.sample*` makes (§S7, D39).
 const DRAW_CAP: u64 = 100_000_000;
+
+/// The df from which the t's tails take `beta_half`'s expansion: below it,
+/// the continued fraction at ν/(ν+x²) near 1 loses about ν·ε, under 2e-13.
+const T_EXPANSION_DF: f64 = 1000.0;
 
 /// The most steps a continuous quantile's polish takes (§S7).
 const POLISH_CAP: u64 = 100;
@@ -595,10 +599,9 @@ impl Family {
                 } else {
                     (r * r).ln_1p()
                 };
-                lgamma((df + 1.0) / 2.0)
-                    - lgamma(df / 2.0)
-                    - 0.5 * (df * std::f64::consts::PI).ln()
-                    - (df + 1.0) / 2.0 * l
+                // Γ((ν+1)/2) / (Γ(ν/2)·√(νπ)) = 1 / (B(ν/2, ½)·√ν), by
+                // `ln_beta`: the `lgamma` difference cancels at a large ν.
+                -ln_beta(df / 2.0, 0.5) - 0.5 * df.ln() - (df + 1.0) / 2.0 * l
             }
             Family::F { df1, df2 } => {
                 if x < 0.0 {
@@ -699,6 +702,10 @@ impl Family {
             beta_both(x, a, b)
                 .map_err(|cap| eti(word, "the incomplete beta's continued fraction", cap))
         };
+        let split = |s: Split, a: f64, b: f64| {
+            beta_split(s, a, b)
+                .map_err(|cap| eti(word, "the incomplete beta's continued fraction", cap))
+        };
         let gamma =
             |x: f64, a: f64| gamma_both(x, a).map_err(|cap| eti(word, "the incomplete gamma", cap));
         let below = (0.0, 1.0);
@@ -757,9 +764,46 @@ impl Family {
                 if x == 0.0 {
                     (0.5, 0.5)
                 } else {
+                    // R's pt (nmath/pt.c): P(|T| > |x|) is I at x²/(ν+x²)
+                    // or at its complement ν/(ν+x²), each with its logarithm
+                    // from ln(1 + x²/ν), so neither rounds to 1 at a large ν,
+                    // and ln B by `ln_beta`, which does not cancel there.
                     let r = x / df.sqrt();
-                    let w = 1.0 / (1.0 + r * r);
-                    let tail = beta(w, df / 2.0, 0.5)?.0 / 2.0;
+                    let r2 = r * r;
+                    let both = if r2 > 1e100 {
+                        // pt's arm for x² > 1e100·ν: I's leading term.
+                        (-0.5 * df * (2.0 * x.abs().ln() - df.ln())
+                            - ln_beta(0.5 * df, 0.5)
+                            - (0.5 * df).ln())
+                        .exp()
+                    } else if df >= T_EXPANSION_DF {
+                        // P(|T| > |x|) = I at ν/(ν+x²) of (ν/2, ½), whose
+                        // logarithm is −ln(1 + x²/ν).
+                        beta_half(df / 2.0, -r2.ln_1p())
+                            .map_err(|cap| eti(word, "the incomplete beta's expansion", cap))?
+                    } else {
+                        let l1 = r2.ln_1p();
+                        let near = Split {
+                            x: r2 / (1.0 + r2),
+                            xc: 1.0 / (1.0 + r2),
+                            ln_x: r2.ln() - l1,
+                            ln_xc: -l1,
+                            neg_ln_beta: -ln_beta(0.5, df / 2.0),
+                        };
+                        if r2 < 1.0 {
+                            split(near, 0.5, df / 2.0)?.1
+                        } else {
+                            let far = Split {
+                                x: near.xc,
+                                xc: near.x,
+                                ln_x: near.ln_xc,
+                                ln_xc: near.ln_x,
+                                neg_ln_beta: near.neg_ln_beta,
+                            };
+                            split(far, df / 2.0, 0.5)?.0
+                        }
+                    };
+                    let tail = both / 2.0;
                     if x < 0.0 {
                         (tail, 1.0 - tail)
                     } else {
