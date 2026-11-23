@@ -29,7 +29,7 @@
 //! plain word's keys, through the plain word's own code.
 //!
 //! **RFC-0016 §S3's correlation tests** are [`cor`]'s, with their own
-//! `WORDS`.
+//! `WORDS`; RFC-0019 §S5's further tests are [`further`]'s, with theirs.
 //!
 //! **The p values come from §S7's own tails** (`dist`), the t's, the χ²'s and
 //! the normal's, so they share its accuracy and its refusals.
@@ -1030,6 +1030,7 @@ pub fn register(r: &mut Registry) {
     word!("stat.lm", stat_lm, 2);
     opts::register(r);
     cor::register(r);
+    further::register(r);
 }
 
 /// The words with their forms: four for a correction, two for the rest.
@@ -1099,6 +1100,7 @@ pub const WORDS: [&str; 62] = [
 ];
 
 pub mod cor;
+pub mod further;
 mod opts;
 
 #[cfg(test)]

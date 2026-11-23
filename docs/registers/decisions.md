@@ -18167,3 +18167,29 @@ Recommended: **A**. It is what the help pages can check without
 rerunning R differently from its documentation, and the fixture's 10⁻⁹
 (the second bullet) already pins the exact root. C would make Bund2's
 answer depend on Brent's path through R's bracket.
+
+## D271 — RFC-0019 §S5: what `stat.test.cmh` reads as a stratum
+
+**Raised 2026-11-22** by RFC-0019 M4. §S5 gives `stat.test.cmh` "a LIST of
+2×2 MATRIXes", and says a stratum that is not a 2×2 MATRIX is E101 naming
+the stratum. No Bund program can build that operand. `push` casts the
+value it adds to a LIST before adding it (`crates/bund2-stdlib/src/singles.rs`,
+`push_base`, `as_list(&second)`), so a MATRIX pushed becomes the LIST of
+its rows. A list literal holds its items unevaluated, so `matrix` inside
+one is not run. Probed: `[ [ 1 2 ] [ 3 4 ] ] matrix list push` answers a
+LIST whose one item is the LIST `[ [ 1 2 ] [ 3 4 ] ]`. Taken as written,
+the word would answer only values an embedder builds.
+
+- Blocks: RFC-0019 criterion 5's CMH bullets, and so M4's acceptance
+- Depends on: RFC-0019 §S5
+- Status: **RESOLVED** by the repository owner, 2026-11-22: "MATRIX or rows". Option **A**.
+
+| Option | Reading |
+|---|---|
+| **A** | A stratum is a 2×2 MATRIX, or a LIST of two rows of two numbers, which is what `push` and a literal produce: `[ [ [ 0 6 ] [ 0 5 ] ] [ [ 3 3 ] [ 0 6 ] ] ] stat.test.cmh`. Anything else is E101 naming the stratum; a cell that is not a number, or a ragged row, is E103, as `table` refuses one |
+| **B** | MATRIX only, as §S5 is written; the gap recorded as an open question |
+| **C** | Rows only: a LIST of two rows, a MATRIX refused |
+
+Recommended: **A**. It keeps §S5's MATRIX and its refusals, and adds the
+one shape a program can write. §S5's text reads with this amendment; the
+RFC itself is not edited.

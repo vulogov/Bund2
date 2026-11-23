@@ -863,8 +863,11 @@ mod honesty_tests {
         // passes that check; its form's are too.
         // RFC-0019 §S13: `dist.ncf`'s first operand is df1, a number its
         // check refuses unless it is finite and above 0 (§S2); its form's
-        // is too.
-        const UNVARIED: [&str; 83] = [
+        // is too. `stat.test.wilcoxon.opts`' first operand is x, and
+        // `stat.test.wilcoxon.paired.opts`' a, each a series read as
+        // `whole` reads one, E115 unless a LIST or METRICS (§S5); their
+        // forms' are too.
+        const UNVARIED: [&str; 87] = [
             "bio.align",
             "bio.align.",
             "bio.align.score",
@@ -946,6 +949,10 @@ mod honesty_tests {
             "stat.test.t2.opts.",
             "stat.test.welch.opts",
             "stat.test.welch.opts.",
+            "stat.test.wilcoxon.opts",
+            "stat.test.wilcoxon.opts.",
+            "stat.test.wilcoxon.paired.opts",
+            "stat.test.wilcoxon.paired.opts.",
             "tag",
             "tag.",
         ];

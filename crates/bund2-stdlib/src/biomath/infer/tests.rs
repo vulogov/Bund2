@@ -74,9 +74,11 @@ fn every_word_is_registered() {
         .word_names()
         .into_iter()
         .filter(|n| {
-            n.starts_with("stat.test.")
+            (n.starts_with("stat.test.")
                 || n.starts_with("stat.padjust.")
-                || n.starts_with("stat.lm")
+                || n.starts_with("stat.lm"))
+                // RFC-0019 §S5's, which `further`'s own test holds.
+                && !super::further::WORDS.contains(&n.as_str())
         })
         .count();
     assert_eq!(ours, WORDS.len());
