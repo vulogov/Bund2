@@ -117,36 +117,36 @@ too, at the least pair of depths it accepts.
 | `clear` |  |  | 0+ | 0 | int |  |  |  |  | reference/rust_multistack/src/stdlib/clear.rs:58 |  |
 | `clear_in` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistack/src/stdlib/clear.rs:60 | type-constrained: list rejected |
 | `clear_stacks` |  |  | 0 | 0 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/stacks.rs:18 |  |
-| `clusters.detect` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/clustering.rs:57 | not probed: effectful, out of scope, or terminates |
-| `clusters.detect.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/clustering.rs:58 | not probed: effectful, out of scope, or terminates |
+| `clusters.detect` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/clustering.rs:57 | type-constrained: list rejected |
+| `clusters.detect.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/clustering.rs:58 | no sentinel type accepted |
 | `compile` | 1 |  | 1 | 1 | string |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_interpreter.rs:76 |  |
 | `complex` | 1 |  | 2 | 1 | float |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:144 |  |
 | `concat_with_space` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/string/concat_with_space.rs:52 | type-constrained: list rejected |
 | `conditional` |  |  | 0 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:141 |  |
 | `config` |  |  | 0 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:140 |  |
-| `console.box` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/terminal.rs:63 | not probed: effectful, out of scope, or terminates |
-| `console.clear` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/terminal.rs:60 | not probed: effectful, out of scope, or terminates |
-| `console.spinner` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:338 | not probed: effectful, out of scope, or terminates |
-| `console.spinner.fail` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:341 | not probed: effectful, out of scope, or terminates |
-| `console.spinner.info` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:343 | not probed: effectful, out of scope, or terminates |
-| `console.spinner.stop` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:339 | not probed: effectful, out of scope, or terminates |
-| `console.spinner.success` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:340 | not probed: effectful, out of scope, or terminates |
-| `console.spinner.warning` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:342 | not probed: effectful, out of scope, or terminates |
-| `console.text` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:353 | not probed: effectful, out of scope, or terminates |
-| `console.text.blue` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:356 | not probed: effectful, out of scope, or terminates |
-| `console.text.cyan` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:358 | not probed: effectful, out of scope, or terminates |
-| `console.text.error` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:363 | not probed: effectful, out of scope, or terminates |
-| `console.text.green` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:355 | not probed: effectful, out of scope, or terminates |
-| `console.text.magenta` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:357 | not probed: effectful, out of scope, or terminates |
+| `console.box` |  |  | 1 | 1 | string |  |  |  |  | reference/Bund/src/stdlib/functions/console/terminal.rs:63 |  |
+| `console.clear` |  |  | 0 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/terminal.rs:60 |  |
+| `console.spinner` |  |  | 1 | 0 | string |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:338 |  |
+| `console.spinner.fail` |  |  | 1 | 0 | string |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:341 |  |
+| `console.spinner.info` |  |  | 1 | 0 | string |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:343 |  |
+| `console.spinner.stop` |  |  | 1 | 0 | string |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:339 |  |
+| `console.spinner.success` |  |  | 1 | 0 | string |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:340 |  |
+| `console.spinner.warning` |  |  | 1 | 0 | string |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:342 |  |
+| `console.text` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:353 |  |
+| `console.text.blue` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:356 |  |
+| `console.text.cyan` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:358 |  |
+| `console.text.error` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:363 |  |
+| `console.text.green` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:355 |  |
+| `console.text.magenta` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:357 |  |
 | `console.text.matrix` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:365 | not probed: effectful, out of scope, or terminates |
-| `console.text.ok` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:361 | not probed: effectful, out of scope, or terminates |
+| `console.text.ok` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:361 |  |
 | `console.text.rainbow` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:366 | not probed: effectful, out of scope, or terminates |
 | `console.text.randomcolor` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:360 | not probed: effectful, out of scope, or terminates |
-| `console.text.red` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:354 | not probed: effectful, out of scope, or terminates |
-| `console.text.warning` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:362 | not probed: effectful, out of scope, or terminates |
-| `console.text.yellow` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:359 | not probed: effectful, out of scope, or terminates |
-| `console.title` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/terminal.rs:61 | not probed: effectful, out of scope, or terminates |
-| `console.typewriter` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/terminal.rs:62 | not probed: effectful, out of scope, or terminates |
+| `console.text.red` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:354 |  |
+| `console.text.warning` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:362 |  |
+| `console.text.yellow` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:359 |  |
+| `console.title` |  |  | 1 | 0 | string |  |  |  |  | reference/Bund/src/stdlib/functions/console/terminal.rs:61 |  |
+| `console.typewriter` |  |  | 1 | 0 | string |  |  |  |  | reference/Bund/src/stdlib/functions/console/terminal.rs:62 |  |
 | `context` |  |  | 1 | 1 | string |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:39 |  |
 | `convert.from_html` | 1 |  | 1 | 1 | string |  |  |  |  | reference/Bund/src/stdlib/functions/convert/html.rs:66 |  |
 | `convert.from_html.` |  | 1 |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/convert/html.rs:67 | no sentinel type accepted |
@@ -220,20 +220,20 @@ too, at the least pair of depths it accepts.
 | `fold_stack` | 1 |  | 1+ | 1 | string |  |  |  |  | reference/rust_multistack/src/stdlib/fold.rs:43 |  |
 | `for` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/for_fun.rs:101 | type-constrained: list rejected |
 | `for.` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/for_fun.rs:102 | type-constrained: list rejected |
-| `forecast.estimate` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:167 | not probed: effectful, out of scope, or terminates |
-| `forecast.estimate!` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:171 | not probed: effectful, out of scope, or terminates |
-| `forecast.estimate!.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:172 | not probed: effectful, out of scope, or terminates |
-| `forecast.estimate.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:168 | not probed: effectful, out of scope, or terminates |
-| `forecast.estimate.uncertainty` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:169 | not probed: effectful, out of scope, or terminates |
-| `forecast.estimate.uncertainty.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:170 | not probed: effectful, out of scope, or terminates |
-| `forecast.markov` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:74 | not probed: effectful, out of scope, or terminates |
-| `forecast.markov,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:76 | not probed: effectful, out of scope, or terminates |
-| `forecast.markov.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:75 | not probed: effectful, out of scope, or terminates |
-| `forecast.markov.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:77 | not probed: effectful, out of scope, or terminates |
-| `forecast.mstl` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:103 | not probed: effectful, out of scope, or terminates |
-| `forecast.mstl,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:105 | not probed: effectful, out of scope, or terminates |
-| `forecast.mstl.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:104 | not probed: effectful, out of scope, or terminates |
-| `forecast.mstl.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:106 | not probed: effectful, out of scope, or terminates |
+| `forecast.estimate` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:167 | type-constrained: list rejected |
+| `forecast.estimate!` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:171 | type-constrained: list rejected |
+| `forecast.estimate!.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:172 | no sentinel type accepted |
+| `forecast.estimate.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:168 | no sentinel type accepted |
+| `forecast.estimate.uncertainty` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:169 | type-constrained: list rejected |
+| `forecast.estimate.uncertainty.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:170 | no sentinel type accepted |
+| `forecast.markov` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:74 |  |
+| `forecast.markov,` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:76 |  |
+| `forecast.markov.` |  |  |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/forecast/markov.rs:75 | no sentinel type accepted |
+| `forecast.markov.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:77 | no sentinel type accepted |
+| `forecast.mstl` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:103 | type-constrained: list rejected |
+| `forecast.mstl,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:105 | type-constrained: list rejected |
+| `forecast.mstl.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:104 | no sentinel type accepted |
+| `forecast.mstl.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/mstl.rs:106 | no sentinel type accepted |
 | `format` | 1 |  | 1 | 1 | string |  |  |  |  | reference/rust_multistackvm/src/stdlib/string/format.rs:135 |  |
 | `format.` |  | 1 |  |  |  | 0 | 1 | 1 | 0 | reference/rust_multistackvm/src/stdlib/string/format.rs:136 | no sentinel type accepted |
 | `fs.cp` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/cp.rs:150 | not probed: effectful, out of scope, or terminates |
@@ -383,14 +383,14 @@ too, at the least pair of depths it accepts.
 | `notifthenelse.` | 2 | 1 |  |  |  | 2 | 0 | 1 | 0 | reference/rust_multistackvm/src/stdlib/logic/ifthenelse_fun.rs:106 | no sentinel type accepted; both axes: workbench bool, stack lambda |
 | `object` | 1 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/bund_object.rs:192 | type-constrained: list rejected |
 | `or` | 2 |  | 2 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/logic/logic_ops_fun.rs:134 |  |
-| `outlier.detect` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers.rs:57 | not probed: effectful, out of scope, or terminates |
-| `outlier.detect.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers.rs:58 | not probed: effectful, out of scope, or terminates |
-| `outlier.detect.dbscan` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers_dbscan.rs:57 | not probed: effectful, out of scope, or terminates |
-| `outlier.detect.dbscan.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers_dbscan.rs:58 | not probed: effectful, out of scope, or terminates |
+| `outlier.detect` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers.rs:57 | type-constrained: list rejected |
+| `outlier.detect.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers.rs:58 | no sentinel type accepted |
+| `outlier.detect.dbscan` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers_dbscan.rs:57 | type-constrained: list rejected |
+| `outlier.detect.dbscan.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/outliers_dbscan.rs:58 | no sentinel type accepted |
 | `pair` | 1 |  | 2 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:143 |  |
 | `password` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/io/input.rs:143 | not probed: effectful, out of scope, or terminates |
-| `periodic.detect` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/periodic_detector.rs:69 | not probed: effectful, out of scope, or terminates |
-| `periodic.detect.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/periodic_detector.rs:70 | not probed: effectful, out of scope, or terminates |
+| `periodic.detect` |  |  | 1+ | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/periodic_detector.rs:69 |  |
+| `periodic.detect.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/periodic_detector.rs:70 | no sentinel type accepted |
 | `predict` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/ai/mod.rs:65 | not probed: effectful, out of scope, or terminates |
 | `print` |  |  | 1 | 0 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/print.rs:63 |  |
 | `print.` | 1 |  |  |  |  | 1 | 1 | 1 | 0 | reference/rust_multistackvm/src/stdlib/print.rs:64 | no sentinel type accepted |
@@ -418,8 +418,8 @@ too, at the least pair of depths it accepts.
 | `rotate_stack_left` | 1 |  | 1 | 0 | string |  |  |  |  | reference/rust_multistack/src/stdlib/rotate.rs:100 |  |
 | `rotate_stack_right` | 1 |  | 1 | 0 | string |  |  |  |  | reference/rust_multistack/src/stdlib/rotate.rs:102 |  |
 | `sample` |  |  | 0 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/artefacts.rs:145 |  |
-| `sample.analysis` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:171 | not probed: effectful, out of scope, or terminates |
-| `sample.analysis.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:172 | not probed: effectful, out of scope, or terminates |
+| `sample.analysis` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:171 | type-constrained: list rejected |
+| `sample.analysis.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:172 | no sentinel type accepted |
 | `save` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_save.rs:147 | not probed: effectful, out of scope, or terminates |
 | `save.aliases` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_save.rs:148 | not probed: effectful, out of scope, or terminates |
 | `save.lambdas` | 1 |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/bund/bund_save.rs:149 | not probed: effectful, out of scope, or terminates |
@@ -444,14 +444,14 @@ too, at the least pair of depths it accepts.
 | `sort.` |  | 1 |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/values/sort_lists.rs:63 | no sentinel type accepted |
 | `sp` | 2 |  |  |  |  |  |  |  |  | reference/rust_multistackvm/src/stdlib/string/concat_with_space.rs:52 | type-constrained: list rejected |
 | `space` |  |  | 0 | 0 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/print.rs:67 |  |
-| `spinner.text` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:344 | not probed: effectful, out of scope, or terminates |
-| `spinner.text.blue` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:347 | not probed: effectful, out of scope, or terminates |
-| `spinner.text.cyan` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:349 | not probed: effectful, out of scope, or terminates |
-| `spinner.text.green` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:346 | not probed: effectful, out of scope, or terminates |
-| `spinner.text.magenta` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:348 | not probed: effectful, out of scope, or terminates |
+| `spinner.text` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:344 |  |
+| `spinner.text.blue` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:347 |  |
+| `spinner.text.cyan` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:349 |  |
+| `spinner.text.green` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:346 |  |
+| `spinner.text.magenta` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:348 |  |
 | `spinner.text.randomcolor` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:351 | not probed: effectful, out of scope, or terminates |
-| `spinner.text.red` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:345 | not probed: effectful, out of scope, or terminates |
-| `spinner.text.yellow` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:350 | not probed: effectful, out of scope, or terminates |
+| `spinner.text.red` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:345 |  |
+| `spinner.text.yellow` |  |  | 1 | 0 | int |  |  |  |  | reference/Bund/src/stdlib/functions/console/spinner.rs:350 |  |
 | `sqlite` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/conditional/mod.rs:43 | type-constrained: list rejected |
 | `stack` | 1 |  | 1+ | 0 | string |  |  |  |  | reference/rust_multistack/src/stdlib/ensure_stack.rs:95 |  |
 | `stack_exists` | 1 |  | 1 | 1 | string |  |  |  |  | reference/rust_multistack/src/stdlib/ensure_stack.rs:97 |  |
@@ -460,36 +460,36 @@ too, at the least pair of depths it accepts.
 | `stat.count,` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/count.rs:54 |  |
 | `stat.count.` |  |  |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/statistics/count.rs:53 | no sentinel type accepted |
 | `stat.count.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/count.rs:55 | no sentinel type accepted |
-| `stat.mean` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:185 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:186 | not probed: effectful, out of scope, or terminates |
+| `stat.mean` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:185 |  |
+| `stat.mean.` |  |  |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/statistics/statistics.rs:186 | no sentinel type accepted |
 | `stat.mean.arithmetic` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:185 |  |
 | `stat.mean.arithmetic,` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:187 |  |
 | `stat.mean.arithmetic.` |  |  |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/statistics/statistics.rs:186 | no sentinel type accepted |
 | `stat.mean.arithmetic.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:188 | no sentinel type accepted |
-| `stat.mean.arithmeticweighted` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:190 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.arithmeticweighted,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:192 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.arithmeticweighted.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:191 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.arithmeticweighted.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:193 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.geometric` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:200 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.geometric,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:202 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.geometric.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:201 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.geometric.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:203 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.geometricweighted` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:205 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.geometricweighted,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:207 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.geometricweighted.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:206 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.geometricweighted.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:208 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.harmonic` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:195 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.harmonic,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:197 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.harmonic.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:196 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.harmonic.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:198 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.harmonicspread` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:215 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.harmonicspread,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:217 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.harmonicspread.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:216 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.harmonicspread.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:218 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.harmonicweighted` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:210 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.harmonicweighted,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:212 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.harmonicweighted.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:211 | not probed: effectful, out of scope, or terminates |
-| `stat.mean.harmonicweighted.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:213 | not probed: effectful, out of scope, or terminates |
+| `stat.mean.arithmeticweighted` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:190 |  |
+| `stat.mean.arithmeticweighted,` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:192 |  |
+| `stat.mean.arithmeticweighted.` |  |  |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/statistics/statistics.rs:191 | no sentinel type accepted |
+| `stat.mean.arithmeticweighted.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:193 | no sentinel type accepted |
+| `stat.mean.geometric` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:200 |  |
+| `stat.mean.geometric,` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:202 |  |
+| `stat.mean.geometric.` |  |  |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/statistics/statistics.rs:201 | no sentinel type accepted |
+| `stat.mean.geometric.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:203 | no sentinel type accepted |
+| `stat.mean.geometricweighted` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:205 |  |
+| `stat.mean.geometricweighted,` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:207 |  |
+| `stat.mean.geometricweighted.` |  |  |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/statistics/statistics.rs:206 | no sentinel type accepted |
+| `stat.mean.geometricweighted.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:208 | no sentinel type accepted |
+| `stat.mean.harmonic` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:195 |  |
+| `stat.mean.harmonic,` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:197 |  |
+| `stat.mean.harmonic.` |  |  |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/statistics/statistics.rs:196 | no sentinel type accepted |
+| `stat.mean.harmonic.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:198 | no sentinel type accepted |
+| `stat.mean.harmonicspread` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:215 |  |
+| `stat.mean.harmonicspread,` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:217 |  |
+| `stat.mean.harmonicspread.` |  |  |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/statistics/statistics.rs:216 | no sentinel type accepted |
+| `stat.mean.harmonicspread.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:218 | no sentinel type accepted |
+| `stat.mean.harmonicweighted` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:210 |  |
+| `stat.mean.harmonicweighted,` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:212 |  |
+| `stat.mean.harmonicweighted.` |  |  |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/statistics/statistics.rs:211 | no sentinel type accepted |
+| `stat.mean.harmonicweighted.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/statistics/statistics.rs:213 | no sentinel type accepted |
 | `stdin` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/file.rs:95 | not probed: effectful, out of scope, or terminates |
 | `stdin.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/filesystem/file.rs:96 | not probed: effectful, out of scope, or terminates |
 | `string.camel` | 1 |  | 1 | 1 | int |  |  |  |  | reference/rust_multistackvm/src/stdlib/string/case.rs:152 |  |
