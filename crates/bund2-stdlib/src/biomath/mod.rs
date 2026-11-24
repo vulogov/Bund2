@@ -118,6 +118,7 @@ pub mod model;
 pub mod na;
 pub(crate) mod operand;
 pub mod optim;
+pub mod permute;
 pub mod phylo;
 pub mod popgen;
 pub mod power;
@@ -154,6 +155,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     optim::register(r);
     power::register(r);
     boot::register(r);
+    permute::register(r);
 }
 
 #[cfg(test)]

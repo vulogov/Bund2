@@ -18240,3 +18240,24 @@ which §S12 names beside the classical F.
 | **2B** | Classical only: Welch's answer is `statistic`, `p`, `df1`, `df2`, `method`, as `oneway.test` reports no effect size |
 
 Recommended: **1A** and **2A**.
+
+## D274 — RFC-0019 §S9: how `stat.test.permutation`'s options choose Monte Carlo
+
+**Raised 2026-11-24** by RFC-0019 M8. §S9 runs the test exact when
+C(n + m, n) ≤ 10⁶, and "Monte Carlo otherwise, or when `opts` says so",
+with B = 9999 by default. It does not name (1) the key that chooses
+Monte Carlo, nor (2) the key for B, nor (3) what forcing the exact test
+above the cap does.
+
+- Blocks: RFC-0019 criterion 11, and so M8's acceptance
+- Depends on: RFC-0019 §S9, D267 (4)
+- Status: **RESOLVED** by the repository owner, 2026-11-24: "exact BOOL,
+  B INT". Option **A**.
+
+| Option | Reading |
+|---|---|
+| **A** | Keys `alternative`, `exact` and `B`. No `exact`: exact when C(n + m, n) ≤ 10⁶, else Monte Carlo; `exact` false: Monte Carlo; `exact` true above 10⁶ splits: E111, as `stat.test.wilcoxon.opts`' `exact` above its cap. `B` an INTEGER ≥ 1, default 9999, read only under Monte Carlo |
+| **B** | Keys `alternative`, `method` and `B`: `method` `"auto"` (default), `"exact"` or `"monte.carlo"`; `"exact"` above the cap E111 |
+| **C** | As A, but `B` given to a test that runs exact is E101 naming `B` |
+
+Recommended: **A**.
