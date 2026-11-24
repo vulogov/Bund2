@@ -1,4 +1,5 @@
-//! RFC-0019 §S6: roots and quadrature over a lambda.
+//! RFC-0019 §S6: roots and quadrature over a lambda; §S10's minimisers and
+//! Hessian are [`minimise`]'s.
 //!
 //! **`optim.root`** (`f lower upper opts -- MAP`) is Brent's method as R's
 //! `zeroin` (R 4.4.2, `src/library/stats/src/zeroin.c`, `R_zeroin2`),
@@ -540,10 +541,29 @@ pub fn register(r: &mut Registry) {
         StackEffect::opaque(4),
         WordKind::Sync,
     );
+    // §S10's, lambda-calling too.
+    for (name, f) in [
+        (
+            "optim.nm",
+            minimise::optim_nm as fn(&mut dyn Vm) -> Result<(), Error>,
+        ),
+        ("optim.bfgs", minimise::optim_bfgs),
+        ("optim.hessian", minimise::optim_hessian),
+    ] {
+        r.register_native(name, f, StackEffect::opaque(3), WordKind::Sync);
+    }
 }
 
-/// The `optim.` words, which have no `.` form.
-pub const WORDS: [&str; 2] = ["optim.root", "optim.integrate"];
+/// The `optim.` words, which have no `.` form: §S6's and §S10's.
+pub const WORDS: [&str; 5] = [
+    "optim.root",
+    "optim.integrate",
+    "optim.nm",
+    "optim.bfgs",
+    "optim.hessian",
+];
+
+pub(crate) mod minimise;
 
 #[cfg(test)]
 mod tests;

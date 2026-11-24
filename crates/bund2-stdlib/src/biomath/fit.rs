@@ -370,19 +370,29 @@ pub fn register(r: &mut Registry) {
         WordKind::Sync,
     );
     crate::wb::bench!(r, "fit.glm", super::model::glm::fit_glm, 2, 0);
+    // RFC-0019 §S11: calls a lambda, so opaque and plain only.
+    r.register_native(
+        "fit.mle",
+        mle::fit_mle,
+        StackEffect::opaque(3),
+        WordKind::Sync,
+    );
 }
 
-/// §S16's words with their forms, and RFC-0018's `fit.glm` and `fit.lm`
-/// (§S9).
-pub const WORDS: [&str; 7] = [
+/// §S16's words with their forms, RFC-0018's `fit.glm` and `fit.lm`
+/// (§S9), and RFC-0019's `fit.mle` (§S11).
+pub const WORDS: [&str; 8] = [
     "fit.glm",
     "fit.glm.",
     "fit.lm",
     "fit.lm.",
     "fit.logistic",
     "fit.logistic.",
+    "fit.mle",
     "fit.nls",
 ];
+
+mod mle;
 
 #[cfg(test)]
 mod tests;

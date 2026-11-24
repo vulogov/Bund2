@@ -69,6 +69,10 @@ fn every_word_is_registered_with_its_forms() {
     let nls = i.registry.effect_of("fit.nls").unwrap();
     assert!(nls.opaque);
     assert!(i.registry.effect_of("fit.nls.").is_none());
+    let mle = i.registry.effect_of("fit.mle").unwrap();
+    assert!(mle.opaque);
+    assert_eq!(mle.consumes, 3);
+    assert!(i.registry.effect_of("fit.mle.").is_none());
     for w in ["fit.logistic", "fit.logistic."] {
         let e = i.registry.effect_of(w).unwrap_or_else(|| panic!("{w}"));
         assert!(!e.opaque, "{w}");

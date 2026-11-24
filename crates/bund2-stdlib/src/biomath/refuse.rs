@@ -38,6 +38,10 @@ pub enum Refusal {
     /// E106: a singular design, naming the first column that depends on
     /// those before it (RFC-0018 §S8). `column` is the name as rendered.
     SingularColumn { column: String },
+    /// E106: a Hessian of −loglik that is not positive definite at `par`
+    /// (RFC-0019 §S11): `pivot` the 1-based Cholesky pivot that is not
+    /// positive, `value` its value.
+    NotPositiveDefinite { pivot: usize, value: f64 },
     /// E107: a non-symmetric matrix where symmetry is required.
     NotSymmetric { i: usize, j: usize, by: f64 },
     /// E108: a complex eigenvalue where a real one is asked for.
@@ -73,7 +77,9 @@ impl Refusal {
             Refusal::NotNumbers { .. } => "E103",
             Refusal::Parameters { .. } => "E104",
             Refusal::Undefined { .. } => "E105",
-            Refusal::Singular | Refusal::SingularColumn { .. } => "E106",
+            Refusal::Singular
+            | Refusal::SingularColumn { .. }
+            | Refusal::NotPositiveDefinite { .. } => "E106",
             Refusal::NotSymmetric { .. } => "E107",
             Refusal::Complex { .. } | Refusal::NotUnique { .. } => "E108",
             Refusal::Alphabet { .. } => "E109",
@@ -108,6 +114,9 @@ impl Refusal {
             Refusal::SingularColumn { column } => {
                 format!("the matrix is singular: column {column} depends on those before it")
             }
+            Refusal::NotPositiveDefinite { pivot, value } => format!(
+                "the Hessian of -loglik at par is not positive definite: pivot {pivot} is {value}"
+            ),
             Refusal::NotSymmetric { i, j, by } => {
                 format!("the matrix is not symmetric: [{i},{j}] and [{j},{i}] differ by {by}")
             }
@@ -198,6 +207,13 @@ mod tests {
             (
                 Refusal::Singular,
                 "MATH.LGAMMA: E106 the matrix is singular",
+            ),
+            (
+                Refusal::NotPositiveDefinite {
+                    pivot: 2,
+                    value: 0.0,
+                },
+                "MATH.LGAMMA: E106 the Hessian of -loglik at par is not positive definite: pivot 2 is 0",
             ),
             (
                 Refusal::NotSymmetric {

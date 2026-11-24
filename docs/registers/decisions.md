@@ -18261,3 +18261,33 @@ above the cap does.
 | **C** | As A, but `B` given to a test that runs exact is E101 naming `B` |
 
 Recommended: **A**.
+
+## D275 — RFC-0019 §S10 and criterion 12: the minimisers' caps, keys and Rosenbrock
+
+**Raised 2026-11-24** by RFC-0019 M9. §S10 ports R's `nmmin` and `vmmin`
+(`src/appl/optim.c`, R 4.4.2) and leaves four things open: (1) Nelder–Mead
+is capped at "500 iterations", where `nmmin` counts function evaluations
+against `maxit` (`:451`, `:455`); (2) `nmmin`'s second failure, a shrink
+that does not reduce the simplex (`fail = 10`, `:433-440`), is not
+mentioned; (3) no options key is listed, only the defaults of `reltol` and
+`ndeps`; (4) at R's own defaults R 4.6.2 stops Rosenbrock from (−1.2, 1)
+at (1.00026, 1.00051) by Nelder–Mead and (0.99980, 0.99961) by BFGS,
+outside criterion 12's 10⁻⁴ and 10⁻⁶; with `reltol` 10⁻¹² and `ndeps`
+10⁻⁶ respectively R reaches both.
+
+- Blocks: RFC-0019 criterion 12, and so M9's acceptance
+- Depends on: RFC-0019 §S10, §S11, D266 (N3, N6)
+- Status: **RESOLVED** by the repository owner, 2026-11-24, each as
+  recommended: **1A**, **2A**, **3A**, **4A**.
+
+| Option | Reading |
+|---|---|
+| **1A** | 500 evaluations, as R: E110 when `nmmin`'s `funcount` passes `maxit`, where R answers `convergence = 1`; `iterations` answers the simplex steps, `evaluations` the calls of f |
+| 1B | 500 passes of the main loop |
+| **2A** | A shrink that does not reduce the simplex is E110 |
+| 2B | Answer the best vertex, as R |
+| **3A** | R's names: `optim.nm` takes `reltol` and `maxit`; `optim.bfgs` `reltol`, `ndeps` and `maxit`; `optim.hessian` `ndeps`; `ndeps` a positive FLOAT or a LIST of k; `fit.mle` `method` (`"bfgs"` or `"nm"`), `n`, `profile`, `conf` (0.95), and `reltol`, `ndeps` and `maxit` for its minimiser; any other key E101 |
+| 3B | As 3A without `maxit` |
+| **4A** | R's defaults kept; criterion 12's test gives Nelder–Mead `reltol` 10⁻¹² and BFGS `ndeps` 10⁻⁶, and says so |
+| 4B | Tighter defaults than R's |
+| 4C | Criterion 12 loosened to what R's defaults reach |
