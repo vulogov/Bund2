@@ -1,4 +1,5 @@
-//! RFC-0019 criteria 5 and 6, and 1 and 14, for §S5's further tests.
+//! RFC-0019 criteria 5, 6 and 7, and 1 and 14, for §S5's further tests and
+//! §S12's one-way tests.
 
 use std::collections::BTreeMap;
 
@@ -6,11 +7,12 @@ use bund2_api::Vm as _;
 use bund2_value::BundValue;
 
 use super::WORDS;
-use crate::biomath::testkit::{err, floats, run, run_on};
+use crate::biomath::testkit::{err, floats, frame_eq, run, run_on};
 
 const FURTHER: &str = include_str!("../../fixtures/further.txt");
 const SHAPIRO: &str = include_str!("../../fixtures/shapiro.txt");
 const NORMALITY: &str = include_str!("../../fixtures/normality.txt");
+const ANOVA: &str = include_str!("../../fixtures/anova.txt");
 
 fn refusal(src: &str) -> String {
     err(src)
@@ -69,6 +71,9 @@ fn every_word_is_registered_with_its_dot_form() {
         ("stat.test.bartlett", 1),
         ("stat.test.levene", 1),
         ("stat.test.levene.opts", 2),
+        ("stat.test.anova1", 1),
+        ("stat.test.anova1.opts", 2),
+        ("stat.test.tukey", 2),
     ] {
         let e = i.registry.effect_of(w).unwrap_or_else(|| panic!("{w}"));
         assert!(!e.opaque, "{w}");
@@ -280,7 +285,7 @@ fn the_exact_distribution_is_the_enumeration() {
 #[test]
 fn the_dot_forms_take_the_top_from_the_workbench() {
     let mut seen = std::collections::BTreeSet::new();
-    let all = [FURTHER, SHAPIRO, NORMALITY];
+    let all = [FURTHER, SHAPIRO, NORMALITY, ANOVA];
     for (program, _, _) in all.iter().flat_map(|t| lines(t)) {
         if !seen.insert(program) {
             continue;
@@ -300,11 +305,16 @@ fn the_dot_forms_take_the_top_from_the_workbench() {
             .unwrap_or_else(|| panic!("{word}.: empty workbench"));
         assert_eq!(d.depth(), 0, "{word}.");
         let plain = answer(program);
-        assert_eq!(
-            wb.as_map().unwrap_or_else(|| panic!("{wb:?}")),
-            &plain,
-            "{program}"
-        );
+        // A frame's lists carry heap identities; compare it as RFC-0017 does.
+        if word == "stat.test.tukey" {
+            assert!(frame_eq(&wb, &BundValue::map(plain)), "{program}");
+        } else {
+            assert_eq!(
+                wb.as_map().unwrap_or_else(|| panic!("{wb:?}")),
+                &plain,
+                "{program}"
+            );
+        }
     }
 }
 
@@ -560,6 +570,9 @@ fn nothing_aborts() {
         "[ [ 1 float.NaN ] [ 2 3 ] ]",
         "dict \"center\" \"mean\" set",
         "dict \"center\" 1 set",
+        "dict \"var.equal\" false set",
+        "dict \"conf\" 0.5 set",
+        "[ [ 1 2 3 ] [ 2 4 9 ] [ 5 5 7 ] ]",
     ];
     for w in WORDS.iter().filter(|w| !w.ends_with('.')) {
         for a in operands {
@@ -757,4 +770,147 @@ fn each_m5_refusal_is_its_template() {
     answer(&format!("{} stat.test.shapiro", xs(5000)));
     let e = refusal(&format!("{} stat.test.shapiro", xs(5001)));
     assert!(e.contains("a sample of 5001"), "{e}");
+}
+
+// Criterion 7.
+
+/// A frame's cell, `column:row`, or a MAP's key.
+fn cell(m: &BTreeMap<String, BundValue>, k: &str) -> f64 {
+    match k.split_once(':') {
+        None => key(m, k),
+        Some((col, row)) => {
+            let data = m
+                .get("data")
+                .and_then(BundValue::as_map)
+                .unwrap_or_else(|| panic!("no data in {m:?}"));
+            let cells = data
+                .get(col)
+                .and_then(BundValue::as_list)
+                .unwrap_or_else(|| panic!("no {col}"));
+            let i: usize = row.parse().unwrap_or_else(|_| panic!("{k}"));
+            floats(&cells[i])[0]
+        }
+    }
+}
+
+/// The one-way F (classical and Welch's) with η² and ω², Tukey–Kramer's
+/// rows from §S3's distribution, and Cohen's d interval by the noncentral
+/// t, against `anova.py`'s definitions.
+#[test]
+fn anova_tukey_and_d_match_the_fixture() {
+    let all = lines(ANOVA);
+    assert_eq!(all.len(), 54);
+    let mut last: Option<(&str, BTreeMap<String, BundValue>)> = None;
+    for (program, k, want) in all {
+        if last.as_ref().map(|(p, _)| *p) != Some(program) {
+            last = Some((program, answer(program)));
+        }
+        let m = &last.as_ref().unwrap_or_else(|| panic!("{program}")).1;
+        let got = cell(m, k);
+        let tol_ok = if k.starts_with("p:") && want < 1e-6 {
+            (got - want).abs() <= 1e-12
+        } else {
+            agrees(k, got, want)
+        };
+        assert!(tol_ok, "{program}: {k} {got:e} against {want:e}");
+    }
+}
+
+const G3: &str = "[ [ 4.2 4.8 5.1 3.9 4.4 4.6 ] [ 6.1 5.2 7.9 4.8 6.6 5.5 6.0 ] \
+                  [ 3.0 3.4 2.9 3.3 3.8 ] ]";
+
+#[test]
+fn the_one_way_answers_its_keys_and_methods() {
+    let names = |src: &str| -> Vec<String> { answer(src).keys().cloned().collect() };
+    let method = |src: &str| -> String {
+        answer(src)
+            .get("method")
+            .and_then(BundValue::as_str)
+            .unwrap_or_default()
+    };
+    let keys = ["df1", "df2", "eta2", "method", "omega2", "p", "statistic"];
+    let plain = format!("{G3} stat.test.anova1");
+    let welch = format!("{G3} dict \"var.equal\" false set stat.test.anova1.opts");
+    assert_eq!(names(&plain), keys);
+    assert_eq!(names(&welch), keys);
+    assert_eq!(method(&plain), "One-way analysis of means");
+    assert_eq!(
+        method(&welch),
+        "One-way analysis of means (not assuming equal variances)"
+    );
+    // D273: no var.equal is the plain word, bit for bit; eta2 and omega2
+    // are the same with either F.
+    assert_eq!(
+        answer(&format!("{G3} dict stat.test.anova1.opts")),
+        answer(&plain)
+    );
+    for k in ["eta2", "omega2", "df1"] {
+        assert_eq!(key(&answer(&plain), k), key(&answer(&welch), k), "{k}");
+    }
+    // Tukey's frame: its columns, R's pair names, the check passed.
+    let t = answer(&format!("{G3} dict stat.test.tukey"));
+    let frame = BundValue::map(t.clone());
+    assert!(crate::biomath::frame::check::check("t", "frame", &frame).is_ok());
+    let cols: Vec<String> = t
+        .get("columns")
+        .and_then(BundValue::as_list)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(BundValue::as_str)
+        .collect();
+    assert_eq!(cols, ["pair", "diff", "lower", "upper", "p"]);
+    let pairs: Vec<String> = t
+        .get("data")
+        .and_then(BundValue::as_map)
+        .and_then(|d| d.get("pair"))
+        .and_then(BundValue::as_list)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(BundValue::as_str)
+        .collect();
+    assert_eq!(pairs, ["2-1", "3-1", "3-2"]);
+}
+
+#[test]
+fn each_m6_refusal_is_its_template() {
+    for (src, want) in [
+        (
+            "[ [ 1 2 ] [ 3 ] ] stat.test.anova1",
+            "STAT.TEST.ANOVA1: E101 group 2 is outside stat.test.anova1's domain: a sample of 1",
+        ),
+        (
+            "[ [ 1 1 ] [ 2 2 ] ] stat.test.anova1",
+            "STAT.TEST.ANOVA1: E101 groups is outside stat.test.anova1's domain: \
+             no spread within any group",
+        ),
+        (
+            "[ [ 1 2 ] [ 3 3 ] ] dict \"var.equal\" false set stat.test.anova1.opts",
+            "STAT.TEST.ANOVA1.OPTS: E101 group 2 is outside stat.test.anova1.opts's domain",
+        ),
+        (
+            "[ [ 1 2 ] [ 3 5 ] ] dict \"var.equal\" 1 set stat.test.anova1.opts",
+            "STAT.TEST.ANOVA1.OPTS: E101 var.equal is outside stat.test.anova1.opts's domain",
+        ),
+        (
+            "[ [ 1 2 ] [ 3 5 ] ] dict \"conf\" 0.9 set stat.test.anova1.opts",
+            "STAT.TEST.ANOVA1.OPTS: E101 opts is outside stat.test.anova1.opts's domain: \
+             an unknown key \"conf\"",
+        ),
+        (
+            "[ [ 1 2 ] [ 3 ] ] dict stat.test.tukey",
+            "STAT.TEST.TUKEY: E101 groups is outside stat.test.tukey's domain: 3 values in 2 groups",
+        ),
+        (
+            "[ [ 1 1 ] [ 2 2 ] ] dict stat.test.tukey",
+            "STAT.TEST.TUKEY: E101 groups is outside stat.test.tukey's domain: \
+             no spread within any group",
+        ),
+        (
+            "[ [ 1 2 ] [ 3 5 ] ] dict \"conf\" 1.0 set stat.test.tukey",
+            "STAT.TEST.TUKEY: E101 conf is outside stat.test.tukey's domain",
+        ),
+    ] {
+        let e = refusal(src);
+        assert!(e.starts_with(want), "{src}: {e}");
+    }
 }

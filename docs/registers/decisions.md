@@ -18216,3 +18216,27 @@ meets the same question in M6.
 
 Recommended: **A**. A program reading `df` as a FLOAT never meets a LIST,
 and each number has a name.
+
+## D273 — RFC-0019 §S12: `stat.test.anova1.opts`'s default, and Welch's keys
+
+**Raised 2026-11-23** by RFC-0019 M6. §S12 makes the plain
+`stat.test.anova1` the classical F, and says `stat.test.anova1.opts`'s
+"`var.equal` false gives Welch's F, as `oneway.test`'s default". It does
+not say (1) what the `.opts` word does when its MAP has no `var.equal`, R's
+default being Welch (`oneway.test.R:20`) while the plain word is
+classical; nor (2) whether Welch's answer carries `eta2` and `omega2`,
+which §S12 names beside the classical F.
+
+- Blocks: RFC-0019 criterion 7's ANOVA bullets, and so M6's acceptance
+- Depends on: RFC-0019 §S12, D272
+- Status: **RESOLVED** by the repository owner, 2026-11-23: "true: plain
+  word" and "Yes, always". Options **1A** and **2A**.
+
+| Option | Reading |
+|---|---|
+| **1A** | No `var.equal` is `true`: an empty MAP answers what the plain word answers, as every RFC-0016 and M4 `.opts` word does; Welch only for `var.equal` false |
+| **1B** | No `var.equal` is `false`, R's default: an empty MAP answers Welch |
+| **2A** | `eta2` and `omega2` are answered with either F: they are the sums of squares', not the F's |
+| **2B** | Classical only: Welch's answer is `statistic`, `p`, `df1`, `df2`, `method`, as `oneway.test` reports no effect size |
+
+Recommended: **1A** and **2A**.

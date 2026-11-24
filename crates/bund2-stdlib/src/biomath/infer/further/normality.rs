@@ -323,7 +323,11 @@ pub(super) fn stat_test_ks1(vm: &mut dyn Vm) -> Result<(), Error> {
 
 /// `groups`, each finite, with at least `least` values; each refusal names
 /// the group.
-fn checked_groups(word: &str, v: &BundValue, least: usize) -> Result<Vec<Vec<f64>>, Error> {
+pub(super) fn checked_groups(
+    word: &str,
+    v: &BundValue,
+    least: usize,
+) -> Result<Vec<Vec<f64>>, Error> {
     let g = groups(word, v)?;
     for (i, grp) in g.iter().enumerate() {
         let name = format!("group {}", i + 1);

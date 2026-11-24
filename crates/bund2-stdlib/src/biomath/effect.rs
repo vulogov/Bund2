@@ -1,6 +1,8 @@
 //! RFC-0016 §S5: effect sizes, `stat.effect.cohend`, `.oddsratio`,
 //! `.riskratio` and `.cramerv`.
 //!
+//! - **`cohend.opts`** (`a b opts -- MAP`, RFC-0019 §S12) adds `lower`,
+//!   `upper` and `conf` for d, by inverting the noncentral t.
 //! - **`cohend`** (`a b -- MAP`) answers `d`, the difference of the means
 //!   over `t2`'s pooled SD, and `g`, Hedges' J·d. J is
 //!   exp(lgamma(df/2) − lgamma((df − 1)/2))/√(df/2) up to df 200, and above
@@ -25,8 +27,10 @@ use bund2_value::BundValue;
 
 use super::describe::{mean, variance};
 use super::dist::Family;
+use super::infer::opts::read;
 use super::infer::{chisq_table, counts};
-use super::operand::{at_least, domain, finite, operands, two, two_forms};
+use super::operand::{at_least, domain, finite, operands, two, two_forms, whole};
+use super::optim::{Bracket, Extend, MAXITER, Stop, extend, search_failed, zeroin};
 use super::refuse::Refusal;
 use super::special::lgamma;
 
@@ -46,24 +50,101 @@ fn hedges_j(df: f64) -> f64 {
     }
 }
 
-/// `stat.effect.cohend`: `d` and Hedges' `g`.
-fn stat_effect_cohend(vm: &mut dyn Vm) -> Result<(), Error> {
-    const W: &str = "stat.effect.cohend";
-    let (a, b) = two(vm, W)?;
-    at_least(W, &a, 2)?;
-    at_least(W, &b, 2)?;
+/// d and g of a and b, with their df, n_a and n_b.
+fn cohend_parts(
+    w: &str,
+    a: &[f64],
+    b: &[f64],
+) -> Result<(BTreeMap<String, BundValue>, f64, f64, f64), Error> {
+    at_least(w, a, 2)?;
+    at_least(w, b, 2)?;
     let (n1, n2) = (a.len() as f64, b.len() as f64);
     let df = n1 + n2 - 2.0;
-    let pooled = ((n1 - 1.0) * variance(&a) + (n2 - 1.0) * variance(&b)) / df;
-    let s = finite(W, pooled.sqrt(), || "the pooled SD".into())?;
+    let pooled = ((n1 - 1.0) * variance(a) + (n2 - 1.0) * variance(b)) / df;
+    let s = finite(w, pooled.sqrt(), || "the pooled SD".into())?;
     if s == 0.0 {
-        return Err(domain(W, "a and b", "a constant series".into()));
+        return Err(domain(w, "a and b", "a constant series".into()));
     }
-    let d = finite(W, (mean(&a) - mean(&b)) / s, || "d".into())?;
+    let d = finite(w, (mean(a) - mean(b)) / s, || "d".into())?;
     let g = hedges_j(df) * d;
     let mut m = BTreeMap::new();
     m.insert("d".to_string(), BundValue::float(d));
     m.insert("g".to_string(), BundValue::float(g));
+    Ok((m, d, n1, n2))
+}
+
+/// `stat.effect.cohend`: `d` and Hedges' `g`.
+fn stat_effect_cohend(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "stat.effect.cohend";
+    let (a, b) = two(vm, W)?;
+    let (m, ..) = cohend_parts(W, &a, &b)?;
+    vm.push(BundValue::map(m));
+    Ok(())
+}
+
+/// The noncentrality δ where `tail(δ) = target`, `tail` monotone in δ as
+/// `how` says, from (t − 1, t + 1) by §S6's `uniroot` port at N7's
+/// tolerance; E110 if the search or Brent's iteration runs out.
+fn ncp_root(
+    w: &str,
+    tail: &dyn Fn(f64) -> Result<f64, Error>,
+    target: f64,
+    t: f64,
+    how: Extend,
+) -> Result<f64, Error> {
+    let mut f = |delta: f64| tail(delta).map(|p| p - target);
+    let (lower, upper) = (t - 1.0, t + 1.0);
+    let start = Bracket {
+        lower,
+        f_lower: f(lower)?,
+        upper,
+        f_upper: f(upper)?,
+        steps: 0,
+    };
+    let b = extend(&mut f, start, how, MAXITER).map_err(|s| match s {
+        Stop::F(e) => e,
+        Stop::Search | Stop::SameSign => search_failed(w, MAXITER),
+    })?;
+    let cap = || {
+        Refusal::NoConvergence {
+            method: "the interval's root".into(),
+            cap: MAXITER,
+        }
+        .error(w)
+    };
+    let tol = 1e-12 * b.lower.abs().max(b.upper.abs()).max(1.0);
+    let mut g = |x: f64| match f(x)? {
+        y if y.is_nan() => Err(cap()),
+        y => Ok(y),
+    };
+    let z = zeroin(&mut g, b.lower, b.upper, b.f_lower, b.f_upper, tol, MAXITER)?;
+    if z.converged { Ok(z.root) } else { Err(cap()) }
+}
+
+/// `stat.effect.cohend.opts` (RFC-0019 §S12): `cohend`'s d and g, with
+/// `lower` and `upper` for d at `conf`, by inverting the noncentral t on
+/// n_a + n_b − 2 df at t = d·√(n_a·n_b/(n_a + n_b)): δ_L leaves the upper
+/// tail α/2 at t, δ_U the lower tail α/2, each mapped back by
+/// √(1/n_a + 1/n_b).
+fn stat_effect_cohend_opts(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "stat.effect.cohend.opts";
+    let v = operands(vm, W, 3)?;
+    let a = whole(W, "a", &v[0])?;
+    let b = whole(W, "b", &v[1])?;
+    let conf = read(W, &v[2], &["conf"])?.conf;
+    let (mut m, d, n1, n2) = cohend_parts(W, &a, &b)?;
+    let df = n1 + n2 - 2.0;
+    let t = d * (n1 * n2 / (n1 + n2)).sqrt();
+    let alpha = 1.0 - conf;
+    let nct = |delta: f64| Family::Nct { df, ncp: delta };
+    let upper_tail = |delta: f64| nct(delta).tails(W, t).map(|p| p.1);
+    let lower_tail = |delta: f64| nct(delta).tails(W, t).map(|p| p.0);
+    let delta_l = ncp_root(W, &upper_tail, alpha / 2.0, t, Extend::UpX)?;
+    let delta_u = ncp_root(W, &lower_tail, alpha / 2.0, t, Extend::DownX)?;
+    let back = (1.0 / n1 + 1.0 / n2).sqrt();
+    m.insert("lower".to_string(), BundValue::float(delta_l * back));
+    m.insert("upper".to_string(), BundValue::float(delta_u * back));
+    m.insert("conf".to_string(), BundValue::float(conf));
     vm.push(BundValue::map(m));
     Ok(())
 }
@@ -190,6 +271,13 @@ fn stat_effect_cramerv(vm: &mut dyn Vm) -> Result<(), Error> {
 /// workbench, the others their one operand.
 pub fn register(r: &mut Registry) {
     two_forms!(r, "stat.effect.cohend", stat_effect_cohend);
+    r.register_native(
+        "stat.effect.cohend.opts",
+        stat_effect_cohend_opts,
+        StackEffect::fixed(3, 1),
+        WordKind::Sync,
+    );
+    crate::wb::bench!(r, "stat.effect.cohend.opts", stat_effect_cohend_opts, 3, 0);
     macro_rules! word {
         ($name:literal, $f:expr) => {
             r.register_native($name, $f, StackEffect::fixed(1, 1), WordKind::Sync);
@@ -203,9 +291,11 @@ pub fn register(r: &mut Registry) {
 
 /// §S5's words with their forms. RFC-0015's counting test for `describe`
 /// leaves them out by this list (§Preservation analysis).
-pub const WORDS: [&str; 8] = [
+pub const WORDS: [&str; 10] = [
     "stat.effect.cohend",
     "stat.effect.cohend.",
+    "stat.effect.cohend.opts",
+    "stat.effect.cohend.opts.",
     "stat.effect.oddsratio",
     "stat.effect.oddsratio.",
     "stat.effect.riskratio",

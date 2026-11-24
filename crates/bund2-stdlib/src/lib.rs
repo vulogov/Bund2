@@ -866,8 +866,9 @@ mod honesty_tests {
         // is too. `stat.test.wilcoxon.opts`' first operand is x, and
         // `stat.test.wilcoxon.paired.opts`' a, each a series read as
         // `whole` reads one, E115 unless a LIST or METRICS (§S5); their
-        // forms' are too.
-        const UNVARIED: [&str; 87] = [
+        // forms' are too. `stat.effect.cohend.opts`' first operand is a, a
+        // series read the same way (§S12); its form's is too.
+        const UNVARIED: [&str; 89] = [
             "bio.align",
             "bio.align.",
             "bio.align.score",
@@ -935,6 +936,8 @@ mod honesty_tests {
             "stat.cor.test.pearson.opts.",
             "stat.cor.test.spearman.opts",
             "stat.cor.test.spearman.opts.",
+            "stat.effect.cohend.opts",
+            "stat.effect.cohend.opts.",
             "stat.test.binom",
             "stat.test.binom.",
             "stat.test.binom.opts",

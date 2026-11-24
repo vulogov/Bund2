@@ -53,6 +53,15 @@ fn every_word_is_registered_with_its_effect() {
     for w in WORDS {
         let e = i.registry.effect_of(w).unwrap_or_else(|| panic!("{w}"));
         let want = match (w.starts_with("stat.effect.cohend"), w.ends_with('.')) {
+            // RFC-0019 §S12: `cohend.opts`, a b opts; its form takes opts
+            // from the workbench.
+            _ if w.starts_with("stat.effect.cohend.opts") => {
+                if w.ends_with('.') {
+                    (2, 0)
+                } else {
+                    (3, 1)
+                }
+            }
             (true, false) => (2, 1),
             (true, true) | (false, false) => (1, if w.ends_with('.') { 0 } else { 1 }),
             (false, true) => (0, 0),
@@ -253,6 +262,9 @@ fn no_operand_aborts() {
         "[ [ 1.0e308 1 ] [ 1 1.0e308 ] ] matrix",
         "[ [ 1 2 ] [ 3 ] ] matrix",
         "dict",
+        "dict \"conf\" 0.999999 set",
+        "dict \"conf\" 0.01 set",
+        "dict \"conf\" 1 set",
     ];
     for w in WORDS.iter().filter(|w| !w.ends_with('.')) {
         for o in operands {
@@ -261,6 +273,9 @@ fn no_operand_aborts() {
                     format!("{o} {w}"),
                     format!("{o} {p} {w}"),
                     format!("{o} {p} . {w}."),
+                    format!("{o} {p} {o} {w}"),
+                    format!("[ 1 2 4 ] [ 2 3 5.5 ] {p} {w}"),
+                    format!("[ 1 2 4 ] {o} {p} {w}"),
                 ] {
                     if let Err(e) = run(&src) {
                         assert!(
@@ -273,5 +288,48 @@ fn no_operand_aborts() {
                 }
             }
         }
+    }
+}
+
+/// RFC-0019 §S12: `cohend.opts` answers `cohend`'s d and g bit for bit,
+/// with `lower`, `upper` and `conf`; its interval holds d and narrows with
+/// `conf`.
+#[test]
+fn cohend_opts_adds_the_interval() {
+    let ab = "[ 6.1 5.2 7.9 4.8 6.6 5.5 6.0 ] [ 4.2 4.8 5.1 3.9 4.4 4.6 ]";
+    let plain = map(&format!("{ab} stat.effect.cohend"));
+    let wide = map(&format!("{ab} dict stat.effect.cohend.opts"));
+    let narrow = map(&format!(
+        "{ab} dict \"conf\" 0.5 set stat.effect.cohend.opts"
+    ));
+    assert_eq!(
+        wide.keys().cloned().collect::<Vec<_>>(),
+        ["conf", "d", "g", "lower", "upper"]
+    );
+    for k in ["d", "g"] {
+        assert_eq!(one(&wide, k).to_bits(), one(&plain, k).to_bits(), "{k}");
+    }
+    assert_eq!(one(&wide, "conf"), 0.95);
+    let d = one(&wide, "d");
+    assert!(one(&wide, "lower") < one(&narrow, "lower") && one(&narrow, "lower") < d);
+    assert!(d < one(&narrow, "upper") && one(&narrow, "upper") < one(&wide, "upper"));
+    for (src, want) in [
+        (
+            format!("{ab} dict \"conf\" 1.5 set stat.effect.cohend.opts"),
+            "STAT.EFFECT.COHEND.OPTS: E101 conf is outside stat.effect.cohend.opts's domain",
+        ),
+        (
+            format!("{ab} dict \"alternative\" \"less\" set stat.effect.cohend.opts"),
+            "STAT.EFFECT.COHEND.OPTS: E101 opts is outside stat.effect.cohend.opts's domain: \
+             the key \"alternative\", which this word does not take",
+        ),
+        (
+            "[ 1 1 ] [ 1 1 ] dict stat.effect.cohend.opts".to_string(),
+            "STAT.EFFECT.COHEND.OPTS: E101 a and b is outside stat.effect.cohend.opts's domain: \
+             a constant series",
+        ),
+    ] {
+        let e = err(&src);
+        assert!(e.starts_with(want), "{src}: {e}");
     }
 }

@@ -52,9 +52,9 @@ impl Alternative {
 
 /// An options MAP, read.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct Opts {
+pub(crate) struct Opts {
     pub(super) alternative: Alternative,
-    pub(super) conf: f64,
+    pub(crate) conf: f64,
     pub(super) mu: f64,
 }
 
@@ -64,7 +64,7 @@ const KEYS: [&str; 3] = ["alternative", "conf", "mu"];
 /// Read an options MAP (S1, "Options MAPs"): E101 for anything but a MAP,
 /// an unknown key, a key `takes` does not hold, or a value of the wrong
 /// type or range, each naming the key.
-pub(super) fn read(word: &str, v: &BundValue, takes: &[&str]) -> Result<Opts, Error> {
+pub(crate) fn read(word: &str, v: &BundValue, takes: &[&str]) -> Result<Opts, Error> {
     let m = match v.as_map() {
         Some(m) if v.dt() == MAP => m,
         _ => return Err(domain(word, "opts", v.summary(WIDTH))),

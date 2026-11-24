@@ -2673,3 +2673,29 @@ fn m5_words_never_abort() {
         }
     }
 }
+
+/// RFC-0019 criterion 7: `stat.test.anova1`'s F is `model.anova`'s F for
+/// the same data with the groups coded as a factor, at 10⁻⁹.
+#[test]
+fn anova1_is_model_anova_on_a_factor() {
+    let y = [
+        4.2, 4.8, 5.1, 3.9, 4.4, 4.6, 6.1, 5.2, 7.9, 4.8, 6.6, 5.5, 6.0, 3.0, 3.4, 2.9, 3.3, 3.8,
+    ];
+    let g: Vec<&str> = [6, 7, 5]
+        .iter()
+        .zip(["1", "2", "3"])
+        .flat_map(|(n, l)| std::iter::repeat_n(l, *n))
+        .collect();
+    let d = glm_design(&y, vec![("fgroup", strs(&g))], &["fgroup"], vec![]);
+    let a = anova(&d, vec![("family", s("gaussian"))]).unwrap_or_else(|e| panic!("{e}"));
+    let f_model = after_none(&a, "statistic")[0];
+    let src = "[ [ 4.2 4.8 5.1 3.9 4.4 4.6 ] [ 6.1 5.2 7.9 4.8 6.6 5.5 6.0 ] \
+               [ 3.0 3.4 2.9 3.3 3.8 ] ] stat.test.anova1";
+    let mut i = crate::biomath::testkit::run(src).unwrap_or_else(|e| panic!("{e}"));
+    let m = i.pull().unwrap_or_else(|| panic!("empty"));
+    let f_ours = scalar(&m, "statistic");
+    assert!(
+        (f_ours - f_model).abs() <= 1e-9 * f_model.abs(),
+        "{f_ours} against {f_model}"
+    );
+}

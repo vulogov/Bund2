@@ -3,7 +3,8 @@
 //! Kruskal–Wallis, Friedman, McNemar with its `.opts` word, and
 //! Cochran–Mantel–Haenszel. M5 adds the normality and variance tests in
 //! `normality`: Shapiro–Wilk, one-sample KS, Bartlett, and Levene with its
-//! `.opts` word.
+//! `.opts` word. M6 adds §S12's one-way tests in `anova`: the one-way F
+//! with its `.opts` word, and Tukey's HSD.
 //!
 //! **Each answers RFC-0015's test MAP** (`statistic`, `p`, `df` where there
 //! is one, `method`, R's name for the test). The signed-rank `.opts` words
@@ -917,10 +918,14 @@ pub(super) fn register(r: &mut bund2_api::Registry) {
     word!("stat.test.bartlett", normality::stat_test_bartlett, 1);
     word!("stat.test.levene", normality::stat_test_levene, 1);
     word!("stat.test.levene.opts", normality::stat_test_levene_opts, 2);
+    word!("stat.test.anova1", anova::stat_test_anova1, 1);
+    word!("stat.test.anova1.opts", anova::stat_test_anova1_opts, 2);
+    word!("stat.test.tukey", anova::stat_test_tukey, 2);
 }
 
-/// §S5's words with their `.` forms (M4's and M5's).
-pub const WORDS: [&str; 28] = [
+/// §S5's words with their `.` forms (M4's and M5's), and §S12's `stat.test.`
+/// words (M6's).
+pub const WORDS: [&str; 34] = [
     "stat.test.wilcoxon",
     "stat.test.wilcoxon.",
     "stat.test.wilcoxon.paired",
@@ -949,8 +954,15 @@ pub const WORDS: [&str; 28] = [
     "stat.test.levene.",
     "stat.test.levene.opts",
     "stat.test.levene.opts.",
+    "stat.test.anova1",
+    "stat.test.anova1.",
+    "stat.test.anova1.opts",
+    "stat.test.anova1.opts.",
+    "stat.test.tukey",
+    "stat.test.tukey.",
 ];
 
+mod anova;
 mod normality;
 
 #[cfg(test)]

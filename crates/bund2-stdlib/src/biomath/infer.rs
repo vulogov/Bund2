@@ -1101,7 +1101,7 @@ pub const WORDS: [&str; 62] = [
 
 pub mod cor;
 pub mod further;
-mod opts;
+pub(crate) mod opts;
 
 #[cfg(test)]
 mod tests;

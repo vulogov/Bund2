@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 530 promotable of 539 reached, of 842 fixed-effect natives; 9 reached natives
+# 532 promotable of 541 reached, of 878 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -417,6 +417,8 @@ stat.test.t2
 stat.test.t2.
 stat.test.welch
 stat.test.welch.
+stat.test.wilcoxon
+stat.test.wilcoxon.
 string.camel
 string.camel.
 string.deunicode
@@ -818,6 +820,8 @@ vec.sub.
 # not reached: stat.cor.test.spearman.
 # not reached: stat.cor.test.spearman.opts
 # not reached: stat.cor.test.spearman.opts.
+# not reached: stat.effect.cohend.opts
+# not reached: stat.effect.cohend.opts.
 # not reached: stat.effect.cramerv
 # not reached: stat.effect.cramerv.
 # not reached: stat.effect.oddsratio
@@ -826,28 +830,60 @@ vec.sub.
 # not reached: stat.effect.riskratio.
 # not reached: stat.lm
 # not reached: stat.lm.
+# not reached: stat.test.anova1
+# not reached: stat.test.anova1.
+# not reached: stat.test.anova1.opts
+# not reached: stat.test.anova1.opts.
+# not reached: stat.test.bartlett
+# not reached: stat.test.bartlett.
 # not reached: stat.test.binom
 # not reached: stat.test.binom.
 # not reached: stat.test.binom.opts
 # not reached: stat.test.binom.opts.
 # not reached: stat.test.chisq.table
 # not reached: stat.test.chisq.table.
+# not reached: stat.test.cmh
+# not reached: stat.test.cmh.
 # not reached: stat.test.fisher
 # not reached: stat.test.fisher.
 # not reached: stat.test.fisher.opts
 # not reached: stat.test.fisher.opts.
+# not reached: stat.test.friedman
+# not reached: stat.test.friedman.
+# not reached: stat.test.kruskal
+# not reached: stat.test.kruskal.
+# not reached: stat.test.ks1
+# not reached: stat.test.ks1.
 # not reached: stat.test.ks2.opts
 # not reached: stat.test.ks2.opts.
+# not reached: stat.test.levene
+# not reached: stat.test.levene.
+# not reached: stat.test.levene.opts
+# not reached: stat.test.levene.opts.
 # not reached: stat.test.mannwhitney.opts
 # not reached: stat.test.mannwhitney.opts.
+# not reached: stat.test.mcnemar
+# not reached: stat.test.mcnemar.
+# not reached: stat.test.mcnemar.opts
+# not reached: stat.test.mcnemar.opts.
 # not reached: stat.test.paired
 # not reached: stat.test.paired.
 # not reached: stat.test.paired.opts
 # not reached: stat.test.paired.opts.
+# not reached: stat.test.shapiro
+# not reached: stat.test.shapiro.
 # not reached: stat.test.t2.opts
 # not reached: stat.test.t2.opts.
+# not reached: stat.test.tukey
+# not reached: stat.test.tukey.
 # not reached: stat.test.welch.opts
 # not reached: stat.test.welch.opts.
+# not reached: stat.test.wilcoxon.opts
+# not reached: stat.test.wilcoxon.opts.
+# not reached: stat.test.wilcoxon.paired
+# not reached: stat.test.wilcoxon.paired.
+# not reached: stat.test.wilcoxon.paired.opts
+# not reached: stat.test.wilcoxon.paired.opts.
 # not reached: string.expressionmatch
 # not reached: string.expressionmatch.
 # not reached: tag.
