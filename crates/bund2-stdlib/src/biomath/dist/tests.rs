@@ -63,7 +63,9 @@ fn every_word_is_registered_with_its_dot_form() {
         // RFC-0016 §S7's sampling words, which `sample`'s own test holds.
         .filter(|n| !crate::biomath::sample::WORDS.contains(&n.as_str()))
         .count();
-    assert_eq!(ours, 2 * WORDS.len() + 3);
+    // `rng.seed.`, `rng.uniform`, and RFC-0019 §S7's `rng.derive`, a
+    // producer with no `.` form.
+    assert_eq!(ours, 2 * WORDS.len() + 4);
 }
 
 // Criterion 10.

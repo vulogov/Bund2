@@ -105,6 +105,7 @@
 //!   registered beside `fit.logistic` in [`fit`].
 
 pub mod align;
+pub mod boot;
 pub mod describe;
 pub mod dist;
 pub mod dynamics;
@@ -152,6 +153,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     model::register(r);
     optim::register(r);
     power::register(r);
+    boot::register(r);
 }
 
 #[cfg(test)]

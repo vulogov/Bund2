@@ -18,7 +18,7 @@ use std::cell::Cell;
 use bund2_api::{Error, Registry, StackEffect, Vm, WordKind};
 use bund2_value::BundValue;
 use rand::rngs::StdRng;
-use rand::{Rng as _, SeedableRng};
+use rand::{Rng as _, RngCore as _, SeedableRng};
 
 use super::operand::{WIDTH, domain, operands};
 
@@ -77,6 +77,18 @@ fn rng_uniform(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// `rng.derive` (`-- seed`, RFC-0019 §S7): one `u64` from the VM's
+/// generator, answered as an INTEGER by the bits, two's complement, as
+/// [`reseed`] takes them back. After `n rng.seed` the k-th `rng.derive`
+/// answers the same INTEGER within a Bund2 version, so a child VM seeded
+/// with it by `rng.seed` repeats its own stream (D260 C6). Each call
+/// advances this VM's stream by one `u64`.
+fn rng_derive(vm: &mut dyn Vm) -> Result<(), Error> {
+    let x = with_rng(vm, |g| g.next_u64());
+    vm.push(BundValue::int(i64::from_ne_bytes(x.to_ne_bytes())));
+    Ok(())
+}
+
 /// Register §S8's words. `rng.seed` has its `.` form, taking n from the
 /// workbench; `rng.uniform` is a producer, so has none (§S3, D24).
 pub fn register(r: &mut Registry) {
@@ -90,6 +102,13 @@ pub fn register(r: &mut Registry) {
     r.register_native(
         "rng.uniform",
         rng_uniform,
+        StackEffect::fixed(0, 1),
+        WordKind::Sync,
+    );
+    // RFC-0019 §S7: a producer, plain only.
+    r.register_native(
+        "rng.derive",
+        rng_derive,
         StackEffect::fixed(0, 1),
         WordKind::Sync,
     );

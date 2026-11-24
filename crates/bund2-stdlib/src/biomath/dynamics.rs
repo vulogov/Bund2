@@ -109,7 +109,18 @@ pub(super) fn call(
 /// FLOAT `x` through the same bridge and read the one finite number it
 /// leaves on top, an INTEGER converting, or E112.
 pub(super) fn call1(vm: &mut dyn Vm, word: &str, f: &[BundValue], x: f64) -> Result<f64, Error> {
-    let left = crate::kb::bridge::ask(vm, f, BundValue::float(x))?;
+    call1_on(vm, word, f, BundValue::float(x))
+}
+
+/// [`call1`] on any one value: a statistic `resample -- FLOAT` (§S8) is
+/// handed a LIST or a frame. The same bridge, the same E112.
+pub(super) fn call1_on(
+    vm: &mut dyn Vm,
+    word: &str,
+    f: &[BundValue],
+    x: BundValue,
+) -> Result<f64, Error> {
+    let left = crate::kb::bridge::ask(vm, f, x)?;
     let refuse = |left: String| {
         Refusal::Model {
             left,
