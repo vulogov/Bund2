@@ -18316,3 +18316,142 @@ on both.
 | **A** | A per-host snapshot: `fixtures/infer.linux.snapshot` holds CI's Linux answer, bit for bit, and the test reads it when `target_os` is `linux`, `infer.snapshot` elsewhere. The arithmetic does not change |
 | B | Host-independent maths: the t's tails through the `libm` crate, the snapshots rewritten on macOS; it moves Bund2's answers by ulps, and `statrs`'s `ln_gamma` still calls the platform |
 | C | Cut 0.57.0 with CI red, the failure carried into 0.58.0 |
+
+## D277 — RFC-0020's owner questions V1–V14: multivariate analysis and density estimation
+
+**Raised 2026-11-25** by `docs/rfc/RFC-0020-multivariate-and-density.md`
+(§Open questions), drafted on the owner's "/rfc-draft 0020" for research
+07's Phase F (D260 C8, option A). Findings that bear on the rulings:
+
+- **Two names lie close.** The reference registers `clusters.detect`, a
+  DBSCAN over two series
+  (`reference/Bund/src/stdlib/functions/forecast/clustering.rs:57-58`),
+  and `mv` as an alias of `fs.mv`
+  (`reference/Bund/src/stdlib/functions/create_aliases.rs:15`) (V1).
+- **R's vector signs are LAPACK's.** `prcomp`, `cmdscale` and `lda` keep
+  whatever `dgesdd` and `dsyevr` give; on `USArrests` the two routines
+  disagree on three of four components (run on R 4.6.2) (V3).
+- **R's tie-breaking is its algorithms'.** `hclust.f` merges the smallest
+  active index with the least nearest-neighbour distance, which is not the
+  least pair (`src/library/stats/src/hclust.f:93-100`, R 4.4.2), and
+  `kmeans`'s starts are its Mersenne-Twister's (V5, V7).
+- **R's `density` is binned and convolved by FFT**
+  (`src/library/stats/R/density.R:99-180`); it differs from the exact
+  kernel sum by about 10⁻⁵ absolute (V8).
+- **`bw.SJ`'s default tolerance is 0.1 × `lower`**
+  (`src/library/stats/R/bandwidths.R:56`, `:101`); its answer differs
+  from the exact root in the third digit (V10).
+- **Base R has no Hotelling's T²**; `summary.manova`'s Hotelling–Lawley
+  F equals the two-sample transform for two groups (run on R 4.6.2).
+
+- Blocks: RFC-0020's acceptance
+- Depends on: D260 (C4, C5, C8), D250 (B3, B5, B7, B10, B11, B12),
+  D252, D253 (P7), D266 (N6, N7, as precedents), D72
+- Status: **RESOLVED** by the repository owner, 2026-11-25, ruling all
+  fourteen as recommended: "V1–V14: recommendations". *(Was: OPEN.
+  RFC-0020 is written against each recommended option and marks each
+  dependent passage **[V*n*]**.)*
+
+| | Question | Options | Ruled |
+|---|---|---|---|
+| **V1** | Names | **A** `linalg.svd`; `mva.` (pca, mds, lda, lda.predict); `cluster.` (dist, hclust, cut, cut.h, kmeans); `stat.test.hotelling1`, `hotelling2`, `manova`; `stat.density`, `stat.bw`, `stat.ecdf`, `stat.ecdf.at`, `stat.hist`. **B** as A with `mv.` for `mva.`. **C** as A with `clust.` for `cluster.`. **D** everything under `stat.` | **A** |
+| **V2** | Grouped data | **A** a MATRIX and a LIST of labels. **B** a LIST of MATRIXes, one per group. **C** a frame, column names and a group column | **A** |
+| **V3** | Signs of vectors | **A** each vector's largest-magnitude element positive, its pair flipped with it. **B** the first element non-negative. **C** `nalgebra`'s as computed | **A** |
+| **V4** | k-means algorithms | **A** R's three, Hartigan–Wong the default. **B** Lloyd only. **C** Hartigan–Wong only | **A** |
+| **V5** | k-means starts | **A** every start draws k of the distinct rows by `rng.choice`. **B** R's rows-then-distinct rule | **A** |
+| **V6** | Where R warns of a failure | **A** refuse: E101, E110. **B** answer, with a flag | **A** |
+| **V7** | Hierarchical clustering | **A** R's `hclust.f` and `hcass2`, ported. **B** Bund2's own Lance–Williams with `phylo.upgma`'s tie rule | **A** |
+| **V8** | Kernel density | **A** R's binned FFT, ported. **B** the exact sum. **C** A, with B under `exact` true | **A** |
+| **V9** | Bandwidth rules | **A** `nrd0`, `nrd`, `sj-ste`, `sj-dpi`. **B** also `ucv` and `bcv` | **A** |
+| **V10** | `bw.SJ`'s tolerance | **A** R's. **B** a tight one, the exact root | **A** |
+| **V11** | Histogram breaks | **A** R's `pretty` and `hist` rules, ported. **B** equal widths | **A** |
+| **V12** | MANOVA's scope | **A** one-way, four statistics; one- and two-sample Hotelling. **B** also over RFC-0018's designs | **A** |
+| **V13** | LDA | **A** MASS's "moment" `lda` and the plug-in prediction. **B** Fisher's directions only | **A** |
+| **V14** | Which words take R fixtures | **A** R 4.6.2 with MASS 7.3-66 for hclust, cut, kmeans, density, bw, hist, lda and manova; definitions for the rest, R as a second check. **B** R for every word. **C** definitions only | **A** |
+
+What the ruling fixes:
+
+- **RFC-0020 is written against these options already.** No text
+  changes with the ruling except its status lines.
+- **Its nine [author] choices** (D278) were not part of this ruling and
+  remain OPEN.
+
+The reasoning for each is in the RFC, under the section the marker names.
+
+## D278 — RFC-0020's [author] choices
+
+**Raised 2026-11-25** by `docs/rfc/RFC-0020-multivariate-and-density.md`
+(§Open questions), whose nine **[author]** choices D277 does not rule.
+
+- Blocks: RFC-0020's acceptance
+- Depends on: D277
+- Status: **RESOLVED 2026-11-25**, every choice as the RFC recommends,
+  1 and 6 as restated and 10 to 14 as added in the note below. The owner
+  ruled "rule on D278's 14 open author choices: recomendation".
+
+| | Choice | As written |
+|---|---|---|
+| 1 | The order of groups (§S1) | as `frame.factor` orders levels: INTEGERs ascending, STRINGs by bytes |
+| 2 | `mva.pca`'s proportions (§S3) | not rounded, where `summary.prcomp` stores five places |
+| 3 | `mva.mds` with fewer than k positive eigenvalues (§S4) | keeps the positive ones, `k` saying how many, no warning |
+| 4 | `cluster.dist`'s answer (§S5) | the full symmetric MATRIX |
+| 5 | k-means with k = 1, and a 1 × 1 MATRIX (§S6) | answered directly, `iter` 1; the MATRIX is a centre |
+| 6 | MANOVA's rank test (§S7) | a Cholesky pivot at 10⁻⁷ of the scaled E, E106 |
+| 7 | LDA's collinearity and posterior ties (§S8) | fewer discriminants, no warning; the first group on a tie |
+| 8 | `stat.density`'s weights and ±∞ (§S9) | no weights; ±∞ refused, E101 |
+| 9 | The work caps (§S11) | 5000 objects for dist, hclust and mds; 10¹⁰ for the rest |
+
+*Note 2026-11-25,* after RFC-0020's first review
+(`docs/rfc/reviews/RFC-0020-review-2026-11-25.md`, SF1, SF2, SF3, SF6 and
+B2, B4). The status stays **OPEN**. The table above is the text as raised.
+The RFC now asks the owner to rule on choices 1 and 6 as restated here,
+and on five new choices:
+
+| | Choice | As amended |
+|---|---|---|
+| 1 | The order of groups (§S1) | STRINGs by bytes, as `frame.factor` sorts; INTEGERs ascending, the RFC's own rule, since `frame.factor` takes no numeric column; `mva.lda`'s `levels` option gives an explicit order (a factor's declared order does not survive as a LIST of labels) |
+| 6 | MANOVA's rank test (§S7) | a Cholesky pivot L_jj² at most 10⁻¹⁴ (the square of R's 10⁻⁷, since `dqrdc2` compares norms) of the scaled E's largest diagonal entry, E106; stated as not R's test |
+| 10 | Canberra's all-zero pair (§S5) | E101, where R answers NA; binary's answers 0, as R |
+| 11 | Non-finite values in a series (§S1) | E101 for `stat.density`, `stat.bw`, `stat.ecdf`, `stat.ecdf.at`, `stat.hist`, where R drops them |
+| 12 | `stat.hist`'s breaks (§S10) | breaks not strictly increasing E101 (R sorts and accepts duplicates); `include.lowest` false with a rule or count E101 (R ignores, warning); a count above 10⁶ E111 (R clamps, warning) |
+| 13 | MANOVA's undefined F (§S7) | df1 or df2 not positive, or F not finite, E101, where R answers NA |
+| 14 | `cluster.hclust`'s sentinel (§S5) | a distance at or above 10³⁰⁰ E101; an overflowing update or distance E114 |
+
+*Ruled 2026-11-25:* "rule on D278's 14 open author choices: recomendation".
+All fourteen choices are taken as the RFC recommends them:
+- 1 and 6 as restated in the note above;
+- 2 to 5 and 7 to 9 as in the table above, with 9 including `stat.hist`'s
+  cap;
+- 10 to 14 as added in the note above.
+
+RFC-0020 has no OPEN decision left. Its next step is a second review.
+
+*Note 2026-11-25, a correction* after RFC-0020's second review
+(`docs/rfc/reviews/RFC-0020-review-2026-11-25-2.md`, B1 and SF2). The
+ruling stands; two passages of the ruled text are corrected.
+- **Choice 11's reason** said R drops non-finite values. That is true
+  of `hist` and `density`. `ecdf` keeps ±∞ as a knot, and `bw.SJ` and
+  `bw.nrd0` stop. The refusal is unchanged.
+- **Choice 14** applies R's sentinel to the squared distance under
+  `ward.D2`, which squares before its search (`hclust.f:65-69`). A cell
+  at or above 10¹⁵⁰ is E101 there. This is the ruled choice's own
+  purpose, so that the nearest-neighbour search always finds an index.
+  It is not a new choice.
+
+The owner also stated on 2026-11-25 that R must not be a dependency of
+the finished product. RFC-0020 records it in §Acceptance criteria: R
+answers are committed text fixtures, and nothing built, tested or run
+calls R.
+
+*Note 2026-11-25, a ruling and a correction* after RFC-0020's third
+review (`docs/rfc/reviews/RFC-0020-review-2026-11-25-3.md`, SF1 and
+SF4).
+- **`nstart` with a MATRIX of centres.** The draft refused it (E101), a
+  departure from R that none of the fourteen choices named. The owner
+  ruled "following R and ignoring it": the value is checked as an
+  INTEGER ≥ 1 and then ignored, as R runs further starts only when it
+  drew the centres (`kmeans.R:111`, `:126`). RFC-0020 §S6 and criterion
+  5 say so. This is a ruling of its own, not a change to a ruled choice.
+- **Choice 11's reason, again.** The note above says R drops non-finite
+  values in `density`. It drops ±∞ only; it stops on NA unless `na.rm`
+  is true (`density.R:57-82`). The refusal is unchanged.
