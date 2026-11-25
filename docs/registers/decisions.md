@@ -18291,3 +18291,28 @@ outside criterion 12's 10⁻⁴ and 10⁻⁶; with `reltol` 10⁻¹² and `ndeps
 | **4A** | R's defaults kept; criterion 12's test gives Nelder–Mead `reltol` 10⁻¹² and BFGS `ndeps` 10⁻⁶, and says so |
 | 4B | Tighter defaults than R's |
 | 4C | Criterion 12 loosened to what R's defaults reach |
+
+## D276 — RFC-0016 criterion 3: `infer.snapshot` on a Linux host
+
+**Raised 2026-11-24** at the 0.57.0 cut. Since `98cd87e` (`dist.t`'s tails
+after R's `pt`), CI's `check` job on ubuntu-26.04 (x86_64, glibc) has failed
+`biomath::infer::tests::the_plain_tests_answer_the_snapshot_bit_for_bit`
+on one line of 49: `t2 p` is `3fb445949bd5cbce` there and
+`3fb445949bd5cbd1` on macOS arm64, where the snapshot was recorded, 3 ulp
+apart (CI run 45495062647). The t's tails now take `ln_1p`, `ln`, `exp` and
+`statrs`'s `ln_gamma` from the platform's maths library, whose last bit
+differs between the two hosts, as D150 found for two goldens. Both values
+are 3.4·10⁻¹⁴ below mpmath's at 60 digits (0.0791867142159381830…), so
+neither host is the more accurate. `lm.snapshot` and every other test pass
+on both.
+
+- Blocks: the 0.57.0 cut, which waits on a green CI
+- Depends on: D150 (option A, a golden's variant for a named host),
+  RFC-0016 criterion 3
+- Status: **RESOLVED** by the repository owner, 2026-11-24: **A**.
+
+| Option | Reading |
+|---|---|
+| **A** | A per-host snapshot: `fixtures/infer.linux.snapshot` holds CI's Linux answer, bit for bit, and the test reads it when `target_os` is `linux`, `infer.snapshot` elsewhere. The arithmetic does not change |
+| B | Host-independent maths: the t's tails through the `libm` crate, the snapshots rewritten on macOS; it moves Bund2's answers by ulps, and `statrs`'s `ln_gamma` still calls the platform |
+| C | Cut 0.57.0 with CI red, the failure carried into 0.58.0 |

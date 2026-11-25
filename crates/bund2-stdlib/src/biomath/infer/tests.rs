@@ -357,8 +357,13 @@ fn mannwhitney_at_the_mean_of_w_answers_p_1() {
 
 // RFC-0016 criterion 3: the plain tests' answers, every key, each number's
 // f64 bits, recorded from the code before RFC-0016 moved any (cae380d).
+// A Linux host reads its own (D276): `t2 p` takes its last bits from the
+// platform's maths library, and glibc's differ from macOS's by 3 ulp.
 
+#[cfg(not(target_os = "linux"))]
 const SNAPSHOT: &str = include_str!("../fixtures/infer.snapshot");
+#[cfg(target_os = "linux")]
+const SNAPSHOT: &str = include_str!("../fixtures/infer.linux.snapshot");
 
 /// Each program's answer as lines `label key value`, a number as its f64
 /// bits in hex and a STRING as itself.
@@ -386,15 +391,17 @@ fn the_plain_tests_answer_the_snapshot_bit_for_bit() {
     assert_eq!(snapshot(), SNAPSHOT);
 }
 
-/// Writes the snapshot. Run once, before RFC-0016's first change, with
+/// Writes the snapshot of the host it runs on (D276). Run once, before
+/// RFC-0016's first change, with
 /// `cargo test -p bund2-stdlib write_the_snapshot -- --ignored`.
 #[test]
 #[ignore = "writes the snapshot; run only to record it"]
 fn write_the_snapshot() {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/biomath/fixtures/infer.snapshot"
-    );
+    #[cfg(not(target_os = "linux"))]
+    let name = "infer.snapshot";
+    #[cfg(target_os = "linux")]
+    let name = "infer.linux.snapshot";
+    let path = format!("{}/src/biomath/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
     std::fs::write(path, snapshot()).unwrap();
 }
 
