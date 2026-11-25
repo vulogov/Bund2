@@ -24,6 +24,7 @@ explains it. They are not part of the conformance corpus; that lives under
 | [`biomath/`](biomath/) | RFC-0015's five worked examples of biomathematics and genetics, and a rule base over them: Hardy–Weinberg's exact test and an FDR correction, a primer's reverse complement and protein, eight Wright–Fisher replicates each in its own seeded VM on its own thread, an SIR epidemic by Dormand–Prince checked against the relation its final size comes from, a Leslie matrix's growth rate and stable stages, and rules that call `popgen.hwe` and tests through bridges. Every draw is seeded, so `expected.txt` is what it prints, and a test compares the two. The example for the `math.`, `stat.`, `bio.`, `popgen.`, `linalg.` and `ode.` words. |
 | [`frames/`](frames/) | RFC-0017's frames, factors and missing values over a small dose trial: CSV text read into a frame with its gaps as NONE and a factor column, complete rows, a filter and a stable sort, `frame.aggregate` under `"omit"` and the refusal under `"refuse"`, inner and left joins, `frame.matrix` into `stat.lm`, CSV written back out, and where NONE can and cannot come from. Nothing is random, so `expected.txt` is what it prints, and a test compares the two. The example for the `frame.` and `na` words. |
 | [`models/`](models/) | RFC-0018's models over frames: the dose trial of `frames/` coded as a design by `model.matrix`, fitted by `fit.lm`, checked by its residuals, leverages and Cook's distances, and predicted at new rows with confidence and prediction intervals, a site it never saw refused; then Dobson's trial, R's `glm` example, as a Poisson `fit.glm`, its outcome-only model compared by `model.compare`, and `model.anova`'s sequential table. Nothing is random, so `expected.txt` is what it prints, and a test compares the two. The example for the `model.`, `fit.lm` and `fit.glm` words. |
+| [`inference/`](inference/) | RFC-0019's study, from planning to a likelihood: a three-diet trial's sample size from `power.t` and `power.anova`, its groups checked by Shapiro–Wilk, compared by the one-way F with η² and ω², Tukey's HSD and Cohen's d with its interval; diet 2's mean bootstrapped with percentile and BCa intervals and jackknifed, diets 1 and 2 permuted exactly and by Monte Carlo; and two models fitted by `fit.mle`, a normal against its closed form and an exponential rate with its profile interval. Every draw is seeded, so `expected.txt` is what it prints, and a test compares the two. The example for the `power.` and `boot.` words and `fit.mle`. |
 
 ## Running an example
 
@@ -46,6 +47,7 @@ Any of them runs straight from its source, with `bund2` built:
     cd bund_examples/biomath && bund2 demo.bund
     cd bund_examples/frames && bund2 demo.bund
     cd bund_examples/models && bund2 demo.bund
+    cd bund_examples/inference && bund2 demo.bund
 
 `threads_demo` is the one example with a Rust host, an embedding of Bund2.
 It runs as a workspace binary:

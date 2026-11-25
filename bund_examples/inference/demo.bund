@@ -1,0 +1,126 @@
+//
+// RFC-0019's study, from planning to a likelihood: a sample size planned
+// by power, a three-diet trial tested, a mean and a difference resampled,
+// and two models fitted by maximum likelihood. Run it:
+//
+//   bund2 demo.bund
+//
+// Every draw follows an `rng.seed`, so a run prints the same lines each
+// time, and `expected.txt` beside this file is what it must print.
+//
+// Each word answers a MAP; the lines below read the keys they need.
+// Operands go deepest first, so `a b "mean.diff" dict
+// stat.test.permutation` tests a against b.
+//
+
+// A FLOAT, or each FLOAT of a LIST, to six decimals, so that the printed
+// lines do not depend on the last bits of a long computation; adding 0.0
+// prints a rounded -0.0 as 0.0.
+:round { 1000000.0 * math.round 1000000.0 swap / 0.0 + } register
+:roundall { list swap { round swap + } loop } register
+
+//
+// 1. Planning. How many animals per diet does a two-sample t test need
+//    to detect a gain of 0.8 g with a spread of 0.6 g, at 90% power?
+//    `power.t` solves for the one parameter left out, here n, and
+//    answers it as a FLOAT; a study rounds it up. With n given and
+//    power left out, it answers the power of the trial actually run.
+//    `power.anova` plans the three-diet comparison as a whole.
+//
+"-- 1. planning the trial" println
+:plan dict "delta" 0.8 set "sd" 0.6 set "power" 0.9 set power.t var
+"n per diet:       " print :plan var? "n" get round print " -> " print :plan var? "n" get math.ceil println
+"method:           " print :plan var? "method" get println
+"power at n = 8:   " print dict "n" 8 set "delta" 0.8 set "sd" 0.6 set power.t "power" get round println
+"anova n per diet: " print dict "groups" 3 set "between.var" 0.4 set "within.var" 0.36 set "power" 0.9 set power.anova "n" get round println
+"" println
+
+//
+// 2. Testing. Eight animals on each of three diets; the weight gains in
+//    grams. Shapiro–Wilk checks each group looks normal; the one-way F
+//    asks whether the diets differ at all, with η² and ω² for how much;
+//    Tukey's HSD compares every pair, its intervals holding jointly at
+//    95%; Cohen's d measures diet 2 against diet 1, with its interval
+//    from the noncentral t.
+//
+"-- 2. testing the diets" println
+:diets [ [ 4.1 5.3 4.8 5.9 4.4 5.0 5.6 4.7 ]
+         [ 5.8 6.4 5.5 6.9 6.1 5.7 6.6 6.0 ]
+         [ 4.9 5.2 5.6 4.6 5.4 5.9 5.1 5.3 ] ] var
+:d1 1 :diets var? at var
+:d2 2 :diets var? at var
+"Shapiro–Wilk p:   " print list :diets var? { stat.test.shapiro "p" get swap + } loop roundall println
+:f :diets var? stat.test.anova1 var
+"F, df and p:      " print :f var? "statistic" get round print " on " print :f var? "df1" get print " and " print :f var? "df2" get print ", p " print :f var? "p" get round println
+"η² and ω²:        " print :f var? "eta2" get round print " " print :f var? "omega2" get round println
+:hsd :diets var? dict stat.test.tukey var
+"Tukey pairs:      " print :hsd var? "pair" frame.column println
+"differences:      " print :hsd var? "diff" frame.column roundall println
+"95% lower:        " print :hsd var? "lower" frame.column roundall println
+"95% upper:        " print :hsd var? "upper" frame.column roundall println
+"adjusted p:       " print :hsd var? "p" frame.column roundall println
+:es :d2 var? :d1 var? dict stat.effect.cohend.opts var
+"d and its 95%:    " print :es var? "d" get round print ", " print :es var? "lower" get round print " to " print :es var? "upper" get round println
+"" println
+
+//
+// 3. Resampling. The bootstrap draws diet 2 with replacement 2000 times
+//    and takes each draw's mean: the percentile interval, and BCa's,
+//    corrected for bias and for the acceleration from the jackknife. The
+//    permutation test splits the sixteen animals of diets 1 and 2 every
+//    one of the C(16, 8) = 12870 ways; with `exact` false it shuffles
+//    them 9999 times instead.
+//
+"-- 3. resampling" println
+42 rng.seed
+:boot :d2 var? "mean" 2000 dict [ "percentile" "bca" ] "type" swap set boot.sample var
+"mean of diet 2:   " print :boot var? "t0" get round println
+"bias and se:      " print :boot var? "bias" get round print " " print :boot var? "se" get round println
+"percentile 95%:   " print :boot var? "percentile" get roundall println
+"BCa 95%:          " print :boot var? "bca" get roundall println
+:jack :d2 var? "mean" boot.jackknife var
+"jackknife se:     " print :jack var? "se" get round println
+:perm :d2 var? :d1 var? "mean.diff" dict stat.test.permutation var
+"exact:            " print :perm var? "statistic" get round print " g, p " print :perm var? "p" get round print " over " print :perm var? "permutations" get println
+:mc :d2 var? :d1 var? "mean.diff" dict "exact" false set stat.test.permutation var
+"Monte Carlo:      " print :mc var? "p" get round print " over " print :mc var? "permutations" get println
+"" println
+
+//
+// 4. Maximum likelihood. `fit.mle` takes the log-likelihood as a lambda
+//    of the parameter LIST and maximises it, by BFGS unless `method`
+//    says "nm". Diet 2's normal fit has the closed form x̄ and σ̂ on n,
+//    and its standard errors σ̂/√n and σ̂/√(2n). Then the waits between
+//    ten feedings, as exponential: the rate's profile interval inverts
+//    the likelihood-ratio test, and is not symmetric as the Wald
+//    interval r ± 1.96·se is.
+//
+"-- 4. maximum likelihood" println
+// −n ln σ − Σ(x − μ)²/(2σ²), the constant left out; |σ| keeps a line
+// search's trial σ < 0 finite. The fit starts near the data, so that
+// it finds σ > 0, and is given a tighter `reltol` and a smaller step for
+// its differences than R's defaults, so that its estimates' six decimals
+// are the closed form's. The standard errors come from a Hessian taken by
+// differences, and agree with theirs to about 10⁻⁶.
+:normal {
+  unfold :sigma swap var :mu swap var
+  0.0 :d2 var? { :mu var? - dup * + } loop
+  :sigma var? dup * 2.0 * swap /
+  :sigma var? math.abs math.ln 8.0 * + -1.0 *
+} var
+:nfit :normal var? [ 6.0 0.5 ] dict "n" 8 set "reltol" 0.000000000001 set "ndeps" 0.000001 set fit.mle var
+"μ and σ:          " print :nfit var? "par" get roundall println
+"closed form:      " print :d2 var? stat.mean round print " " print :d2 var? stat.sd 0.875 math.sqrt * round println
+"standard errors:  " print :nfit var? "se" get roundall println
+"closed form:      " print :d2 var? stat.sd 0.875 math.sqrt * 8.0 math.sqrt swap / round print " " print :d2 var? stat.sd 0.875 math.sqrt * 16.0 math.sqrt swap / round println
+"log-lik. and AIC: " print :nfit var? "loglik" get round print " " print :nfit var? "aic" get round println
+:waits [ 0.8 1.9 0.4 2.7 1.1 0.3 1.6 0.9 2.2 0.6 ] var
+// n ln r − r Σx.
+:exponential {
+  unfold :rate swap var
+  :rate var? math.ln 10.0 * :rate var? 0.0 :waits var? { + } loop * swap -
+} var
+:efit :exponential var? [ 0.5 ] dict "profile" true set fit.mle var
+"rate and se:      " print :efit var? "par" get roundall print " " print :efit var? "se" get roundall println
+"profile 95%:      " print :efit var? "lower" get car round print " to " print :efit var? "upper" get car round println
+"Wald 95%:         " print :efit var? "par" get car 1.959964 :efit var? "se" get car * swap - round print " to " print :efit var? "par" get car 1.959964 :efit var? "se" get car * + round println

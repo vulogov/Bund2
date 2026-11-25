@@ -1,0 +1,35 @@
+-- 1. planning the trial
+n per diet:       12.861845 -> 13.0
+method:           Two-sample t test power calculation
+power at n = 8:   0.698722
+anova n per diet: 6.809607
+
+-- 2. testing the diets
+Shapiro–Wilk p:   [ 0.977368 ::  0.880706 ::  0.999929 :: ]
+F, df and p:      11.452741 on 2.0 and 21.0, p 0.000433
+η² and ω²:        0.5217 0.465544
+Tukey pairs:      [ 2-1 ::  3-1 ::  3-2 :: ]
+differences:      [ 1.15 ::  0.275 ::  -0.875 :: ]
+95% lower:        [ 0.517461 ::  -0.357539 ::  -1.507539 :: ]
+95% upper:        [ 1.782539 ::  0.907539 ::  -0.242461 :: ]
+adjusted p:       [ 0.000456 ::  0.527067 ::  0.005971 :: ]
+d and its 95%:    2.112213, 0.839869 to 3.338418
+
+-- 3. resampling
+mean of diet 2:   6.125
+bias and se:      0.002487 0.15528
+percentile 95%:   [ 5.8375 ::  6.45 :: ]
+BCa 95%:          [ 5.85 ::  6.4625 :: ]
+jackknife se:     0.168767
+exact:            1.15 g, p 0.001554 over 12870
+Monte Carlo:      0.0022 over 9999
+
+-- 4. maximum likelihood
+μ and σ:          [ 6.125 ::  0.446514 :: ]
+closed form:      6.125 0.446514
+standard errors:  [ 0.157866 ::  0.111628 :: ]
+closed form:      0.157867 0.111629
+log-lik. and AIC: 2.450271 -0.900542
+rate and se:      [ 0.8 :: ] [ 0.252982 :: ]
+profile 95%:      0.400861 to 1.403148
+Wald 95%:         0.304165 to 1.295836
