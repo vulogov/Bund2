@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Contains code ported line for line from R 4.4.2's src/library/stats/src/swilk.c,
+// which is GPL-2.0-or-later (D279).
+
 //! RFC-0019 §S5's normality and variance tests, M5: Shapiro–Wilk, the
 //! one-sample Kolmogorov–Smirnov test, Bartlett's test and Levene's test
 //! with its `.opts` word.

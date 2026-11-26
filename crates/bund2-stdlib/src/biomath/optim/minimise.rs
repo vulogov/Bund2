@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Contains code ported line for line from R 4.4.2's src/appl/optim.c (nmmin, vmmin) and src/library/stats/src/optim.c (optimhess),
+// which is GPL-2.0-or-later (D279).
+
 //! RFC-0019 §S10: the minimisers and the Hessian, `optim.nm`, `optim.bfgs`
 //! and `optim.hessian`, and what `fit.mle` (§S11) minimises with.
 //!

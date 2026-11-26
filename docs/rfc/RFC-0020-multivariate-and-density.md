@@ -10,6 +10,12 @@
   D278, **RESOLVED 2026-11-25** as recommended (all fourteen, "rule on
   D278's 14 open author choices: recomendation"). The draft was written against each recommended option
   and marks each dependent passage **[V*n*]**.
+- Amended a fourth time 2026-11-25 after the fourth review
+  (`docs/rfc/reviews/RFC-0020-review-2026-11-25-4.md`, B1, SF1, SF2,
+  N1–N3), on the owner's "recommendations on all three": MANOVA's rank
+  floor is 10⁻⁷ on d_j (D278's correction note of the same date), a `t`
+  of ±∞ is E101, and the licence of the ports is D279, **RESOLVED 2026-11-25** as
+  recommended (A, "D279: recomendations").
 - Amended a third time 2026-11-25 after the third review
   (`docs/rfc/reviews/RFC-0020-review-2026-11-25-3.md`, SF1–SF5,
   N1–N6). SF1 follows the owner's ruling that `nstart` with a MATRIX of
@@ -695,6 +701,8 @@ as `linalg.eigen.sym`'s cap is set; `None` is E110. Fixed, plain and `.`.
   further starts only when it drew the centres (`kmeans.R:111`, `:126`),
   and on R 4.6.2 `kmeans(x, x[c(1, 3), ], nstart = 5)` answers as
   `nstart = 1` with no warning (owner's ruling, 2026-11-25; D278).
+  `nstart` below 1 is E101 by RFC-0016 §S1's options rule, where R
+  accepts it silently (`kmeans.R:98`, `:100`, `:126`).
 - **The algorithms** are AS 136's `kmns.f` and `kmeans.c`'s Lloyd and
   MacQueen, ported line for line, ties included (§What R does).
   Hartigan–Wong's `BIG` is R's single-precision 10³⁰: `1.E30` widened
@@ -719,8 +727,9 @@ as `linalg.eigen.sym`'s cap is set; `None` is E110. Fixed, plain and `.`.
   `centers`, k × p; `totss`, `withinss`, `tot.withinss`, `betweenss` =
   totss − tot.withinss, `size` and `iter`.
 - **Work (D39):** n·k·p·`iter.max`·`nstart` above 10¹⁰ is E111, before
-  any draw, `nstart` counting as 1 with a MATRIX of centres
-  **[author]**.
+  any draw **[author]**. With a MATRIX of centres `nstart` counts as 1,
+  a consequence of the owner's `nstart` ruling (D278's note of
+  2026-11-25), not a change to choice 9.
 - Fixed (three operands), plain and `.`.
 
 ### S7. Hotelling's T² and MANOVA [V2] [V12]
@@ -750,16 +759,20 @@ as `linalg.eigen.sym`'s cap is set; `None` is E110. Fixed, plain and `.`.
   - **Scaling.** E is first scaled as R scales it: sc = √diag(E), with
     sc_j set to 1 when sc_j < 10⁻⁶·√(E_jj + Σ H_jj) (`manova.R:98-102`).
   - **The rank test** is Cholesky's of the scaled E. A pivot
-    d_j = L_jj² at most 10⁻¹⁴ of the largest diagonal entry of the
+    d_j = L_jj² at most 10⁻⁷ of the largest diagonal entry of the
     scaled E is E106, naming the pivot **[author]**.
-    - 10⁻¹⁴ is the square of R's 10⁻⁷, because `dqrdc2` compares column
-      norms and d_j is a squared length.
+    - 10⁻⁷ is R's own tolerance, on the same scale. R takes the QR of
+      the scaled SSCP matrix D E D itself (`manova.R:103`, `tol = 1e-7`
+      at `:41`), not of the residuals, so its column-norm ratio is on
+      the scale of d_j, not of √d_j. On R 4.6.2 the boundary of
+      "residuals have rank 1 < 2" lies between d ratios of 1.8·10⁻⁷
+      and 3.1·10⁻⁷ (§Fixture inputs' near-collinear pair).
     - It is not R's test. `dqrdc2` pivots by column norm with limits of
       its own, so near the threshold the two can disagree.
-    - It tests the same d_j as the Hotelling words but at a smaller
-      floor. Hotelling's 10⁻⁸ follows `fit.mle`'s precedent, where R's
-      `solve` has no comparable test; MANOVA's follows R's own rank
-      test, so an E that R accepts is not refused here.
+    - It tests the same d_j as the Hotelling words, at a floor ten times
+      larger. Hotelling's 10⁻⁸ is `fit.mle`'s (base R has no Hotelling
+      word to follow); MANOVA's is R's, so that `stat.test.manova`
+      refuses where `summary.manova` stops.
   - `opts` takes `test`: `"pillai"` (the default, as R's), `"wilks"`,
     `"hotelling-lawley"` or `"roy"`. Each statistic and its F is
     `mlm.R:363-406`'s, line for line.
@@ -791,7 +804,9 @@ as `linalg.eigen.sym`'s cap is set; `None` is E110. Fixed, plain and `.`.
       at five places, as R checks (`lda.R:90`); default the sample
       proportions. Entry k is the prior of the k-th group in `lev`'s
       order (§S1's, or `levels` when given), as R matches a prior to
-      `levels(grouping)` by position (`lda.R:89-92`);
+      `levels(grouping)` by position (`lda.R:89-92`). R then drops the
+      priors of empty levels (`:92`); `levels` names only labels that
+      occur, so no level is empty and the port has no such step;
     - `tol`;
     - `levels` (§S1).
   - **Answers** use MASS's names (`lda.R:207-209`), as D275's 3A kept
@@ -866,9 +881,9 @@ as `linalg.eigen.sym`'s cap is set; `None` is E110. Fixed, plain and `.`.
 - **`stat.ecdf.at`** (`x t -- FLOAT`) answers #{xᵢ ≤ t}/n. Two forms, as
   `stat.quantile`.
 - An empty x is E101 for both, as R stops: "'x' must have 1 or more
-  non-missing values" (run on R 4.6.2). A NaN `t` is E101 (B12), where R
-  answers NaN. A `t` of −∞ or +∞ answers 0 or 1, as R does, since the
-  count is defined for any ordered `t`.
+  non-missing values" (run on R 4.6.2). A NaN or ±∞ `t` is E101, the family's
+  rule for an operand (RFC-0015 §S11: "A NaN or ±∞ operand is E101").
+  R answers NaN, 0 and 1 for NaN, −∞ and +∞.
 - **`stat.hist`** (`x opts -- MAP`) is R's `hist.default` without the
   plot.
   - `breaks` is `"sturges"` (the default), `"scott"`, `"fd"`, an
@@ -919,13 +934,21 @@ As RFC-0016 §S8 and RFC-0019 §S13:
 - **Regenerated in each milestone:** `PROMOTABLE.txt`, `bund2 effects`
   and `docs/arity.md`.
 - **No golden is added** (D21).
-- **Licence.** The ports this RFC calls line for line (`hclust.f`,
-  `kmns.f`, `kmeans.c`, `pretty.c`, `density.R`, `bandwidths.c`,
-  `mlm.R`, MASS's `lda.R`) derive from GPL-2-or-later code (MASS is
-  GPL-2 or GPL-3). D216 already allows GPL code in the build ("a binary
-  distributed from this workspace carries GPL-3.0-or-later"), and
-  RFC-0019's ports of `zeroin`, `nmmin` and `vmmin` took the same path,
-  so this adds no new obligation.
+- **Licence [D279].** The ports this RFC calls line for line
+  (`hclust.f`, `kmns.f`, `kmeans.c`, `pretty.c`, `density.R`,
+  `bandwidths.c`, `mlm.R`, MASS's `lda.R`) derive from GPL-2-or-later
+  code (MASS is GPL-2 or GPL-3).
+  - D216 ruled that two GPL crates may be linked, so that "a binary
+    distributed from this workspace carries GPL-3.0-or-later
+    obligations", and that "The source files remain Apache-2.0". It did
+    not rule on GPL-derived text inside Bund2's own source files.
+  - RFC-0019's ports (`optim.rs`, `optim/minimise.rs`, `quadpack.rs`,
+    `infer/further/normality.rs`) already raise the same question.
+  - D279 rules it (A): each file holding a port opens with
+    `// SPDX-License-Identifier: GPL-2.0-or-later` and a line naming the
+    source it ports, and `bund2-stdlib`'s `license` is
+    `Apache-2.0 AND GPL-3.0-or-later`. Each milestone that adds a port
+    adds its header; every other file stays Apache-2.0.
 - **`UNVARIED`** gains each fixed native that consumes three or more
   operands on the stack, or whose `.` form consumes two or more
   (`lib.rs`, `varied_of`). That is `cluster.kmeans`, `stat.test.manova`,
@@ -1109,6 +1132,12 @@ part), the milestone commits the input it chose, beside its answer:
 - **MANOVA's edge cases:**
   - a rank-deficient E: the three-group input with column 4 replaced by
     column 1 + column 2;
+  - a near-collinear pair, either side of R's rank boundary: after
+    `set.seed(3)`, a = `rnorm(20)` and b = a + ε·`rnorm(20)`, each plus
+    the group (1 for rows 1–10, 2 for rows 11–20), two groups. At
+    ε = 10⁻³ (d ratio 9.93·10⁻⁷) R answers; at ε = 10⁻⁴ (9.92·10⁻⁹) it
+    stops, "residuals have rank 1 < 2" (run on R 4.6.2). The `.R`
+    script writes the 40 values into the fixture;
   - zero df: rows (1, 2), (2, 1), (3, 5), (4, 3), (6, 2), with groups
     1, 1, 2, 2, 3. Under `"hotelling-lawley"` R answers F 0 on 4 and 0,
     with p NA. Under `"wilks"` it answers Λ 0.00186289120715 and F
@@ -1184,6 +1213,8 @@ part), the milestone commits the input it chose, beside its answer:
    - `stat.test.manova`'s four statistics, F, df and p match R's on the
      three-group input.
    - The rank-deficient E is E106.
+   - On the near-collinear pair, ε = 10⁻³ answers R's four statistics,
+     F, df and p, and ε = 10⁻⁴ is E106.
    - The zero-df case under `"hotelling-lawley"` is E101, and under
      `"wilks"` answers R's Λ, F, df and p.
 7. **LDA.**
@@ -1199,6 +1230,7 @@ part), the milestone commits the input it chose, beside its answer:
    - A constant variable within groups is E101 with its name.
 8. **ECDF and histograms.**
    - `stat.ecdf` and `stat.ecdf.at` match the definition with ties.
+   - An empty x is E101 for both; a `t` of NaN, −∞ or +∞ is E101.
    - `stat.hist` equals R's `hist(…, plot = FALSE)` on §Fixture inputs'
      cases: breaks, counts and mids exactly, density at the tolerance.
    - A duplicated break, `include.lowest` false with a rule, and a
@@ -1284,9 +1316,10 @@ the first review:
 4. `cluster.dist` answers the full symmetric MATRIX (§S5).
 5. k-means with k = 1 answers directly, `iter` 1; a 1 × 1 MATRIX is a
    centre (§S6).
-6. **MANOVA's rank test (§S7).** A Cholesky pivot L_jj² at most 10⁻¹⁴
+6. **MANOVA's rank test (§S7).** A Cholesky pivot L_jj² at most 10⁻⁷
    of the scaled E's largest diagonal entry is E106. The threshold is
-   the square of R's 10⁻⁷, but this is not `dqrdc2`'s test.
+   R's 10⁻⁷ on the same scale, since R's QR is of E itself, but this is
+   not `dqrdc2`'s test (corrected 2026-11-25 from 10⁻¹⁴; D278).
 7. LDA's collinearity answers fewer discriminants with no warning, and
    a posterior tie takes the first group (§S8).
 8. `stat.density` takes no weights, and refuses ±∞ (§S9).

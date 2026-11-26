@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Contains code ported line for line from R 4.4.2's src/appl/integrate.c (rdqagse, rdqagie),
+// which is GPL-2.0-or-later (D279).
+
 //! RFC-0019 §S6: QUADPACK's QAGS and QAGI, as R's `integrate` runs them.
 //!
 //! A port of R 4.4.2's `src/appl/integrate.c`: `rdqagse` and `rdqagie`, the

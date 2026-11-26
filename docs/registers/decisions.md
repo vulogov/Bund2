@@ -18455,3 +18455,74 @@ SF4).
 - **Choice 11's reason, again.** The note above says R drops non-finite
   values in `density`. It drops ±∞ only; it stops on NA unless `na.rm`
   is true (`density.R:57-82`). The refusal is unchanged.
+
+*Note 2026-11-25, a correction to choice 6* after RFC-0020's fourth
+review (`docs/rfc/reviews/RFC-0020-review-2026-11-25-4.md`, B1). The
+owner ruled "recommendations on all three".
+- **Choice 6** as restated set the floor at 10⁻¹⁴ on d_j = L_jj², as
+  the square of R's 10⁻⁷. That premise was false: R takes the QR of the
+  scaled SSCP matrix itself (`manova.R:103`, `tol = 1e-7` at `:41`), so
+  its tolerance is already on the scale of d_j. On R 4.6.2, R stops at
+  a d ratio of 1.8·10⁻⁷ and answers at 3.1·10⁻⁷, where 10⁻¹⁴ would have
+  answered both.
+- **The floor is 10⁻⁷ on d_j**, close to the first draft's wording.
+  RFC-0020 §S7, §Open questions 6 and criterion 6 (a near-collinear pair
+  either side of R's boundary) say so.
+- **Also ruled:** `stat.ecdf.at` refuses a `t` of ±∞ (E101), by RFC-0015
+  §S11, where the third amendment answered 0 or 1. The licence of the
+  ported code goes to D279.
+
+## D279 — The licence of source code ported from GPL R and MASS
+
+**Raised 2026-11-25** by RFC-0020's fourth review
+(`docs/rfc/reviews/RFC-0020-review-2026-11-25-4.md`, SF2), on the
+owner's "recommendations on all three".
+
+RFC-0020 ports R's `hclust.f`, `kmns.f`, `kmeans.c`, `pretty.c`,
+`density.R`, `bandwidths.c` and `mlm.R`, and MASS's `lda.R`, line for
+line. R is GPL-2-or-later; MASS is GPL-2 or GPL-3. RFC-0019 already
+did the same in `crates/bund2-stdlib/src/biomath/optim.rs` (`R_zeroin2`),
+`optim/minimise.rs` (`nmmin`, `vmmin`, `optimhess`), `quadpack.rs`
+(R's `integrate.c`) and `infer/further/normality.rs` (R's `swilk.c`). A
+line-for-line port is a derivative work.
+
+Bund2's `LICENSE` and every crate's `license` are Apache-2.0
+(`Cargo.toml:32`). D216 ruled only that two GPL crates may be linked, so
+that a distributed binary carries GPL-3.0-or-later obligations; it says
+"The source files remain Apache-2.0". It did not rule on GPL-derived
+text inside Bund2's own source files, and none of those files carries a
+GPL notice.
+
+- Blocks: RFC-0020's acceptance (its §S12 marks the licence **[D279]**)
+- Depends on: D216
+- Options:
+  - **A. Mark the ported files GPL.** Each file that holds a port
+    carries a header naming its source and `GPL-2.0-or-later` (or
+    `GPL-3.0-or-later` for MASS), and `bund2-stdlib`'s `license` becomes
+    `Apache-2.0 AND GPL-3.0-or-later`. The rest of the workspace stays
+    Apache-2.0. This matches what D216 already makes true of a binary.
+  - **B. Make the whole workspace GPL-3.0-or-later.** One licence, no
+    per-file accounting; existing Apache-2.0 code is absorbed upward.
+  - **C. Clean-room ports.** Re-implement each algorithm from its
+    published description (AS 136, Murtagh's NN-chain, Sheather–Jones,
+    Brent, Nelder–Mead, BFGS, QUADPACK, AS R94) without R's text, and
+    test against R's committed answers. Bund2 stays Apache-2.0, at the
+    cost of exact agreement wherever R's code has quirks the papers do
+    not, which several RFC-0019 and RFC-0020 criteria rely on.
+  - **D. Leave it**, recording that the question is deferred.
+- Recommended: **A**. It states what is already true, keeps the
+  line-for-line agreement the criteria rely on, and confines GPL to the
+  one crate that holds the ports.
+- Status: **RESOLVED 2026-11-25**: A. The owner ruled "D279:
+  recomendations".
+
+*Applied 2026-11-25.* `crates/bund2-stdlib/Cargo.toml`'s `license` is
+`Apache-2.0 AND GPL-3.0-or-later`, in place of the workspace's
+`Apache-2.0`; `deny.toml` already allows `GPL-3.0-or-later` (D216). The
+four RFC-0019 files that hold ports (`biomath/optim.rs`,
+`biomath/optim/minimise.rs`, `biomath/quadpack.rs`,
+`biomath/infer/further/normality.rs`) open with
+`// SPDX-License-Identifier: GPL-2.0-or-later` and a line naming the R
+source they port. RFC-0020's ports do the same as each milestone lands
+them (§S12); a port of MASS's `lda.R` names `GPL-2.0-or-later` too,
+since MASS offers GPL-2 or GPL-3. Every other file stays Apache-2.0.

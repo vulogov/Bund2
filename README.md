@@ -58,4 +58,8 @@ implements and a golden runs (COVERAGE), beside those it implements
 
 ## License
 
-Apache-2.0.
+Apache-2.0, except the files in `bund2-stdlib` that port R's GPL code line
+for line, which are GPL-2.0-or-later and say so in their first line
+(D279). `bund2-stdlib` is therefore `Apache-2.0 AND GPL-3.0-or-later`, and
+a distributed binary carries GPL-3.0-or-later obligations, as it already
+did by linking two GPL crates (D216).

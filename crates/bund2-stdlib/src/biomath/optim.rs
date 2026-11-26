@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Contains code ported line for line from R 4.4.2's src/library/stats/src/zeroin.c (R_zeroin2),
+// which is GPL-2.0-or-later (D279).
+
 //! RFC-0019 §S6: roots and quadrature over a lambda; §S10's minimisers and
 //! Hessian are [`minimise`]'s.
 //!
