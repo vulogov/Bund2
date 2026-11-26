@@ -53,18 +53,21 @@ const MDS_CAP: u64 = 5_000;
 
 // Options (RFC-0016 §S1).
 
-fn opts_map<'a>(word: &str, v: &'a BundValue) -> Result<&'a BTreeMap<String, BundValue>, Error> {
+pub(crate) fn opts_map<'a>(
+    word: &str,
+    v: &'a BundValue,
+) -> Result<&'a BTreeMap<String, BundValue>, Error> {
     match v.as_map() {
         Some(m) if v.dt() == MAP => Ok(m),
         _ => Err(domain(word, "opts", v.summary(WIDTH))),
     }
 }
 
-fn unknown(word: &str, k: &str) -> Error {
+pub(crate) fn unknown(word: &str, k: &str) -> Error {
     domain(word, "opts", format!("an unknown key {k:?}"))
 }
 
-fn flag(word: &str, key: &str, x: &BundValue) -> Result<bool, Error> {
+pub(crate) fn flag(word: &str, key: &str, x: &BundValue) -> Result<bool, Error> {
     match x.unboxed() {
         BundValue::Bool(b, _) if x.dt() == BOOL => Ok(*b),
         _ => Err(domain(word, key, x.summary(WIDTH))),
@@ -72,14 +75,20 @@ fn flag(word: &str, key: &str, x: &BundValue) -> Result<bool, Error> {
 }
 
 /// An INTEGER in `lo ..= hi` under `key`.
-fn integer(word: &str, key: &str, x: &BundValue, lo: i64, hi: i64) -> Result<usize, Error> {
+pub(crate) fn integer(
+    word: &str,
+    key: &str,
+    x: &BundValue,
+    lo: i64,
+    hi: i64,
+) -> Result<usize, Error> {
     match x.unboxed() {
         BundValue::Int(i, _) if (lo..=hi).contains(i) => Ok(i.unsigned_abs() as usize),
         _ => Err(domain(word, key, x.summary(WIDTH))),
     }
 }
 
-fn int(n: usize) -> BundValue {
+pub(crate) fn int(n: usize) -> BundValue {
     BundValue::int(i64::try_from(n).unwrap_or(i64::MAX))
 }
 

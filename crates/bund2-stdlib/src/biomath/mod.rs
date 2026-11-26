@@ -105,13 +105,16 @@
 //!   registered beside `fit.logistic` in [`fit`].
 //!
 //! RFC-0020 adds multivariate analysis, clustering and density. Its M1
-//! adds §S2 to §S4:
+//! adds §S2 to §S4, and M2 §S5:
 //!
 //! - [`linalg`]: `linalg.svd`, and the decompositions `mva.` shares;
-//! - [`mva`]: `mva.pca` and `mva.mds`.
+//! - [`mva`]: `mva.pca` and `mva.mds`;
+//! - [`cluster`]: `cluster.dist`, `cluster.hclust`, `cluster.cut` and
+//!   `cluster.cut.h`.
 
 pub mod align;
 pub mod boot;
+pub mod cluster;
 pub mod describe;
 pub mod dist;
 pub mod dynamics;
@@ -164,6 +167,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     boot::register(r);
     permute::register(r);
     mva::register(r);
+    cluster::register(r);
 }
 
 #[cfg(test)]
