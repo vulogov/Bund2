@@ -16,12 +16,20 @@
 //!
 //! **No NaN or ±∞ out [B12]:** an answer with a cell that is not finite is
 //! E114.
+//!
+//! RFC-0020 M1 adds `linalg.svd` (§S2), the thin SVD by `nalgebra`'s
+//! `SVD::try_new`, and shares three computations with `mva.` (§S12):
+//! [`svd_of`], [`sym_eigen`] (`linalg.eigen.sym`'s decomposition after its
+//! symmetry check) and [`spectrum`] (`linalg.eigenvalues.complex`'s).
+//! [`sign_rule`] is RFC-0020 §S1's: each vector's element of the largest
+//! absolute value positive, the first such on a tie, its pair flipped with
+//! it. `linalg.eigen.sym` keeps `nalgebra`'s signs, unchanged.
 
 use std::collections::BTreeMap;
 
 use bund2_api::{Error, Registry, StackEffect, Vm};
 use bund2_value::BundValue;
-use nalgebra::{Complex, DMatrix, DVector, Schur, SymmetricEigen};
+use nalgebra::{Complex, DMatrix, DVector, SVD, Schur, SymmetricEigen};
 
 use super::infer::table;
 use super::operand::{domain, list, operands};
@@ -34,8 +42,12 @@ const IDENTITY_CAP: i64 = 10_000;
 /// The most steps `linalg.dominant`'s inverse iteration takes (§S9).
 const INVERSE_CAP: u64 = 100;
 
+/// The cap on n·p·min(n, p) for a decomposition of a data matrix
+/// (RFC-0020 §S11).
+pub(crate) const WORK_CAP: u64 = 10_000_000_000;
+
 /// A MATRIX operand as an `nalgebra` matrix.
-fn matrix(word: &str, operand: &str, v: &BundValue) -> Result<DMatrix<f64>, Error> {
+pub(crate) fn matrix(word: &str, operand: &str, v: &BundValue) -> Result<DMatrix<f64>, Error> {
     let t = table(word, operand, v)?;
     let (r, c) = (t.len(), t.first().map_or(0, Vec::len));
     if r == 0 || c == 0 {
@@ -70,7 +82,7 @@ fn square(word: &str, a: &DMatrix<f64>) -> Result<usize, Error> {
     }
 }
 
-fn overflow(word: &str, what: &str) -> Error {
+pub(crate) fn overflow(word: &str, what: &str) -> Error {
     Refusal::Overflow {
         expression: what.into(),
     }
@@ -78,7 +90,7 @@ fn overflow(word: &str, what: &str) -> Error {
 }
 
 /// A MATRIX answer, every cell finite.
-fn answer(word: &str, what: &str, m: &DMatrix<f64>) -> Result<BundValue, Error> {
+pub(crate) fn answer(word: &str, what: &str, m: &DMatrix<f64>) -> Result<BundValue, Error> {
     if m.iter().any(|x| !x.is_finite()) {
         return Err(overflow(word, what));
     }
@@ -94,7 +106,7 @@ fn answer(word: &str, what: &str, m: &DMatrix<f64>) -> Result<BundValue, Error> 
 }
 
 /// A LIST answer, every element finite.
-fn answer_list(word: &str, what: &str, xs: Vec<f64>) -> Result<BundValue, Error> {
+pub(crate) fn answer_list(word: &str, what: &str, xs: Vec<f64>) -> Result<BundValue, Error> {
     if xs.iter().any(|x| !x.is_finite()) {
         return Err(overflow(word, what));
     }
@@ -203,13 +215,7 @@ fn linalg_eigen_sym(vm: &mut dyn Vm) -> Result<(), Error> {
             }
         }
     }
-    let Some(e) = SymmetricEigen::try_new(a, f64::EPSILON, niter(n)) else {
-        return Err(eti(W, "the symmetric eigendecomposition", niter(n) as u64));
-    };
-    let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&i, &j| e.eigenvalues[i].total_cmp(&e.eigenvalues[j]));
-    let values: Vec<f64> = order.iter().map(|&i| e.eigenvalues[i]).collect();
-    let vectors = DMatrix::from_fn(n, n, |r, c| e.eigenvectors[(r, order[c])]);
+    let (values, vectors) = sym_eigen(W, a)?;
     let mut m = BTreeMap::new();
     m.insert(
         "values".to_string(),
@@ -223,9 +229,92 @@ fn linalg_eigen_sym(vm: &mut dyn Vm) -> Result<(), Error> {
     Ok(())
 }
 
+/// A symmetric matrix's eigenvalues ascending and its eigenvectors as
+/// columns in the same order, with `nalgebra`'s signs: `linalg.eigen.sym`'s
+/// decomposition, after the caller has checked the symmetry. E110 at the
+/// cap of 1000·n iterations.
+pub(crate) fn sym_eigen(word: &str, a: DMatrix<f64>) -> Result<(Vec<f64>, DMatrix<f64>), Error> {
+    let n = square(word, &a)?;
+    let Some(e) = SymmetricEigen::try_new(a, f64::EPSILON, niter(n)) else {
+        return Err(eti(
+            word,
+            "the symmetric eigendecomposition",
+            niter(n) as u64,
+        ));
+    };
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&i, &j| e.eigenvalues[i].total_cmp(&e.eigenvalues[j]));
+    let values: Vec<f64> = order.iter().map(|&i| e.eigenvalues[i]).collect();
+    let vectors = DMatrix::from_fn(n, n, |r, c| e.eigenvectors[(r, order[c])]);
+    Ok((values, vectors))
+}
+
+/// RFC-0020 §S1's sign rule [V3]: flip each column of `v` whose element of
+/// the largest absolute value, the first such on an exact tie, is negative,
+/// and the same column of each matrix in `pairs`, so every product the
+/// decomposition defines is unchanged.
+pub(crate) fn sign_rule(v: &mut DMatrix<f64>, pairs: &mut [&mut DMatrix<f64>]) {
+    for j in 0..v.ncols() {
+        let mut best = 0;
+        for i in 1..v.nrows() {
+            if v[(i, j)].abs() > v[(best, j)].abs() {
+                best = i;
+            }
+        }
+        if v.nrows() > 0 && v[(best, j)] < 0.0 {
+            v.column_mut(j).neg_mut();
+            for m in pairs.iter_mut() {
+                if j < m.ncols() {
+                    m.column_mut(j).neg_mut();
+                }
+            }
+        }
+    }
+}
+
+/// A thin SVD: the singular values descending, then u and v.
+pub(crate) type Svd = (Vec<f64>, DMatrix<f64>, DMatrix<f64>);
+
+/// The thin SVD of an n × p matrix (RFC-0020 §S2): the r = min(n, p)
+/// singular values descending, u (n × r) and v (p × r), §S1's sign rule
+/// applied to v's columns with u's flipped alongside. `nalgebra`'s
+/// `SVD::try_new` with ε and 1000·max(n, p) iterations; `None` is E110. The
+/// work n·p·min(n, p) above [`WORK_CAP`] is E111, before the work.
+pub(crate) fn svd_of(word: &str, a: DMatrix<f64>) -> Result<Svd, Error> {
+    let (n, p) = (a.nrows(), a.ncols());
+    let r = n.min(p);
+    let work = (n as u128) * (p as u128) * (r as u128);
+    if work > u128::from(WORK_CAP) {
+        return Err(Refusal::Cap {
+            what: format!("n·p·min(n, p) = {work}, for a {n} × {p} MATRIX,"),
+            cap: WORK_CAP,
+        }
+        .error(word));
+    }
+    let cap = niter(n.max(p));
+    let Some(s) = SVD::try_new(a, true, true, f64::EPSILON, cap) else {
+        return Err(eti(word, "the singular value decomposition", cap as u64));
+    };
+    let (Some(u), Some(vt)) = (s.u, s.v_t) else {
+        return Err(Error::internal(
+            "SVD::try_new with compute_u and compute_v answers both u and vᵀ",
+        ));
+    };
+    if u.ncols() != r || vt.nrows() != r || s.singular_values.len() != r {
+        return Err(Error::internal(
+            "SVD::try_new answers the thin SVD: u n × r, vᵀ r × p, r singular values",
+        ));
+    }
+    let d: Vec<f64> = s.singular_values.iter().copied().collect();
+    let mut u = u;
+    let mut v = vt.transpose();
+    sign_rule(&mut v, &mut [&mut u]);
+    Ok((d, u, v))
+}
+
 /// Every eigenvalue, by descending modulus, then descending real and
 /// imaginary part, so a conjugate pair is `+` before `−`.
-fn spectrum(word: &str, a: DMatrix<f64>) -> Result<Vec<Complex<f64>>, Error> {
+pub(crate) fn spectrum(word: &str, a: DMatrix<f64>) -> Result<Vec<Complex<f64>>, Error> {
     let n = square(word, &a)?;
     let Some(s) = Schur::try_new(a, f64::EPSILON, niter(n)) else {
         return Err(eti(word, "the Schur decomposition", niter(n) as u64));
@@ -251,6 +340,19 @@ fn real_tol(a: &DMatrix<f64>) -> f64 {
 
 fn complex(z: Complex<f64>) -> Refusal {
     Refusal::Complex { re: z.re, im: z.im }
+}
+
+fn linalg_svd(vm: &mut dyn Vm) -> Result<(), Error> {
+    const W: &str = "linalg.svd";
+    let v = operands(vm, W, 1)?;
+    let a = matrix(W, "A", &v[0])?;
+    let (d, u, vv) = svd_of(W, a)?;
+    let mut m = BTreeMap::new();
+    m.insert("d".to_string(), answer_list(W, "a singular value", d)?);
+    m.insert("u".to_string(), answer(W, "a left singular vector", &u)?);
+    m.insert("v".to_string(), answer(W, "a right singular vector", &vv)?);
+    vm.push(BundValue::map(m));
+    Ok(())
 }
 
 fn linalg_eigenvalues(vm: &mut dyn Vm) -> Result<(), Error> {
@@ -421,10 +523,12 @@ pub fn register(r: &mut Registry) {
     word!("linalg.dominant", linalg_dominant, 1);
     word!("linalg.power", linalg_power, 2);
     word!("linalg.mulv", linalg_mulv, 2);
+    word!("linalg.svd", linalg_svd, 1);
 }
 
-/// §S9's words; each also has its `.` form.
-pub const WORDS: [&str; 12] = [
+/// §S9's words, and RFC-0020 §S2's `linalg.svd`; each also has its `.`
+/// form.
+pub const WORDS: [&str; 13] = [
     "linalg.mul",
     "linalg.t",
     "linalg.identity",
@@ -437,6 +541,7 @@ pub const WORDS: [&str; 12] = [
     "linalg.dominant",
     "linalg.power",
     "linalg.mulv",
+    "linalg.svd",
 ];
 
 #[cfg(test)]

@@ -103,6 +103,12 @@
 //!   `model.residuals`, `model.influence` and `model.predict` (§S5, §S6);
 //!   `model.compare` and `model.anova` (§S7). `fit.lm` and `fit.glm` are
 //!   registered beside `fit.logistic` in [`fit`].
+//!
+//! RFC-0020 adds multivariate analysis, clustering and density. Its M1
+//! adds §S2 to §S4:
+//!
+//! - [`linalg`]: `linalg.svd`, and the decompositions `mva.` shares;
+//! - [`mva`]: `mva.pca` and `mva.mds`.
 
 pub mod align;
 pub mod boot;
@@ -115,6 +121,7 @@ pub mod frame;
 pub mod infer;
 pub mod linalg;
 pub mod model;
+pub mod mva;
 pub mod na;
 pub(crate) mod operand;
 pub mod optim;
@@ -156,6 +163,7 @@ pub fn register(r: &mut bund2_api::Registry) {
     power::register(r);
     boot::register(r);
     permute::register(r);
+    mva::register(r);
 }
 
 #[cfg(test)]

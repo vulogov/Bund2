@@ -303,11 +303,18 @@ fn phylo_dist(vm: &mut dyn Vm) -> Result<(), Error> {
 
 // Building trees.
 
-/// A distance MATRIX and its names: square (E102), from two taxa to the cap
-/// (E101, E111), symmetric (E107), a zero diagonal and no negative cell
-/// (E101), one name a row (E102).
-fn taxa(word: &str, v: &[BundValue]) -> Result<(Vec<Vec<f64>>, Vec<String>), Error> {
-    let d = table(word, "matrix", &v[0])?;
+/// The family's distance checks (RFC-0020 §S12, shared with `mva.mds`): a
+/// MATRIX read by `table`, square (E102), from two objects to `cap` (E101,
+/// E111), a zero diagonal and no negative cell (E101), exactly symmetric
+/// (E107), checked in that order. `noun` names the objects in a refusal.
+pub(crate) fn distances(
+    word: &str,
+    operand: &str,
+    v: &BundValue,
+    cap: u64,
+    noun: &str,
+) -> Result<Vec<Vec<f64>>, Error> {
+    let d = table(word, operand, v)?;
     let n = d.len();
     if let Some(r) = d.iter().find(|r| r.len() != n) {
         return Err(Refusal::Disagree {
@@ -320,14 +327,14 @@ fn taxa(word: &str, v: &[BundValue]) -> Result<(Vec<Vec<f64>>, Vec<String>), Err
     if n < 2 {
         return Err(domain(
             word,
-            "matrix",
-            format!("{n} taxa, where 2 are needed"),
+            operand,
+            format!("{n} {noun}, where 2 are needed"),
         ));
     }
-    if n as u64 > TAXA_CAP {
+    if n as u64 > cap {
         return Err(Refusal::Cap {
-            what: format!("{n} taxa"),
-            cap: TAXA_CAP,
+            what: format!("{n} {noun}"),
+            cap,
         }
         .error(word));
     }
@@ -335,7 +342,7 @@ fn taxa(word: &str, v: &[BundValue]) -> Result<(Vec<Vec<f64>>, Vec<String>), Err
         if row[i] != 0.0 {
             return Err(domain(
                 word,
-                "matrix",
+                operand,
                 format!("{} at [{},{}]", row[i], i + 1, i + 1),
             ));
         }
@@ -343,7 +350,7 @@ fn taxa(word: &str, v: &[BundValue]) -> Result<(Vec<Vec<f64>>, Vec<String>), Err
             if x < 0.0 {
                 return Err(domain(
                     word,
-                    "matrix",
+                    operand,
                     format!("{x} at [{},{}]", i + 1, j + 1),
                 ));
             }
@@ -357,6 +364,15 @@ fn taxa(word: &str, v: &[BundValue]) -> Result<(Vec<Vec<f64>>, Vec<String>), Err
             }
         }
     }
+    Ok(d)
+}
+
+/// A distance MATRIX and its names: square (E102), from two taxa to the cap
+/// (E101, E111), symmetric (E107), a zero diagonal and no negative cell
+/// (E101), one name a row (E102).
+fn taxa(word: &str, v: &[BundValue]) -> Result<(Vec<Vec<f64>>, Vec<String>), Error> {
+    let d = distances(word, "matrix", &v[0], TAXA_CAP, "taxa")?;
+    let n = d.len();
     let names: Vec<String> = match v[1].as_list() {
         Some(items) if v[1].dt() == LIST => items
             .iter()

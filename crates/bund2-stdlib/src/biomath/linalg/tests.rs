@@ -301,3 +301,105 @@ fn a_program_defining_the_name_calls_its_own() {
     let mut i = run(":linalg.t { 42 } register 1 linalg.t").unwrap();
     assert_eq!(i.pull().and_then(|v| v.as_int()), Some(42));
 }
+
+// RFC-0020 criterion 2: `linalg.svd`.
+
+const MVA: &str = include_str!("../fixtures/mva.txt");
+
+/// A MATRIX's rows.
+fn rows(v: &BundValue) -> Vec<Vec<f64>> {
+    v.as_matrix()
+        .unwrap_or_else(|| panic!("not a MATRIX: {v:?}"))
+        .iter()
+        .map(|row| row.iter().flat_map(floats).collect())
+        .collect()
+}
+
+#[test]
+fn svd_reconstructs_square_tall_wide_and_rank_deficient_inputs() {
+    for (label, a) in [
+        (
+            "svd.square",
+            vec![
+                vec![2.0, -1.0, 0.0],
+                vec![1.0, 3.0, 2.0],
+                vec![0.0, 1.0, 4.0],
+            ],
+        ),
+        (
+            "svd.tall",
+            vec![vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0, 6.0]],
+        ),
+        (
+            "svd.wide",
+            vec![vec![1.0, 2.0, 3.0, 4.0], vec![2.0, 0.0, 1.0, -1.0]],
+        ),
+        (
+            "svd.rankdef",
+            vec![
+                vec![1.0, 2.0, 3.0],
+                vec![2.0, 4.0, 6.0],
+                vec![1.0, 0.0, 1.0],
+            ],
+        ),
+    ] {
+        let (n, p) = (a.len(), a[0].len());
+        let r = n.min(p);
+        let src = format!(
+            "[ {} ] matrix linalg.svd",
+            a.iter()
+                .map(|row| format!(
+                    "[ {} ]",
+                    row.iter()
+                        .map(|x| format!("{x:?}"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        let m = map(&src);
+        let d = floats(&m["d"]);
+        let u = rows(&m["u"]);
+        let v = rows(&m["v"]);
+        // §S13 assumption 3: the thin shapes, wide inputs included.
+        assert_eq!((u.len(), u[0].len()), (n, r), "{label} u");
+        assert_eq!((v.len(), v[0].len()), (p, r), "{label} v");
+        let norm = a.iter().flatten().map(|x| x * x).sum::<f64>().sqrt();
+        for i in 0..n {
+            for j in 0..p {
+                let back: f64 = (0..r).map(|k| u[i][k] * d[k] * v[j][k]).sum();
+                assert!(
+                    (back - a[i][j]).abs() <= 1e-12 * norm,
+                    "{label} [{i},{j}]: {back} against {}",
+                    a[i][j]
+                );
+            }
+        }
+        let want = fixture(MVA, label);
+        for (g, w) in d.iter().zip(&want) {
+            assert!(
+                (g - w).abs() <= 1e-9 * w.abs() + 1e-12 * norm,
+                "{label}: {d:?} against {want:?}"
+            );
+        }
+        assert!(d.windows(2).all(|w| w[0] >= w[1]), "{label}: {d:?}");
+        for k in 0..r {
+            let col: Vec<f64> = v.iter().map(|row| row[k]).collect();
+            let mut best = 0;
+            for (i, x) in col.iter().enumerate() {
+                if x.abs() > col[best].abs() {
+                    best = i;
+                }
+            }
+            assert!(col[best] > 0.0, "{label} v column {k}: {col:?}");
+        }
+    }
+}
+
+#[test]
+fn svd_answers_only_d_u_and_v() {
+    let m = map("[ [ 1 2 ] [ 3 4 ] ] matrix linalg.svd");
+    let keys: Vec<&str> = m.keys().map(String::as_str).collect();
+    assert_eq!(keys, ["d", "u", "v"]);
+}
