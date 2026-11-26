@@ -1,6 +1,16 @@
 # RFC-0020: Multivariate analysis and density estimation — the SVD, PCA, MDS, distances, hierarchical clustering, k-means, Hotelling's T², MANOVA, LDA, kernel density, the ECDF and histograms
 
-- Status: **Draft**
+- Status: **Accepted** (2026-11-25) by the repository owner ("accept
+  RFC-0020"), after four reviews and their amendments
+  (`docs/rfc/reviews/RFC-0020-review-2026-11-25.md`, `-2`, `-3` and
+  `-4`). Accepting means D277 and D278 as ruled, with D278's dated
+  notes, and D279 as ruled; S1–S13 as specified, each **[author]**
+  choice listed under §Open questions included; the milestones M1–M8
+  built in order, each gated by its criteria and by criteria 1, 11 and
+  12; `mva.`, `cluster.` and the other names as Bund2's own (D72), as
+  RFC-0015's to RFC-0019's families are; R as no dependency of the
+  product (§Acceptance criteria); and research 07's departures recorded
+  in `docs/research/ERRATA.md`.
 - Drafted 2026-11-25 on the owner's "/rfc-draft 0020", in 0.58.0, after
   `docs/research/07-statistical-research.md` (§3.7, §4, Phase F). D260's
   C8 rules one RFC per phase for F, G and H (its note of 2026-11-21
@@ -38,7 +48,8 @@
   B5, B7, B8, B10, B11, B12), D251 (A8), D252, D253 (P7), D266 (N6, as
   precedent), D272, D275 (3A, as precedent), D21, D36, D37, D38, D39,
   D72; **D277** (V1–V14, as recommended) and **D278** (the fourteen
-  [author] choices, as recommended).
+  [author] choices, as recommended), **D279** (the licence of the ports,
+  A).
 - Reference SHA: `reference/rust_multistackvm`
   4605832678d4792c2b8e0564b7757d5aee1539a4; `reference/Bund`
   21b40b0213a76f3f39bd6de0d2bdfdf0a53b0dca; `reference/rust_dynamic`

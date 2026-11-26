@@ -304,3 +304,24 @@ Format: `<document> §<section> -> superseded by <RFC> §<section> (<reason>)`
     answer varies between runs.
   MCMC, which §3.6 lists, is not a departure: research 07's own §4 puts
   it in Phase H (`:223`).
+
+- `07-statistical-research.md:186-193,221` -> refined and narrowed by
+  RFC-0020, recorded here on 2026-11-25 at its acceptance (D277, D278).
+  Phase F (`:221`) is built as drawn: PCA by SVD, classical MDS,
+  k-means with seeded starts, hierarchical clustering, Hotelling's T²,
+  MANOVA, LDA, kernel density, the ECDF and histograms. Four places
+  depart from §3.7:
+  - §3.7's linkages, "single, complete, average (UPGMA, already in
+    `phylo.`) and Ward" (`:188-189`), are R's eight (V7), and average
+    linkage is a port of R's `hclust.f`, not `phylo.upgma`, whose tie
+    rule differs;
+  - §3.7's "Silverman or Sheather–Jones bandwidth" (`:191-192`) gains
+    Scott's (`nrd`), as R's `bw.nrd`, beside `nrd0` and both
+    Sheather–Jones methods (V9);
+  - §3.7's "classical MDS from `linalg.eigen.sym`" (`:187`) holds
+    for the solution; the additive constant (`add`) needs Cailliez's
+    non-symmetric matrix and takes `linalg.eigenvalues.complex`'s
+    solver (§S4);
+  - §3.7's "MANOVA" (`:190`) is narrowed to one-way MANOVA over groups
+    (V12); MANOVA over RFC-0018's designs is left to a later RFC.
+
