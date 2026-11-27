@@ -35,6 +35,10 @@
 //! Both are fixed, plain and `.`. Neither is a port of R's code: each
 //! computes R's definition with `nalgebra`'s decompositions, so its file
 //! stays Apache-2.0 (D279).
+//!
+//! M5 adds §S8, `mva.lda` and `mva.lda.predict` (`X groups opts -- MAP`,
+//! `fit X opts -- MAP`), each fixed, plain and `.`, in [`lda`]: a line for
+//! line port of MASS's `lda.R`, so that file opens with its GPL header.
 
 use std::collections::BTreeMap;
 
@@ -403,10 +407,14 @@ pub fn register(r: &mut Registry) {
     }
     word!("mva.pca", mva_pca, 2);
     word!("mva.mds", mva_mds, 2);
+    word!("mva.lda", lda::mva_lda, 3);
+    word!("mva.lda.predict", lda::mva_lda_predict, 3);
 }
 
 /// The `mva.` words; each also has its `.` form.
-pub const WORDS: [&str; 2] = ["mva.pca", "mva.mds"];
+pub const WORDS: [&str; 4] = ["mva.pca", "mva.mds", "mva.lda", "mva.lda.predict"];
+
+pub mod lda;
 
 #[cfg(test)]
 mod tests;

@@ -871,8 +871,10 @@ mod honesty_tests {
         // RFC-0020 §S12: `cluster.kmeans`' first operand is X, a data
         // MATRIX its check refuses unless a MATRIX of finite numbers (§S6);
         // its form's is too. `stat.test.manova`'s first operand is X, read
-        // the same way (§S7); its form's is too.
-        const UNVARIED: [&str; 93] = [
+        // the same way (§S7); its form's is too. `mva.lda`'s first operand
+        // is X, read the same way (§S8), and `mva.lda.predict`'s is a fit,
+        // refused unless it passes §S8's check; their forms' are too.
+        const UNVARIED: [&str; 97] = [
             "bio.align",
             "bio.align.",
             "bio.align.score",
@@ -915,6 +917,10 @@ mod honesty_tests {
             "model.matrix.",
             "model.predict",
             "model.predict.",
+            "mva.lda",
+            "mva.lda.",
+            "mva.lda.predict",
+            "mva.lda.predict.",
             "popgen.fst",
             "popgen.fst.",
             "popgen.hwe",
