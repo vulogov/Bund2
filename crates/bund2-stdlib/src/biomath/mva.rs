@@ -39,7 +39,7 @@
 use std::collections::BTreeMap;
 
 use bund2_api::{Error, Registry, StackEffect, Vm};
-use bund2_value::{BOOL, BundValue, MAP};
+use bund2_value::{BOOL, BundValue, INTEGER, LIST, MAP, STRING};
 use nalgebra::DMatrix;
 
 use super::linalg::{
@@ -90,6 +90,72 @@ pub(crate) fn integer(
 
 pub(crate) fn int(n: usize) -> BundValue {
     BundValue::int(i64::try_from(n).unwrap_or(i64::MAX))
+}
+
+/// RFC-0020 §S1's grouped data: a LIST of labels, one per row of a data
+/// MATRIX, all INTEGERs or all STRINGs (E101 naming `groups` otherwise; a
+/// length other than `rows` is E102). Answers each row's group, 0-based, in
+/// the groups' order, and that order's labels: STRINGs by bytes, as
+/// `frame.factor` sorts a column's levels, INTEGERs ascending.
+pub(crate) fn groups(
+    word: &str,
+    v: &BundValue,
+    rows: usize,
+) -> Result<(Vec<usize>, Vec<BundValue>), Error> {
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+    enum Label {
+        Int(i64),
+        Str(String),
+    }
+    let items = match v.as_list() {
+        Some(xs) if v.dt() == LIST => xs,
+        _ => return Err(domain(word, "groups", v.summary(WIDTH))),
+    };
+    let mut labels = Vec::with_capacity(items.len());
+    for x in items.iter() {
+        let l = match (x.dt(), x.unboxed()) {
+            (INTEGER, BundValue::Int(i, _)) => Label::Int(*i),
+            (STRING, _) => match x.as_str() {
+                Some(s) => Label::Str(s),
+                None => return Err(domain(word, "groups", x.summary(WIDTH))),
+            },
+            _ => return Err(domain(word, "groups", x.summary(WIDTH))),
+        };
+        if let Some(first) = labels.first()
+            && std::mem::discriminant(first) != std::mem::discriminant(&l)
+        {
+            return Err(domain(
+                word,
+                "groups",
+                format!("{}, among labels of another type", x.summary(WIDTH)),
+            ));
+        }
+        labels.push(l);
+    }
+    if labels.len() != rows {
+        return Err(super::refuse::Refusal::Disagree {
+            what: "the labels of groups and the rows of X".into(),
+            n: labels.len(),
+            m: rows,
+        }
+        .error(word));
+    }
+    let mut order: BTreeMap<Label, usize> = labels.iter().map(|l| (l.clone(), 0)).collect();
+    for (i, slot) in order.values_mut().enumerate() {
+        *slot = i;
+    }
+    let index = labels
+        .iter()
+        .map(|l| order.get(l).copied().unwrap_or(0))
+        .collect();
+    let names = order
+        .into_keys()
+        .map(|l| match l {
+            Label::Int(i) => BundValue::int(i),
+            Label::Str(s) => BundValue::str(s),
+        })
+        .collect();
+    Ok((index, names))
 }
 
 /// Every cell finite, or E114 naming what overflowed.

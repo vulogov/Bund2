@@ -870,8 +870,9 @@ mod honesty_tests {
         // series read the same way (§S12); its form's is too.
         // RFC-0020 §S12: `cluster.kmeans`' first operand is X, a data
         // MATRIX its check refuses unless a MATRIX of finite numbers (§S6);
-        // its form's is too.
-        const UNVARIED: [&str; 91] = [
+        // its form's is too. `stat.test.manova`'s first operand is X, read
+        // the same way (§S7); its form's is too.
+        const UNVARIED: [&str; 93] = [
             "bio.align",
             "bio.align.",
             "bio.align.score",
@@ -951,6 +952,8 @@ mod honesty_tests {
             "stat.test.ks2.opts.",
             "stat.test.mannwhitney.opts",
             "stat.test.mannwhitney.opts.",
+            "stat.test.manova",
+            "stat.test.manova.",
             "stat.test.paired.opts",
             "stat.test.paired.opts.",
             "stat.test.t2.opts",

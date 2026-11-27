@@ -45,6 +45,7 @@ fn every_word_and_form_is_registered() {
                 && !crate::biomath::infer::further::WORDS.contains(&n.as_str())
                 && !crate::biomath::effect::WORDS.contains(&n.as_str())
                 && !crate::biomath::permute::WORDS.contains(&n.as_str())
+                && !crate::biomath::mvtest::WORDS.contains(&n.as_str())
         })
         .collect();
     assert_eq!(ours.len(), WORDS.len(), "{ours:?}");

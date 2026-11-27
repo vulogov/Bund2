@@ -81,6 +81,8 @@ fn every_word_is_registered() {
                 && !super::further::WORDS.contains(&n.as_str())
                 // RFC-0019 §S9's, which `permute`'s own test holds.
                 && !crate::biomath::permute::WORDS.contains(&n.as_str())
+                // RFC-0020 §S7's, which `mvtest`'s own test holds.
+                && !crate::biomath::mvtest::WORDS.contains(&n.as_str())
         })
         .count();
     assert_eq!(ours, WORDS.len());
