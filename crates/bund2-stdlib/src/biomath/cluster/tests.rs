@@ -535,3 +535,387 @@ fn a_program_defining_the_name_calls_its_own() {
     let mut i = run(":cluster.dist { 42 } register 1 cluster.dist").unwrap();
     assert_eq!(i.pull().and_then(|v| v.as_int()), Some(42));
 }
+
+// Criterion 5: k-means (M3).
+
+const KM: &str = include_str!("../fixtures/kmeans_r.txt");
+
+/// `kmeans_r.txt`'s inputs, each with its column count.
+const KM_INPUTS: [(&str, usize); 3] = [("tied", 2), ("usarrests", 4), ("sim", 2)];
+
+/// R's algorithm names and Bund2's.
+const KM_ALGORITHMS: [(&str, &str); 3] = [
+    ("Hartigan-Wong", "hartigan-wong"),
+    ("Lloyd", "lloyd"),
+    ("MacQueen", "macqueen"),
+];
+
+fn kmeans(x: &str, centers: &str, opts: &str) -> BTreeMap<String, BundValue> {
+    map(&top(&format!("{x} {centers} {opts} cluster.kmeans")))
+}
+
+fn one(v: &BundValue) -> f64 {
+    match v.unboxed() {
+        BundValue::Float(x, _) => *x,
+        _ => panic!("not a FLOAT: {v:?}"),
+    }
+}
+
+#[test]
+fn kmeans_equals_r_for_each_algorithm_given_centres() {
+    for (name, p) in KM_INPUTS {
+        let x = source(&fixture(KM, &format!("{name}.x")), p);
+        let c = source(&fixture(KM, &format!("{name}.centres")), p);
+        for (r, ours) in KM_ALGORITHMS {
+            let l = format!("{name}.{r}");
+            let z = kmeans(&x, &c, &format!("dict \"algorithm\" \"{ours}\" set"));
+            assert_eq!(
+                ints(&z["cluster"]),
+                as_ints(&fixture(KM, &format!("{l}.cluster"))),
+                "{l}"
+            );
+            assert_eq!(
+                ints(&z["size"]),
+                as_ints(&fixture(KM, &format!("{l}.size"))),
+                "{l}"
+            );
+            assert_eq!(
+                vec![z["iter"].as_int().unwrap()],
+                as_ints(&fixture(KM, &format!("{l}.iter"))),
+                "{l}"
+            );
+            near(
+                &format!("{l}.centers"),
+                &cells(&z["centers"]),
+                &fixture(KM, &format!("{l}.centers")),
+            );
+            let wss = fixture(KM, &format!("{l}.withinss"));
+            near(&format!("{l}.withinss"), &floats(&z["withinss"]), &wss);
+            let totss = fixture(KM, &format!("{l}.totss"));
+            near(&format!("{l}.totss"), &[one(&z["totss"])], &totss);
+            let tot: f64 = wss.iter().sum();
+            near(&format!("{l}.tot"), &[one(&z["tot.withinss"])], &[tot]);
+            near(
+                &format!("{l}.betweenss"),
+                &[one(&z["betweenss"])],
+                &[totss[0] - tot],
+            );
+        }
+    }
+}
+
+#[test]
+fn the_fixture_takes_more_than_one_pass_and_has_a_tie() {
+    for (name, _) in KM_INPUTS {
+        for (r, _) in KM_ALGORITHMS {
+            assert!(fixture(KM, &format!("{name}.{r}.iter"))[0] >= 2.0);
+            assert!(
+                !KM.contains(&format!("{name}.{r}.warn")),
+                "{name}.{r} warned in R"
+            );
+        }
+    }
+    // (2, 0) is as near (1, 0) as (3, 0), and R puts it with the first.
+    let z = kmeans(
+        &source(&fixture(KM, "tied.x"), 2),
+        &source(&fixture(KM, "tied.centres"), 2),
+        "dict \"algorithm\" \"lloyd\" set",
+    );
+    assert_eq!(ints(&z["cluster"])[2], 1);
+}
+
+#[test]
+fn the_default_is_hartigan_wong_with_ten_iterations() {
+    let x = source(&fixture(KM, "usarrests.x"), 4);
+    let c = source(&fixture(KM, "usarrests.centres"), 4);
+    let plain = kmeans(&x, &c, "dict");
+    let named = kmeans(
+        &x,
+        &c,
+        "dict \"algorithm\" \"hartigan-wong\" set \"iter.max\" 10 set",
+    );
+    assert_eq!(format!("{plain:?}"), format!("{named:?}"));
+}
+
+#[test]
+fn big_is_fortrans_single_precision_1e30() {
+    assert_eq!(super::kmeans::BIG, f64::from(1.0e30_f32));
+}
+
+/// X with duplicate rows: its distinct rows, in first-occurrence order,
+/// are rows 1, 3, 4, 6 and 7.
+const DUPS: &str = "[ [ 0 0 ] [ 0 0 ] [ 1 0 ] [ 5 0 ] [ 1 0 ] [ 6 0 ] [ 7 0 ] [ 6 0 ] ] matrix";
+const DISTINCT: [[f64; 2]; 5] = [[0.0, 0.0], [1.0, 0.0], [5.0, 0.0], [6.0, 0.0], [7.0, 0.0]];
+
+/// The centres `rng.choice` draws from the distinct rows' indices.
+fn drawn(i: &mut bund2_interp::Interp) -> String {
+    let picked = ints(&i.pull().unwrap());
+    let rows: Vec<f64> = picked.iter().flat_map(|j| DISTINCT[*j as usize]).collect();
+    source(&rows, 2)
+}
+
+#[test]
+fn an_integer_k_draws_distinct_rows_by_rng_choice_and_repeats() {
+    for (_, alg) in KM_ALGORITHMS {
+        let opts = format!("dict \"algorithm\" \"{alg}\" set");
+        let src = format!("7 rng.seed {DUPS} 2 {opts} cluster.kmeans");
+        let a = top(&src);
+        let b = top(&src);
+        assert_eq!(format!("{a:?}"), format!("{b:?}"), "{alg}");
+        let mut i = run("7 rng.seed [ 0 1 2 3 4 ] 2 rng.choice").unwrap();
+        let given = kmeans(DUPS, &drawn(&mut i), &opts);
+        assert_eq!(format!("{:?}", map(&a)), format!("{given:?}"), "{alg}");
+    }
+}
+
+#[test]
+fn nstart_keeps_the_least_total_the_earliest_on_a_tie() {
+    let opts = "dict \"algorithm\" \"lloyd\" set";
+    let got = kmeans(
+        &format!("7 rng.seed {DUPS}"),
+        "2",
+        &format!("{opts} \"nstart\" 4 set"),
+    );
+    let mut i = run(
+        "7 rng.seed [ 0 1 2 3 4 ] 2 rng.choice [ 0 1 2 3 4 ] 2 rng.choice \
+         [ 0 1 2 3 4 ] 2 rng.choice [ 0 1 2 3 4 ] 2 rng.choice",
+    )
+    .unwrap();
+    let mut starts: Vec<String> = (0..4).map(|_| drawn(&mut i)).collect();
+    starts.reverse();
+    let mut best: Option<(f64, BTreeMap<String, BundValue>)> = None;
+    for c in &starts {
+        let z = kmeans(DUPS, c, opts);
+        let t = one(&z["tot.withinss"]);
+        if best.as_ref().is_none_or(|(b, _)| t < *b) {
+            best = Some((t, z));
+        }
+    }
+    assert_eq!(format!("{got:?}"), format!("{:?}", best.unwrap().1));
+}
+
+#[test]
+fn nstart_is_ignored_with_a_matrix_of_centres_but_checked() {
+    let x = source(&fixture(KM, "sim.x"), 2);
+    let c = source(&fixture(KM, "sim.centres"), 2);
+    let one_start = kmeans(&x, &c, "dict");
+    let five = kmeans(&x, &c, "dict \"nstart\" 5 set");
+    assert_eq!(format!("{one_start:?}"), format!("{five:?}"));
+    let e = err(&format!("{x} {c} dict \"nstart\" 0 set cluster.kmeans"));
+    assert!(e.contains(": E101 nstart is outside"), "{e}");
+}
+
+#[test]
+fn k_of_one_answers_the_mean_with_iter_one() {
+    for (_, alg) in KM_ALGORITHMS {
+        for centers in ["1", "[ [ 9 9 ] ] matrix"] {
+            let z = kmeans(
+                "[ [ 1 2 ] [ 3 6 ] [ 5 1 ] ] matrix",
+                centers,
+                &format!("dict \"algorithm\" \"{alg}\" set"),
+            );
+            assert_eq!(ints(&z["cluster"]), [1, 1, 1]);
+            assert_eq!(vec![z["iter"].as_int().unwrap()], [1]);
+            near("centers", &cells(&z["centers"]), &[3.0, 3.0]);
+            near("withinss", &floats(&z["withinss"]), &[8.0 + 14.0]);
+            near("betweenss", &[one(&z["betweenss"])], &[0.0]);
+        }
+    }
+}
+
+#[test]
+fn an_empty_cluster_is_e101_and_lloyd_at_one_iteration_e110() {
+    for (_, alg) in KM_ALGORITHMS {
+        let e = err(&format!(
+            "[ [ 0 ] [ 1 ] [ 10 ] [ 11 ] ] matrix [ [ 0 ] [ 1 ] [ 100 ] ] matrix \
+             dict \"algorithm\" \"{alg}\" set cluster.kmeans"
+        ));
+        assert!(
+            e.starts_with("CLUSTER.KMEANS: E101 centers is outside cluster.kmeans's domain: a start that leaves"),
+            "{alg}: {e}"
+        );
+    }
+    let x = source(&fixture(KM, "tied.x"), 2);
+    let c = source(&fixture(KM, "tied.centres"), 2);
+    assert_eq!(
+        err(&format!(
+            "{x} {c} dict \"algorithm\" \"lloyd\" set \"iter.max\" 1 set cluster.kmeans"
+        )),
+        "CLUSTER.KMEANS: E110 Lloyd k-means did not converge within 1 iterations"
+    );
+    // R's Lloyd took three passes here, so two is still short.
+    assert!(
+        err(&format!(
+            "{x} {c} dict \"algorithm\" \"lloyd\" set \"iter.max\" 2 set cluster.kmeans"
+        ))
+        .contains(": E110 ")
+    );
+    let e = err(&format!(
+        "{} {} dict \"iter.max\" 1 set cluster.kmeans",
+        source(&fixture(KM, "usarrests.x"), 4),
+        source(&fixture(KM, "usarrests.centres"), 4),
+    ));
+    assert_eq!(
+        e,
+        "CLUSTER.KMEANS: E110 Hartigan-Wong k-means did not converge within 1 iterations"
+    );
+}
+
+#[test]
+fn each_kmeans_refusal_is_its_template() {
+    let x = "[ [ 1 2 ] [ 3 4 ] [ 5 7 ] ] matrix";
+    for (src, want) in [
+        (
+            format!("{x} [ [ 1 2 ] [ 1 2 ] ] matrix dict cluster.kmeans"),
+            "CLUSTER.KMEANS: E101 centers is outside cluster.kmeans's domain: rows 1 and 2 are equal",
+        ),
+        (
+            format!("{x} [ [ 1 ] [ 2 ] [ 3 ] [ 4 ] ] matrix dict cluster.kmeans"),
+            "CLUSTER.KMEANS: E101 centers is outside cluster.kmeans's domain: 4 rows, above X's 3",
+        ),
+        (
+            format!("{x} [ [ 1 2 3 ] ] matrix dict cluster.kmeans"),
+            "CLUSTER.KMEANS: E102 the columns of X and centers do not agree: 2 and 3",
+        ),
+        (
+            format!("{DUPS} 6 dict cluster.kmeans"),
+            "CLUSTER.KMEANS: E101 centers is outside cluster.kmeans's domain: 6, above X's 5 distinct rows",
+        ),
+        (
+            format!("{x} 0 dict cluster.kmeans"),
+            "CLUSTER.KMEANS: E101 centers is outside cluster.kmeans's domain: 0",
+        ),
+        (
+            format!("{x} 2.0 dict cluster.kmeans"),
+            "CLUSTER.KMEANS: E101 centers is outside cluster.kmeans's domain: 2.0",
+        ),
+        (
+            format!("{x} 3 dict cluster.kmeans"),
+            "CLUSTER.KMEANS: E101 centers is outside cluster.kmeans's domain: 3 centres for 3 rows, which Hartigan-Wong refuses",
+        ),
+        (
+            format!("{x} 2 dict \"algorithm\" \"Lloyd\" set cluster.kmeans"),
+            "CLUSTER.KMEANS: E101 algorithm is outside cluster.kmeans's domain: \"Lloyd\"",
+        ),
+        (
+            format!("{x} 2 dict \"iter.max\" 0 set cluster.kmeans"),
+            "CLUSTER.KMEANS: E101 iter.max is outside cluster.kmeans's domain: 0",
+        ),
+        (
+            format!("{x} 2 dict \"centers\" 2 set cluster.kmeans"),
+            "CLUSTER.KMEANS: E101 opts is outside cluster.kmeans's domain: an unknown key \"centers\"",
+        ),
+        (
+            format!("{x} 2 dict \"iter.max\" 1000000000 set cluster.kmeans"),
+            "CLUSTER.KMEANS: E111 n·k·p·iter.max·nstart = 12000000000 exceeds its cap of 10000000000",
+        ),
+        (
+            format!(
+                "{x} [ [ 1 2 ] ] matrix dict \"nstart\" 1000000000 set \"iter.max\" 1000 set cluster.kmeans"
+            ),
+            "",
+        ),
+        (
+            "[ [ 1.0e308 0 ] [ 1.0e308 1 ] [ 0 1 ] ] matrix 2 dict cluster.kmeans".into(),
+            "CLUSTER.KMEANS: E114 the answer overflows a FLOAT: the column sums of X",
+        ),
+        (
+            "[ [ 1.0e160 0 ] [ -1.0e160 1 ] [ 0 1 ] ] matrix 2 dict cluster.kmeans".into(),
+            "CLUSTER.KMEANS: E114 the answer overflows a FLOAT: the sums of squares of X",
+        ),
+        (
+            format!("{x} [ [ 1.0e160 0 ] ] matrix dict cluster.kmeans"),
+            "CLUSTER.KMEANS: E114 the answer overflows a FLOAT: the sums of squares of X",
+        ),
+    ] {
+        if want.is_empty() {
+            // nstart counts 1 with a MATRIX of centres: no cap.
+            assert!(run(&src).is_ok(), "{src}");
+        } else {
+            assert_eq!(err(&src), want, "{src}");
+        }
+    }
+}
+
+#[test]
+fn kmeans_no_operand_aborts() {
+    let xs = [
+        "float.NaN",
+        "list",
+        "dict",
+        "list matrix",
+        "[ [ 1 ] ] matrix",
+        "[ [ 1 2 ] [ 3 ] ] matrix",
+        "[ [ 1 \"a\" ] [ 3 4 ] ] matrix",
+        "[ [ 1 float.NaN ] [ 3 4 ] ] matrix",
+        "[ [ 0 0 ] [ 0 0 ] [ 0 0 ] ] matrix",
+        "[ [ 1 2 ] [ 3 4 ] [ 5 6 ] [ 1 2 ] ] matrix",
+        "[ [ 1.0e307 -1.0e307 ] [ -1.0e307 1.0e307 ] [ 1.0e307 1.0e307 ] ] matrix",
+        "[ [ 1.0e150 1 ] [ -1.0e150 2 ] [ 3 4 ] ] matrix",
+    ];
+    let centres = [
+        "1",
+        "2",
+        "3",
+        "-1",
+        "na",
+        "float.+Inf",
+        "\"x\"",
+        "list",
+        "list matrix",
+        "[ [ 0 0 ] ] matrix",
+        "[ [ 0 0 ] [ 1 1 ] ] matrix",
+        "[ [ 1 2 ] [ 3 4 ] [ 5 6 ] ] matrix",
+        "[ [ float.NaN 0 ] [ 1 1 ] ] matrix",
+        "[ [ 1.0e307 0 ] [ 1 1 ] ] matrix",
+    ];
+    let opts = [
+        "dict",
+        "\"x\"",
+        "na",
+        "dict \"algorithm\" \"lloyd\" set",
+        "dict \"algorithm\" \"macqueen\" set \"iter.max\" 1 set",
+        "dict \"algorithm\" 1 set",
+        "dict \"iter.max\" 1.5 set",
+        "dict \"nstart\" 3 set",
+        "dict \"nstart\" na set",
+    ];
+    for a in xs {
+        for b in centres {
+            for o in opts {
+                for src in [
+                    format!("{a} {b} {o} cluster.kmeans"),
+                    format!("{a} {b} {o} . cluster.kmeans."),
+                ] {
+                    if let Err(e) = run(&src) {
+                        assert!(
+                            e.contains(": E1") || e.contains("too shallow"),
+                            "{src}: {e}"
+                        );
+                    }
+                }
+            }
+        }
+        let src = format!("{a} 2 cluster.kmeans");
+        if let Err(e) = run(&src) {
+            assert!(
+                e.contains(": E1") || e.contains("too shallow"),
+                "{src}: {e}"
+            );
+        }
+    }
+}
+
+#[test]
+fn kmeans_dot_form_answers_on_the_workbench() {
+    let src = "[ [ 1 2 ] [ 3 5 ] [ 4 4 ] [ 9 9 ] ] matrix [ [ 1 2 ] [ 9 9 ] ] matrix dict";
+    let plain = run(&format!("{src} cluster.kmeans"))
+        .unwrap()
+        .pull()
+        .unwrap();
+    let mut i = run(&format!("7 {src} . cluster.kmeans.")).unwrap();
+    let shown: Vec<String> = i.snapshot().iter().map(BundValue::display).collect();
+    assert_eq!(shown, ["7"]);
+    let got = i.pull_workbench().unwrap();
+    assert_eq!(format!("{got:?}"), format!("{plain:?}"));
+}

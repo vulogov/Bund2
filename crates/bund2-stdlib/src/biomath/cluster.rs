@@ -41,7 +41,9 @@
 //!   a LIST of m finite numbers, m ≥ 1, each merge naming a singleton or an
 //!   earlier step, each once; else E101 naming `tree`.
 //!
-//! All four are fixed, plain and `.`.
+//! All four are fixed, plain and `.`. M3 adds §S6's `cluster.kmeans`
+//! (`X centers opts -- MAP`), fixed, plain and `.`, in [`kmeans`], whose
+//! file holds its ports.
 
 use std::collections::BTreeMap;
 
@@ -780,15 +782,19 @@ pub fn register(r: &mut Registry) {
     word!("cluster.hclust", cluster_hclust, 2);
     word!("cluster.cut", cluster_cut, 2);
     word!("cluster.cut.h", cluster_cut_h, 2);
+    word!("cluster.kmeans", kmeans::cluster_kmeans, 3);
 }
 
 /// The `cluster.` words; each also has its `.` form.
-pub const WORDS: [&str; 4] = [
+pub const WORDS: [&str; 5] = [
     "cluster.dist",
     "cluster.hclust",
     "cluster.cut",
     "cluster.cut.h",
+    "cluster.kmeans",
 ];
+
+pub mod kmeans;
 
 #[cfg(test)]
 mod tests;

@@ -85,19 +85,27 @@ fn rng_choice(vm: &mut dyn Vm) -> Result<(), Error> {
     if k > n {
         return Err(domain(W, "k", format!("{k}, above the length {n}")));
     }
-    let mut out = Vec::with_capacity(k);
-    with_rng(vm, |g| {
-        for step in 0..k {
-            let i = n - 1 - step;
-            if i > 0 {
-                let j = upto(g, i);
-                xs.swap(i, j);
-            }
-            out.push(xs[i].clone());
-        }
-    });
+    let out = with_rng(vm, |g| choose(g, &mut xs, k));
     vm.push(BundValue::list(out));
     Ok(())
+}
+
+/// `rng.choice`'s draw: the first k steps of Fisher–Yates over `xs`, for i
+/// from n − 1 down, answering the element that lands at each i in turn; at
+/// i = 0 it takes no draw. `k` must not exceed `xs.len()`; any excess is
+/// not drawn. `cluster.kmeans` draws its starts by it (RFC-0020 §S6).
+pub(crate) fn choose<T: Clone>(g: &mut rand::rngs::StdRng, xs: &mut [T], k: usize) -> Vec<T> {
+    let n = xs.len();
+    let mut out = Vec::with_capacity(k.min(n));
+    for step in 0..k.min(n) {
+        let i = n - 1 - step;
+        if i > 0 {
+            let j = upto(g, i);
+            xs.swap(i, j);
+        }
+        out.push(xs[i].clone());
+    }
+    out
 }
 
 /// `rng.choice.replace` (`list k -- list`): k elements with replacement.

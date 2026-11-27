@@ -868,13 +868,18 @@ mod honesty_tests {
         // `whole` reads one, E115 unless a LIST or METRICS (§S5); their
         // forms' are too. `stat.effect.cohend.opts`' first operand is a, a
         // series read the same way (§S12); its form's is too.
-        const UNVARIED: [&str; 89] = [
+        // RFC-0020 §S12: `cluster.kmeans`' first operand is X, a data
+        // MATRIX its check refuses unless a MATRIX of finite numbers (§S6);
+        // its form's is too.
+        const UNVARIED: [&str; 91] = [
             "bio.align",
             "bio.align.",
             "bio.align.score",
             "bio.align.score.",
             "bio.pwm.scan",
             "bio.pwm.scan.",
+            "cluster.kmeans",
+            "cluster.kmeans.",
             "dist.hypergeometric",
             "dist.hypergeometric.",
             "dist.ncf",
