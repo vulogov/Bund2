@@ -1,0 +1,10 @@
+#!setup
+"rules.bund" study
+#!show
+:dear [ [ dear S ] ← [ due S D ] [ test { D 75 < } ] ] var
+:harbour :harbour var? :dear var? kb.assert var
+:harbour var? [ dear S ] kb.query { :S get } map
+clear
+:harbour var? [ dear gull ] kb.holds
+clear
+:harbour var? [ dear osprey ] kb.holds

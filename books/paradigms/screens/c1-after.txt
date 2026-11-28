@@ -1,0 +1,8 @@
+[BUND > :total var?
+=> 290
+[BUND > clear
+[BUND > :name var?
+=> Osprey
+[BUND > clear
+[BUND > :cargo var?
+=> herring

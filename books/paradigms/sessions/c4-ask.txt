@@ -1,0 +1,12 @@
+#!setup
+"rules.bund" study
+#!show
+:harbour var? [ ship S C U ] kb.query { :S get } map
+clear
+:harbour var? [ ship S salt U ] kb.query
+clear
+:harbour var? [ due gull D ] kb.once
+clear
+:harbour var? [ due marta 140 ] kb.holds
+clear
+:harbour var? [ due marta 141 ] kb.holds

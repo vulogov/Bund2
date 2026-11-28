@@ -1,0 +1,5 @@
+[BUND > arrivals { :kind swap ! swap drop } map
+=> [ salt ::  wax ::  herring :: ]
+[BUND > clear
+[BUND > arrivals { :due swap ! swap drop } map
+=> [ 140 ::  80 ::  70 :: ]

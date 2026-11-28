@@ -1,0 +1,3 @@
+[BUND > "Heron" 8 :Wool object
+error: OBJECT class Wool not registered
+=> 8

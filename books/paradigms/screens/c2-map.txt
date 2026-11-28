@@ -1,0 +1,9 @@
+[BUND > arrivals { due } map
+=> [ 140 ::  80 ::  70 :: ]
+[BUND > sum
+=> 290
+[BUND > clear
+[BUND > arrivals { reckoned } map { line } map { println } loop
+Marta: 40 of salt, 140 pennies
+Gull: 12 of wax, 80 pennies
+Osprey: 25 of herring, 70 pennies

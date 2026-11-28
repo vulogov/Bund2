@@ -1,0 +1,8 @@
+#!setup
+"objects.bund" study
+#!show
+:Salt ?class
+clear
+:Wool ?class
+clear
+:Landing resolve.class :rate get

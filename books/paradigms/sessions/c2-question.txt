@@ -1,0 +1,7 @@
+#!setup
+"functions.bund" study
+#!show
+:dear? { :due get 75 < } register
+:tell { :name get println } register
+:hail { dup dear? { drop } { tell } ifthenelse } register
+arrivals { reckoned } map { hail } loop

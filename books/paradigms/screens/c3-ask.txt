@@ -1,0 +1,15 @@
+[BUND > :gull "Gull" 12 :Wax object var
+[BUND > :gull var? ?object swap drop
+=> true
+[BUND > clear
+[BUND > :gull var? :units get
+=> 12
+[BUND > clear
+[BUND > :rate :gull var? ! swap drop
+=> 5
+[BUND > clear
+[BUND > :due :gull var? ! swap drop
+=> 80
+[BUND > clear
+[BUND > :line :gull var? ! swap drop
+=> Gull: 12 of wax, 80 pennies

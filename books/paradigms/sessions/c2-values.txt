@@ -1,0 +1,8 @@
+#!setup
+"functions.bund" study
+#!show
+"Marta" "salt" 40 ship
+due
+clear
+"Marta" "salt" 40 ship dup reckoned :due get
+drop :due ?key swap drop

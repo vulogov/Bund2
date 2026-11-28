@@ -1,0 +1,21 @@
+$ diff commands.bund wool/commands.bund
+17c17,22
+<     { drop 2 }
+---
+>     {
+>       dup "wool" ==
+>       { drop 2 }
+>       { drop 4 }
+>       ifthenelse
+>     }
+54a60
+> "Heron"  "wool"     8 reckon
+$ bund2 wool/commands.bund
+Wendhaven ledger
+------------------------------------
+Marta: 40 of salt, 140 pennies
+Gull: 12 of wax, 80 pennies
+Osprey: 25 of herring, 70 pennies
+Heron: 8 of wool, 52 pennies
+------------------------------------
+Total: 342 pennies

@@ -1,0 +1,6 @@
+[BUND > :dear? { :due get 75 < } register
+[BUND > :tell { :name get println } register
+[BUND > :hail { dup dear? { drop } { tell } ifthenelse } register
+[BUND > arrivals { reckoned } map { hail } loop
+Marta
+Gull

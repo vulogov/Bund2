@@ -1,0 +1,5 @@
+#!setup
+"commands.bund" study
+#!show
+"Heron" "wool" 8 reckon
+:total var?

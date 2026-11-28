@@ -1,0 +1,107 @@
+//
+// The harbour ledger, by functions.
+//
+//   bund2 functions.bund
+//
+// Values in, values out. No word here changes anything: each takes what
+// it needs from the stack and leaves an answer. Nothing is printed until
+// the last line.
+//
+
+//
+// A ship is a value: a record of three fields.
+//
+:ship {
+  dict
+  swap :units swap set
+  swap :cargo swap set
+  swap :name  swap set
+} register
+
+:arrivals {
+  "Marta"  "salt"    40 ship
+  "Gull"   "wax"     12 ship
+  "Osprey" "herring" 25 ship
+  lambda* convert.to_list
+} register
+
+//
+// The tariff is a value too: a table from a cargo to its rate.
+//
+:tariff {
+  dict
+  "salt"    3 set
+  "wax"     5 set
+  "herring" 2 set
+} register
+
+//
+// moored ( pennies -- pennies )
+//
+// `+` with one of its two numbers already supplied.
+//
+:moored curry
+  :data   [ 20 ] set
+  :lambda { + } set
+!
+
+//
+// rate ( record -- pennies )      the rate for a ship's cargo
+// due  ( record -- pennies )      what a ship owes
+// reckoned ( record -- record )   the same ship, with its due written in
+//
+:rate     { :cargo get tariff swap get } register
+:due      { dup :units get swap rate * moored } register
+:reckoned { dup due :due swap set } register
+
+//
+// line ( record -- text )         a reckoned ship, as a line of the ledger
+//
+// The record waits on the counting table while `has` reads four fields
+// of it, and the table is cleared before the word ends.
+//
+:has     { take dup . swap get } register
+:wording { "{name}: {units} of {cargo}, {due} pennies" } register
+:line {
+  .
+  :due has  :cargo has  :units has  :name has
+  wording format
+  take drop
+} register
+
+//
+// sum ( list -- n )
+//
+:sum { 0 swap { + } loop } register
+
+//
+// joined ( list -- text )         a list of texts, as one text
+//
+:joined { "" swap { swap + } loop } register
+
+//
+// The page, a part at a time. Each is a text that ends its own line.
+// The end of a line is itself a text, written here as a string that
+// begins on one line and closes on the next; `ended` puts it after a
+// text.
+//
+:newline { "
+" } register
+:ended   { newline swap + } register
+:rule    { "-" 36 * ended } register
+:heading { rule "Wendhaven ledger" ended + } register
+:body    { { line ended } map joined } register
+:total   { { :due get } map sum "Total: {total} pennies" format ended } register
+
+//
+// ledger ( list -- text )
+//
+// The whole page as one value. The parts are put down last first, since
+// the top string comes first.
+//
+:ledger { dup total swap rule swap body heading + + + } register
+
+//
+// The only line that does anything.
+//
+arrivals { reckoned } map ledger print

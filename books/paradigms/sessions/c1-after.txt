@@ -1,0 +1,8 @@
+#!setup
+"commands.bund" study
+#!show
+:total var?
+clear
+:name var?
+clear
+:cargo var?

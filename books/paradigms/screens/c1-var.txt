@@ -1,0 +1,11 @@
+[BUND > :total 0 var
+[BUND > :total var?
+=> 0
+[BUND > clear
+[BUND > :total :total var? 140 + var
+[BUND > :total var?
+=> 140
+[BUND > clear
+[BUND > :total :total var? 80 + var
+[BUND > :total var?
+=> 220

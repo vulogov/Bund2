@@ -1,0 +1,14 @@
+$ wc -l commands.bund functions.bund objects.bund rules.bund
+      56 commands.bund
+     107 functions.bund
+      86 objects.bund
+      54 rules.bund
+     303 total
+$ diff commands.bund wool/commands.bund | grep -c '^[<>]'
+8
+$ diff functions.bund wool/functions.bund | grep -c '^[<>]'
+2
+$ diff objects.bund wool/objects.bund | grep -c '^[<>]'
+6
+$ diff rules.bund wool/rules.bund | grep -c '^[<>]'
+2

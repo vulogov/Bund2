@@ -1,0 +1,6 @@
+[BUND > :marta "Marta" 40 :Salt object var
+[BUND > :marta var? :units 38 set :due swap ! swap drop
+=> 134
+[BUND > clear
+[BUND > :due :marta var? ! swap drop
+=> 140

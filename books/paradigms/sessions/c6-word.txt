@@ -1,0 +1,9 @@
+#!setup
+"mixed.bund" study
+#!show
+:harbour :due 2 kb.word
+:gull ∅ due
+clear
+∅ 70 due
+clear
+∅ ∅ due { cdr car } map

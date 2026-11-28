@@ -1,0 +1,4 @@
+[BUND > "Heron" "wool" 8 reckon
+Heron: 8 of wool, 36 pennies
+[BUND > :total var?
+=> 326

@@ -1,0 +1,13 @@
+#!setup
+"objects.bund" study
+#!show
+:gull "Gull" 12 :Wax object var
+:gull var? ?object swap drop
+clear
+:gull var? :units get
+clear
+:rate :gull var? ! swap drop
+clear
+:due :gull var? ! swap drop
+clear
+:line :gull var? ! swap drop

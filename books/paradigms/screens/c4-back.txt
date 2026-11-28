@@ -1,0 +1,11 @@
+[BUND > :harbour var? [ due S 70 ] kb.once
+=> { S=osprey :: }
+[BUND > clear
+[BUND > :harbour var? [ rate C 5 ] kb.once
+=> { C=wax :: }
+[BUND > clear
+[BUND > :harbour var? [ ship S wax U ] kb.query { :S get } map
+=> [ gull :: ]
+[BUND > clear
+[BUND > :harbour var? [ ship heron C U ] kb.query
+=> []

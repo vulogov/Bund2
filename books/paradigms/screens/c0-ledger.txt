@@ -1,0 +1,8 @@
+$ bund2 commands.bund
+Wendhaven ledger
+------------------------------------
+Marta: 40 of salt, 140 pennies
+Gull: 12 of wax, 80 pennies
+Osprey: 25 of herring, 70 pennies
+------------------------------------
+Total: 290 pennies

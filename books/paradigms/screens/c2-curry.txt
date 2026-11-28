@@ -1,0 +1,5 @@
+[BUND > 100 moored
+=> 120
+[BUND > clear
+[BUND > :moored lambda=
+=> lambda[ 20 ::  lambda[ F(+) :: ] ::  F(!) :: ]

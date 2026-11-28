@@ -1,0 +1,7 @@
+#!setup
+"functions.bund" study
+#!show
+arrivals { due } map
+sum
+clear
+arrivals { reckoned } map { line } map { println } loop

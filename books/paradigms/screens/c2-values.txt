@@ -1,0 +1,9 @@
+[BUND > "Marta" "salt" 40 ship
+=> { cargo=salt ::  name=Marta ::  units=40 :: }
+[BUND > due
+=> 140
+[BUND > clear
+[BUND > "Marta" "salt" 40 ship dup reckoned :due get
+=> 140
+[BUND > drop :due ?key swap drop
+=> false

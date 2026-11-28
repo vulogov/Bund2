@@ -1,0 +1,62 @@
+//
+// The harbour ledger, by commands.
+//
+//   bund2 commands.bund
+//
+// Do this, then that. The program is a list of steps, and what it knows
+// at any moment is kept in named variables that the steps change.
+//
+
+//
+// rate ( cargo -- pennies )   the tariff, by kind of cargo
+//
+:rate {
+  dup "salt" ==
+  {
+    dup "wax" ==
+    {
+      dup "wool" ==
+      { drop 2 }
+      { drop 4 }
+      ifthenelse
+    }
+    { drop 5 }
+    ifthenelse
+  }
+  { drop 3 }
+  ifthenelse
+} register
+
+:rule { "-" 36 * println } register
+
+//
+// reckon ( name cargo units -- )
+//
+// One ship. Put the three values away under names, work out the due,
+// add it to the day's total and print the line.
+//
+:reckon {
+  :units swap var
+  :cargo swap var
+  :name  swap var
+
+  :due  :cargo var? rate  :units var? *  20 +  var
+  :total  :total var?  :due var?  +  var
+
+  :due var?  :cargo var?  :units var?  :name var?
+  "{name}: {units} of {cargo}, {due} pennies" format println
+} register
+
+//
+// The day, a step at a time.
+//
+:total 0 var
+
+"Wendhaven ledger" println
+rule
+"Marta"  "salt"    40 reckon
+"Gull"   "wax"     12 reckon
+"Osprey" "herring" 25 reckon
+"Heron"  "wool"     8 reckon
+rule
+:total var? "Total: {total} pennies" format println

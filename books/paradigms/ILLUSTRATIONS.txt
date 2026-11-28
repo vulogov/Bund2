@@ -1,0 +1,131 @@
+# ============================================================================
+#  Bund, Four Ways — illustration prompts
+# ============================================================================
+#
+#  Eight engravings: a frontispiece and one for each of Chapters 0 to 6.
+#  The book is about four ways of doing one job, so its plates show ONE
+#  job done in four ways: getting cargo from ship to warehouse. A relay of
+#  porters, a water mill, a guild of craftsmen, a judge with a book of law.
+#  They show the HARBOUR, never a computer.
+#
+#  They must sit beside the plates of the first two books and the author's
+#  portrait, so the manner is the same. STYLE below is the first book's
+#  sentence, word for word.
+#
+#  STYLE
+#    black and white copperplate engraving, sixteenth-century northern European
+#    manner, fine cross-hatching and stippling, strong contrast, pure black ink
+#    on white paper, no grey wash, no colour, crisp line, book illustration
+#
+#  NEGATIVE (for models that take one)
+#    colour, photograph, 3d render, grey wash, watercolour, blur, lettering,
+#    text, captions, numbers, signature, watermark, frame, border, modern
+#    objects, computer, screen
+#
+#  Hold to the first book's two rules in every picture:
+#    - NO LETTERING. Books, scrolls, signs and crates are blank or carry only
+#      scribbled hatching.
+#    - NO FACES IN CLOSE-UP except where the scene needs one.
+#
+#  Filenames the book expects, in books/paradigms/assets/ :
+#    00-four-roads.png    03-guild.png          06-shipyard.png
+#    01-new-tariff.png    04-judge.png          07-crossroads.png
+#    02-relay.png         05-mill.png
+#
+#  Sizes: 00 is a portrait plate (3:4, e.g. 896x1152). The rest are square
+#  (1024x1024). Engraving line needs resolution: upscale 2x before placing.
+#
+#  The book does not print plates yet. When the files are in place: copy
+#  books/solving_problems/tools/plates.sh into tools/ and run it if they come
+#  as JPEG; `plate` is already in design.typ; put the frontispiece at the head
+#  of chapters/preface.typ and each chapter's plate after its first
+#  paragraphs, with the caption given below.
+#
+#  The commands below are written for plakat, run from the REPOSITORY ROOT.
+#  Any other model takes the quoted prompt as it stands.
+# ============================================================================
+
+A=books/paradigms/assets
+STYLE="black and white copperplate engraving, sixteenth-century northern European manner, fine cross-hatching and stippling, strong contrast, pure black ink on white paper, no grey wash, no colour, crisp line, book illustration"
+
+
+# --- 00 · frontispiece, "Why Four Ways" -------------------------------------
+#     One harbour, four roads out of it, all arriving at the same gate.
+#     Caption: "Four roads from one quay, and one gate at the end of them."
+plakat generate "a walled harbour town seen from high above, a single stone quay with a moored cog in the foreground, four separate roads leaving the quay and winding by different routes through the town, over a bridge, along a canal, up a stair, through an arcade, all four meeting again at one large gatehouse at the top of the picture, small figures carrying crates on each road, tall sky left open, $STYLE" \
+  --model sdxl --size 896x1152 --seed 4000 --out $A
+mv $A/plakat-4000.png $A/00-four-roads.png
+
+
+# --- 01 · Ch. 0 — The Job ---------------------------------------------------
+#     The council has changed the tariff: a new notice goes up.
+#     Caption: "From this morning, cargo pays by its kind."
+plakat generate "a town crier's helper on a short ladder nailing a large blank sheet of parchment to the timber door of a customs house, three small heaps set on the cobbles below the notice, a heap of salt, a stack of round wax cakes, a barrel of herring, a harbourmaster in a fur-trimmed robe watching with folded arms, ship masts behind, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 4001 --out $A
+mv $A/plakat-4001.png $A/01-new-tariff.png
+
+
+# --- 02 · Ch. 1 — By Commands ------------------------------------------------
+#     Do this, then that: a chain of porters, each doing one step, and a
+#     slate that is wiped and written again.
+#     Caption: "Each man does one thing, and hands it on."
+plakat generate "a line of five porters standing a pace apart along a stone quay passing a single crate from hand to hand from a moored ship toward a warehouse door, a foreman at the head of the line holding a small slate in one hand and wiping it with a rag in the other, a piece of chalk behind his ear, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 4002 --out $A
+mv $A/plakat-4002.png $A/02-relay.png
+
+
+# --- 03 · Ch. 3 — By Objects -------------------------------------------------
+#     Things that know how to answer: each craftsman knows his own trade,
+#     and the harbourmaster only asks.
+#     Caption: "He does not weigh the wax. He asks the chandler."
+plakat generate "a harbourmaster in a fur-trimmed robe standing in a market square before three craftsmen each at his own stall with the tools of his own trade, a salter with a wooden shovel and sacks, a wax chandler with hanging candles and round wax cakes, a fishmonger with barrels and a knife, each craftsman holding out an open palm with coins on it toward the harbourmaster, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 4003 --out $A
+mv $A/plakat-4003.png $A/03-guild.png
+
+
+# --- 04 · Ch. 4 — By Rules ---------------------------------------------------
+#     Say what is so, and ask: a judge with the book of the town's law, and
+#     a question put to him.
+#     Caption: "Nothing is reckoned. The book is consulted."
+plakat generate "a town magistrate in a long robe and flat cap seated at a high carved desk in a panelled chamber, a very large open book of statutes before him with its pages shown only as fine illegible hatching, one finger resting on a line of the page, a harbour clerk standing before the desk with his back to the viewer and one hand raised in a question, shelves of bound volumes behind, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 4004 --out $A
+mv $A/plakat-4004.png $A/04-judge.png
+
+
+# --- 05 · Ch. 2 — By Functions -----------------------------------------------
+#     Values in, values out: grain goes in at the top of the mill and flour
+#     comes out at the bottom, and the mill is the same afterwards.
+#     Caption: "What goes in is not changed. Something new comes out."
+plakat generate "a cutaway view of a water mill beside a harbour quay showing its inside workings, a miller pouring grain from a sack into a wooden hopper at the top, the grain passing down between two great millstones turned by wooden gear wheels, a stream of flour falling into an open sack at the bottom, the water wheel outside turning in the mill race, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 4005 --out $A
+mv $A/plakat-4005.png $A/05-mill.png
+
+
+# --- 06 · Ch. 5 — Side by Side ------------------------------------------------
+#     The same ship built four times: four hulls on four slips, alike in
+#     outline, each by a different crew.
+#     Caption: "The same hull, four times, by four crews."
+plakat generate "a harbour shipyard seen from the water with four slipways side by side, on each slipway the hull of an identical merchant cog at the same stage of building, each attended by a different small crew of shipwrights working in a visibly different way, one with adzes, one with a saw pit, one with a lifting crane, one studying a plan on a trestle, a harbourmaster walking along the front comparing them, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 4006 --out $A
+mv $A/plakat-4006.png $A/06-shipyard.png
+
+
+# --- 07 · Ch. 6 — All Four at Once --------------------------------------------
+#     The four manners working together on one quay.
+#     Caption: "A step, a value, a thing, or a fact?"
+plakat generate "a busy stone quay where four kinds of work go on side by side in one scene, a line of porters passing a crate hand to hand, a small water mill turning at the quay's end, a craftsman at a stall holding out coins, a magistrate at a desk with a large open book, a single clerk in a long gown walking through the middle of them all with a ledger under his arm, a moored cog behind, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 4007 --out $A
+mv $A/plakat-4007.png $A/07-crossroads.png
+
+
+# ============================================================================
+#  Done. Eight plates in books/paradigms/assets/ (00–07).
+#
+#  Note the order: plate 05 (the mill) belongs to Chapter 2 and plates 03 and
+#  04 to Chapters 3 and 4. The numbers are filenames, not chapter numbers.
+#
+#  If a plate comes back with lettering, re-roll the seed rather than
+#  repainting. Plates likely to need a second try: 00 (four distinct roads),
+#  06 (four identical hulls) and 07 (four scenes in one). For 07, the clerk
+#  walking between any two of the four is enough.
+# ============================================================================

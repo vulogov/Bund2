@@ -1,0 +1,4 @@
+#!setup
+"objects.bund" study
+#!show
+"Heron" 8 :Wool object

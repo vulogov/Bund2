@@ -1,0 +1,8 @@
+[BUND > :Salt ?class
+=> true
+[BUND > clear
+[BUND > :Wool ?class
+=> false
+[BUND > clear
+[BUND > :Landing resolve.class :rate get
+=> 0

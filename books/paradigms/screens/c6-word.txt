@@ -1,0 +1,9 @@
+[BUND > :harbour :due 2 kb.word
+[BUND > :gull ∅ due
+=> [ [ gull ::  80 :: ] :: ]
+[BUND > clear
+[BUND > ∅ 70 due
+=> [ [ osprey ::  70 :: ] :: ]
+[BUND > clear
+[BUND > ∅ ∅ due { cdr car } map
+=> [ 140 ::  80 ::  70 :: ]

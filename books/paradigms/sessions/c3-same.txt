@@ -1,0 +1,6 @@
+#!setup
+"objects.bund" study
+#!show
+arrivals { :kind swap ! swap drop } map
+clear
+arrivals { :due swap ! swap drop } map

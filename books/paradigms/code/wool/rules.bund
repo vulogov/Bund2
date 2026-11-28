@@ -1,0 +1,56 @@
+//
+// The harbour ledger, by deduction.
+//
+//   bund2 rules.bund
+//
+// Say what is so, and ask. The program states facts about the day and
+// rules that follow from them. It does not say how to reckon a ship: it
+// says what a due is, and Bund finds the dues.
+//
+// A clause in square brackets is a fact. A clause with an arrow is a
+// rule: the head holds if every goal after the arrow does. A name that
+// begins with a capital is a variable.
+//
+:harbour [
+  [ ship marta  salt    40 ]
+  [ ship gull   wax     12 ]
+  [ ship osprey herring 25 ]
+  [ ship heron  wool     8 ]
+
+  [ rate salt    3 ]
+  [ rate wax     5 ]
+  [ rate herring 2 ]
+  [ rate wool    4 ]
+
+  [ mooring 20 ]
+
+  [ [ due S D ] ←
+      [ ship S C U ] [ rate C R ] [ mooring M ]
+      [ is D { U R * M + } ] ]
+
+  [ [ entry S U C D ] ← [ ship S C U ] [ due S D ] ]
+] kb! var
+
+:rule { "-" 36 * println } register
+
+//
+// line ( answer -- )
+//
+// One answer to the question "what are the entries?" is a record of
+// what each variable stood for.
+//
+:line {
+  .
+  take dup . :D get
+  take dup . :C get
+  take dup . :U get
+  take       :S get string.title
+  "{name}: {units} of {cargo}, {due} pennies" format println
+} register
+
+"Wendhaven ledger" println
+rule
+:harbour var? [ entry S U C D ] kb.query { line } loop
+rule
+0 :harbour var? [ due S D ] kb.query { :D get + } loop
+"Total: {total} pennies" format println

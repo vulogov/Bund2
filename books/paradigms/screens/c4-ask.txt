@@ -1,0 +1,14 @@
+[BUND > :harbour var? [ ship S C U ] kb.query { :S get } map
+=> [ marta ::  gull ::  osprey :: ]
+[BUND > clear
+[BUND > :harbour var? [ ship S salt U ] kb.query
+=> [ { S=marta ::  U=40 :: } :: ]
+[BUND > clear
+[BUND > :harbour var? [ due gull D ] kb.once
+=> { D=80 :: }
+[BUND > clear
+[BUND > :harbour var? [ due marta 140 ] kb.holds
+=> true
+[BUND > clear
+[BUND > :harbour var? [ due marta 141 ] kb.holds
+=> false

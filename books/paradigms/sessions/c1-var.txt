@@ -1,0 +1,8 @@
+:total 0 var
+:total var?
+clear
+:total :total var? 140 + var
+:total var?
+clear
+:total :total var? 80 + var
+:total var?

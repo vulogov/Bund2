@@ -1,0 +1,3 @@
+[BUND > "Heron" "wool" 8 ship due
+error: Key not found: wool
+=> 8

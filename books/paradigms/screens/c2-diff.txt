@@ -1,0 +1,14 @@
+$ diff functions.bund wool/functions.bund
+24a25
+>   "Heron"  "wool"     8 ship
+35a37
+>   "wool"    4 set
+$ bund2 wool/functions.bund
+Wendhaven ledger
+------------------------------------
+Marta: 40 of salt, 140 pennies
+Gull: 12 of wax, 80 pennies
+Osprey: 25 of herring, 70 pennies
+Heron: 8 of wool, 52 pennies
+------------------------------------
+Total: 342 pennies

@@ -1,0 +1,86 @@
+//
+// The harbour ledger, by objects.
+//
+//   bund2 objects.bund
+//
+// Things that know how to answer. A landing is a ship's cargo come
+// ashore. It knows its ship, its units and its kind, and when it is asked
+// what it owes, it answers for itself.
+//
+
+//
+// Landing: what every kind of cargo has in common. `due` and `line` are
+// written once, here. `due` asks the object for its own `rate`, and each
+// kind answers with its own.
+//
+// A method is called as `<name> <object> !`. It finds the object on top
+// of the stack, and leaves it there beneath its answer.
+//
+:Landing class
+  :.super [ :Object ] set
+  :kind   "cargo" set
+  :rate   0 set
+  :due {
+    :rate  swap !          // object rate
+    swap :units swap !     // rate object units
+    swap .                 // rate units, the object set aside
+    * 20 +
+    take swap              // object due
+  } set
+  :line {
+    :due swap ! swap       // due object
+    dup :kind swap ! swap drop swap
+    dup :units get swap
+    dup :name get swap
+    .
+    "{name}: {units} of {cargo}, {due} pennies" format
+    take swap              // object text
+  } set
+register
+
+//
+// landed: the constructor every kind shares. It runs on the new object,
+// with the arguments beneath it.
+//
+:landed { swap :units swap set swap :name swap set } register
+
+//
+// The kinds. Each is a Landing that says what it is and what it pays.
+//
+:Salt class
+  :.super [ :Landing ] set
+  :kind "salt" set  :rate 3 set  :.init { landed } set
+register
+
+:Wax class
+  :.super [ :Landing ] set
+  :kind "wax" set  :rate 5 set  :.init { landed } set
+register
+
+:Herring class
+  :.super [ :Landing ] set
+  :kind "herring" set  :rate 2 set  :.init { landed } set
+register
+
+//
+// The day: three objects, each asked the same two questions.
+//
+:arrivals {
+  "Marta"  40 :Salt    object
+  "Gull"   12 :Wax     object
+  "Osprey" 25 :Herring object
+  lambda* convert.to_list
+} register
+
+:rule { "-" 36 * println } register
+
+"Wendhaven ledger" println
+rule
+0 .
+arrivals {
+  :line swap ! println
+  :due  swap ! +.
+  drop
+} loop
+rule
+take "Total: {total} pennies" format println

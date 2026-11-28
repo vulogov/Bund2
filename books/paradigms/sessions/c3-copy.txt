@@ -1,0 +1,7 @@
+#!setup
+"objects.bund" study
+#!show
+:marta "Marta" 40 :Salt object var
+:marta var? :units 38 set :due swap ! swap drop
+clear
+:due :marta var? ! swap drop

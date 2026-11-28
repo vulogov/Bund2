@@ -1,0 +1,6 @@
+#!setup
+"functions.bund" study
+#!show
+100 moored
+clear
+:moored lambda=

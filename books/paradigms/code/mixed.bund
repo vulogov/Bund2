@@ -1,0 +1,56 @@
+//
+// The harbour ledger, by whatever suits each part.
+//
+//   bund2 mixed.bund
+//
+// The facts of the day are stated, as in rules.bund. The arithmetic is a
+// word, as in functions.bund, and the rule that needs it calls it. The
+// answers come back as a list of values, and the page is printed a step
+// at a time, as in commands.bund.
+//
+
+//
+// charge ( units rate -- pennies )   a pure word: quay due and mooring
+//
+:charge { * 20 + } register
+
+//
+// What is so. The rule for a due hands its arithmetic to `charge`.
+//
+:harbour [
+  [ ship marta  salt    40 ]
+  [ ship gull   wax     12 ]
+  [ ship osprey herring 25 ]
+
+  [ rate salt    3 ]
+  [ rate wax     5 ]
+  [ rate herring 2 ]
+
+  [ [ due S D ] ← [ ship S C U ] [ rate C R ] [ is D { U R charge } ] ]
+  [ [ entry S U C D ] ← [ ship S C U ] [ due S D ] ]
+] kb! var
+
+//
+// entries ( -- list )                every entry, as a list of records
+// line    ( record -- text )         one of them, as a line of the ledger
+//
+:entries { :harbour var? [ entry S U C D ] kb.query } register
+:has     { take dup . swap get } register
+:line {
+  .
+  :D has  :C has  :U has  :S has string.title
+  "{name}: {units} of {cargo}, {due} pennies" format
+  take drop
+} register
+
+:rule { "-" 36 * println } register
+
+//
+// The page, a step at a time.
+//
+"Wendhaven ledger" println
+rule
+entries { line println } loop
+rule
+0 entries { :D get + } loop
+"Total: {total} pennies" format println
