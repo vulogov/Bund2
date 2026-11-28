@@ -178,12 +178,67 @@
   raw(read("screens/" + name + ".txt").trim("\n", at: end), block: true),
 )
 
-// A source file from code/, printed whole.
-#let listing(name, caption: "") = screen(
-  breakable: true,
-  caption: if caption == "" { name } else { caption },
-  raw(read("code/" + name).trim("\n", at: end), block: true),
-)
+// A source file from code/, printed whole. A file that fits on a page is
+// never split across two. A file longer than a page has to be, and is split
+// only at a blank line, so that no definition and no comment is cut in half.
+#let _listing_max = 195mm
+#let _long_listing(cap, src) = context {
+  let mono(body) = text(font: mono_family, size: 8pt, body)
+  // The blank line that divided two pieces is put back as space under the
+  // first: two line pitches less the height of one line.
+  let pitch = measure(mono(raw("a\n\nb", block: true))).height - measure(mono(raw("a\nb", block: true))).height
+  let gap = 2 * pitch - measure(mono("a")).height
+  let chunks = src.split(regex("\n[ \t]*\n"))
+  let last = chunks.len() - 1
+  let edge = 0.5pt + ink_rule
+  v(2mm)
+  {
+    set block(spacing: 0pt)
+    for (i, chunk) in chunks.enumerate() {
+      block(breakable: false, width: 100%, {
+        set block(spacing: 0pt)
+        if i == 0 {
+          block(
+            fill: ink_smoke,
+            inset: (left: 8pt, right: 8pt, top: 3pt, bottom: 3pt),
+            width: 100%,
+            radius: (top-left: 2pt, top-right: 2pt),
+            {
+              text(font: mono_family, size: 8pt, fill: ink_paper, "● ● ●")
+              h(6pt)
+              text(font: body_family, size: 8.5pt, style: "italic", fill: ink_paper, cap)
+            },
+          )
+        }
+        block(
+          fill: ink_code_bg,
+          stroke: (left: edge, right: edge,
+            top: if i == 0 { edge } else { none },
+            bottom: if i == last { edge } else { none }),
+          inset: (left: 8pt, right: 8pt,
+            top: if i == 0 { 8pt } else { 0pt },
+            bottom: if i == last { 8pt } else { gap }),
+          width: 100%,
+          radius: if i == last { (bottom-left: 2pt, bottom-right: 2pt) } else { 0pt },
+          { _in_screen.update(true); mono(raw(chunk, block: true)); _in_screen.update(false) },
+        )
+      })
+    }
+  }
+  v(2mm)
+}
+#let listing(name, caption: "") = {
+  let src = read("code/" + name).trim("\n", at: end)
+  let cap = if caption == "" { name } else { caption }
+  layout(size => {
+    let whole = screen(caption: cap, raw(src, block: true))
+    if measure(block(width: size.width, whole)).height <= _listing_max {
+      whole
+    } else {
+      _long_listing(cap, src)
+    }
+  })
+}
 
 // ── Word table — the words a section introduced, with stack effects ──
 #let words(rows) = {
