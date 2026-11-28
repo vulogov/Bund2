@@ -1,0 +1,2 @@
+1 2 3 swap drop dup
+.s

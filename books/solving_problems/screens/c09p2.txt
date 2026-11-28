@@ -1,0 +1,9 @@
+[BUND > :larger { pair < { swap drop } { drop } ifthenelse } register
+[BUND > 40 12 larger
+=> 40
+[BUND > clear
+[BUND > 12 40 larger
+=> 40
+[BUND > clear
+[BUND > 0 [ 40 12 25 ] { larger } loop
+=> 40

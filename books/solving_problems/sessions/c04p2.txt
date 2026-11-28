@@ -1,0 +1,10 @@
+#!setup
+:rem { . dup peek swap / take * swap - } register
+#!show
+:even? { 2 rem 0 == } register
+:odd? { even? not } register
+40 even?
+clear
+25 even?
+clear
+25 odd?

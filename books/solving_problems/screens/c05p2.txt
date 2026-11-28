@@ -1,0 +1,6 @@
+[BUND > 5 { 1 + 10 * dup print " units: " print dues println } times
+10 units: 50
+20 units: 80
+30 units: 110
+40 units: 140
+50 units: 170

@@ -1,0 +1,38 @@
+//
+// Problem 70. The primes below a number.
+//
+//   bund2 answers/primes.bund --below 50
+//
+// A number is prime when no number from 2 up to its square root
+// divides it. The number waits on the counting table while the
+// divisors are tried on the stack.
+//
+:peek { take dup . } register
+:rem  { . dup peek swap / take * swap - } register
+
+//
+// ( d -- d flag ) with n on the table: is d still worth trying?
+// It is while d times d is no more than n, and d does not divide n.
+//
+:small?   { dup dup * peek >= } register
+:divides? { dup peek swap rem 0 == } register
+:try?     { small? { false } { divides? not } ifthenelse } register
+
+//
+// ( n -- flag ). Try 2, 3, 4 ... and see where the trying stopped:
+// at a divisor, or past the square root.
+//
+:prime? {
+  .
+  2 try? { 1 + try? } while
+  dup * take <
+} register
+
+args.parse :below ?key
+{ drop 50 }
+{ :below get car convert.to_int }
+ifthenelse
+
+2 swap -                       // the numbers 2 ... below-1
+{ 2 + dup prime? { drop } { print space } ifthenelse } times
+nl

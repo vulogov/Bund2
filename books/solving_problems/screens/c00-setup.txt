@@ -1,0 +1,5 @@
+[BUND > 40 dues
+=> 140
+[BUND > clear
+[BUND > "Gull" "wax" 12 ship :cargo get
+=> wax

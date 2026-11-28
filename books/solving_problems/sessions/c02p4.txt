@@ -1,0 +1,5 @@
+3 292 /
+clear
+3 292.0 /
+clear
+3 292 convert.to_float /

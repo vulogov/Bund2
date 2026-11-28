@@ -1,0 +1,19 @@
+//
+// Problem 69. Pennies as pounds, shillings and pence.
+//
+//   bund2 answers/change.bund --pennies 291
+//
+:peek { take dup . } register
+:rem  { . dup peek swap / take * swap - } register
+
+:pounds    { 240 swap / } register
+:shillings { 240 rem 12 swap / } register
+:pence     { 12 rem } register
+
+args.parse :pennies ?key
+{ drop 291 }
+{ :pennies get car convert.to_int }
+ifthenelse
+
+dup pence swap dup shillings swap pounds
+"pounds {pounds}, shillings {shillings}, pence {pence}" format println

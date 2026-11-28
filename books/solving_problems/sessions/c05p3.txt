@@ -1,0 +1,3 @@
+1 { 2 * dup println dup 291 > } for
+clear
+0 1 true { 2 * swap 1 + swap dup 291 > } while drop

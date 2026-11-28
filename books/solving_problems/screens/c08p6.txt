@@ -1,0 +1,8 @@
+[BUND > :price { dict "salt" 3 set "wax" 5 set "herring" 2 set } register
+[BUND > :rate { :cargo get price swap get } register
+[BUND > :value { dup :units get swap rate * } register
+[BUND > "Gull" "wax" 12 ship value
+=> 60
+[BUND > clear
+[BUND > arrivals gather 0 swap { value + } loop
+=> 230

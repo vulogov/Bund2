@@ -1,0 +1,4 @@
+:end { drop "cast off" println } register
+:go { dup println 1 swap - countdown } register
+:countdown { dup 0 < { end } { go } ifthenelse } register
+3 countdown

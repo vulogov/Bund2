@@ -1,0 +1,8 @@
+[BUND > :end { drop "cast off" println } register
+[BUND > :go { dup println 1 swap - countdown } register
+[BUND > :countdown { dup 0 < { end } { go } ifthenelse } register
+[BUND > 3 countdown
+3
+2
+1
+cast off

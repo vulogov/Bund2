@@ -1,0 +1,5 @@
+[BUND > :dear { dup 100 < { drop } { println } ifthenelse } register
+[BUND > [ 40 12 25 ] { dues } map
+=> [ 140 ::  56 ::  95 :: ]
+[BUND > { dear } loop
+140

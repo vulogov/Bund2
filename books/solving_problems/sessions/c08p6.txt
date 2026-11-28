@@ -1,0 +1,6 @@
+:price { dict "salt" 3 set "wax" 5 set "herring" 2 set } register
+:rate { :cargo get price swap get } register
+:value { dup :units get swap rate * } register
+"Gull" "wax" 12 ship value
+clear
+arrivals gather 0 swap { value + } loop

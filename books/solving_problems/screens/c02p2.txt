@@ -1,0 +1,11 @@
+[BUND > 2 3 4 + *
+=> 14
+[BUND > clear
+[BUND > 2 3 + 4 *
+=> 20
+[BUND > clear
+[BUND > 10 2 8 - /
+=> 0
+[BUND > clear
+[BUND > 2 8 - 60 /
+=> 10

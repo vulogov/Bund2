@@ -1,0 +1,4 @@
+[BUND > :comma { ", " + swap + } register
+[BUND > :listed { dup car swap cdr { comma } loop } register
+[BUND > [ "Marta" "Gull" "Osprey" ] listed
+=> Marta, Gull, Osprey

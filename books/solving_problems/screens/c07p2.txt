@@ -1,0 +1,9 @@
+[BUND > 2 [ "Marta" "Gull" "Osprey" ] head
+=> [ Marta ::  Gull :: ]
+[BUND > clear
+[BUND > 1 [ "Marta" "Gull" "Osprey" ] tail car
+=> Osprey
+[BUND > clear
+[BUND > :last { 1 swap tail car } register
+[BUND > [ 40 12 25 ] last
+=> 25

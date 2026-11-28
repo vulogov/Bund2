@@ -1,0 +1,4 @@
+:loud { string.upper "!" swap + } register
+:hail { string.title "Ahoy, " + loud println } register
+"marta" hail
+"the osprey" hail

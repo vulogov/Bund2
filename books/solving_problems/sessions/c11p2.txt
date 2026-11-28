@@ -1,0 +1,5 @@
+:rates { dict "salt" { 3 * } set "wax" { 5 * } set } register
+:by-cargo { rates swap get ! } register
+40 "salt" by-cargo
+clear
+12 "wax" by-cargo

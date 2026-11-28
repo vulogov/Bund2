@@ -1,0 +1,11 @@
+[BUND > :own { . @work take } register
+[BUND > :back { . @main take } register
+[BUND > :wrap { own fold back } register
+[BUND > :append { wrap swap ++ } register
+[BUND > "mine" 25 wrap
+=> [ 25 :: ]
+[BUND > .s
+mine [ 25 :: ] <- top
+[BUND > clear
+[BUND > [ 40 12 ] 25 append
+=> [ 40 ::  12 ::  25 :: ]

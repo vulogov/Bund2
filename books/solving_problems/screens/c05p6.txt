@@ -1,0 +1,9 @@
+[BUND > :step { dup even? { 3 * 1 + } { 2 swap / } ifthenelse } register
+[BUND > :tally { swap 1 + swap } register
+[BUND > :again? { dup 1 != } register
+[BUND > :steps { 0 swap true { step tally again? } while drop } register
+[BUND > 6 steps
+=> 8
+[BUND > clear
+[BUND > 27 steps
+=> 111

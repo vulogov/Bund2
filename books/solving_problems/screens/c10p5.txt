@@ -1,0 +1,7 @@
+[BUND > :next { swap over + } register
+[BUND > :fib-fast { . 0 1 take { drop next } times drop } register
+[BUND > 10 fib-fast
+=> 55
+[BUND > clear
+[BUND > 90 fib-fast
+=> 2880067194370816120

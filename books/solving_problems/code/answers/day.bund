@@ -1,0 +1,35 @@
+//
+// Problem 73. The day's ledger, from the manifest as it was written.
+//
+"/harbour.bund" cwd "file://" + + use
+
+:manifest {
+  [ "Marta salt 40" "Gull wax 12" "Osprey herring 25" ]
+} register
+
+//
+// ( text -- record ). "Marta salt 40" is three words; the last is a
+// number written as text.
+//
+:read { string.tokenize unfold convert.to_int ship } register
+
+//
+// ( record -- ). One line of the ledger, and the due added to the
+// total, which waits on the table under the record.
+//
+:wording { "{name}: {units} of {cargo}, {due} pennies" } register
+:line {
+  .
+  :units has dues  :cargo has  :units has  :name has
+  wording format println
+  take :units get dues +.
+} register
+
+:rule { "-" 36 * println } register
+
+"Wendhaven ledger" println
+rule
+0 .
+manifest { read line } loop
+rule
+take "Total: {total} pennies" format println

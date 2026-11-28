@@ -1,0 +1,6 @@
+[BUND > :among? { . false swap { peek == or } loop take drop } register
+[BUND > [ "salt" "wax" "herring" ] "wax" among?
+=> true
+[BUND > clear
+[BUND > [ "salt" "wax" "herring" ] "wool" among?
+=> false

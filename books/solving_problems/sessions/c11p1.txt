@@ -1,0 +1,2 @@
+:size lambda= convert.to_list { println } loop
+:dues lambda= convert.to_list len swap drop

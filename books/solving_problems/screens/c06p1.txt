@@ -1,0 +1,11 @@
+[BUND > :edge { len 4 + "-" * println } register
+[BUND > :row { "| " print print " |" println } register
+[BUND > :boxed { edge dup row edge drop } register
+[BUND > "Wendhaven" boxed
+-------------
+| Wendhaven |
+-------------
+[BUND > "Marta" boxed
+---------
+| Marta |
+---------

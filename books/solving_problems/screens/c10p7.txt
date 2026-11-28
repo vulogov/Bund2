@@ -1,0 +1,7 @@
+[BUND > :split { dup car swap cdr } register
+[BUND > :sum { len 0 == { split sum + } { drop 0 } ifthenelse } register
+[BUND > [ 140 56 95 ] sum
+=> 291
+[BUND > clear
+[BUND > list sum
+=> 0

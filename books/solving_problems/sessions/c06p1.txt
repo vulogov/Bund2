@@ -1,0 +1,5 @@
+:edge { len 4 + "-" * println } register
+:row { "| " print print " |" println } register
+:boxed { edge dup row edge drop } register
+"Wendhaven" boxed
+"Marta" boxed

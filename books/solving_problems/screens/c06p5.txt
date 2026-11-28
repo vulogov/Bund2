@@ -1,0 +1,6 @@
+[BUND > :pad { convert.to_string len 6 - " " * + } register
+[BUND > [ 140 56 95 291 ] { pad println } loop
+   140
+    56
+    95
+   291

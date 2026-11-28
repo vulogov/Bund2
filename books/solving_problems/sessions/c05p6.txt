@@ -1,0 +1,11 @@
+#!setup
+:rem { . dup peek swap / take * swap - } register
+:even? { 2 rem 0 == } register
+#!show
+:step { dup even? { 3 * 1 + } { 2 swap / } ifthenelse } register
+:tally { swap 1 + swap } register
+:again? { dup 1 != } register
+:steps { 0 swap true { step tally again? } while drop } register
+6 steps
+clear
+27 steps

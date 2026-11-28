@@ -1,0 +1,11 @@
+[BUND > :floor0 { dup 0 > { drop 0 } if } register
+[BUND > :cap { dup 100 < { drop 100 } if } register
+[BUND > :clamp { floor0 cap } register
+[BUND > -5 clamp
+=> 0
+[BUND > clear
+[BUND > 40 clamp
+=> 40
+[BUND > clear
+[BUND > 250 clamp
+=> 100

@@ -1,0 +1,7 @@
+#!setup
+:own { . @work take } register
+:back { . @main take } register
+#!show
+:range { own { 1 + } times gather back } register
+5 range
+0 swap { + } loop

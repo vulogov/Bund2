@@ -1,0 +1,6 @@
+:debt { 0 > { "in credit" } { "owing" } ifthenelse } register
+:state { dup 0 == { debt } { drop "paid" } ifthenelse } register
+:account { state println } register
+-140 account
+0 account
+25 account

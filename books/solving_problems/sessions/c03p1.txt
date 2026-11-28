@@ -1,0 +1,5 @@
+:half { 2 swap / } register
+:quarter { half half } register
+140 half
+clear
+140 quarter

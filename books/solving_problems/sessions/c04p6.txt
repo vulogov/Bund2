@@ -1,0 +1,8 @@
+:floor0 { dup 0 > { drop 0 } if } register
+:cap { dup 100 < { drop 100 } if } register
+:clamp { floor0 cap } register
+-5 clamp
+clear
+40 clamp
+clear
+250 clamp

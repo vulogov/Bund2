@@ -1,0 +1,7 @@
+[BUND > :rates { dict "salt" { 3 * } set "wax" { 5 * } set } register
+[BUND > :by-cargo { rates swap get ! } register
+[BUND > 40 "salt" by-cargo
+=> 120
+[BUND > clear
+[BUND > 12 "wax" by-cargo
+=> 60

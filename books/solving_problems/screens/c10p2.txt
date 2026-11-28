@@ -1,0 +1,6 @@
+[BUND > :fact { dup 1 < { dup 1 swap - fact * } if } register
+[BUND > 5 fact
+=> 120
+[BUND > clear
+[BUND > 20 fact
+=> 2432902008176640000

@@ -1,0 +1,11 @@
+[BUND > :rem { . dup peek swap / take * swap - } register
+[BUND > 291 4 rem
+=> 3
+[BUND > clear
+[BUND > 40 15 rem
+=> 10
+[BUND > clear
+[BUND > 12 3 rem
+=> 0
+[BUND > .s
+0 <- top

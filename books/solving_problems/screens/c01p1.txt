@@ -1,0 +1,4 @@
+[BUND > 7 dup dup
+=> 7
+[BUND > .s
+7 7 7 <- top

@@ -1,0 +1,1 @@
+5 { 1 + 10 * dup print " units: " print dues println } times

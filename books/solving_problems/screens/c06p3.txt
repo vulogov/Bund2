@@ -1,0 +1,2 @@
+[BUND > "the gull brought wax and herring" string.tokenize len swap drop
+=> 6

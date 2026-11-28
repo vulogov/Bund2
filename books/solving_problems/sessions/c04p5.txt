@@ -1,0 +1,7 @@
+:rest-day? { dup 6 == swap 7 == or } register
+:open? { rest-day? not } register
+6 rest-day?
+clear
+3 rest-day?
+clear
+7 open?

@@ -1,0 +1,26 @@
+//
+// Problem 72. How many ships brought each cargo.
+//
+// The tally is a dictionary from a cargo to a count. It waits on the
+// stack under each word as the words go by.
+//
+:peek { take dup . } register
+:week { "salt wax salt herring salt wax wool" } register
+
+//
+// ( tally cargo -- tally ). One more of this cargo. `?key` uses the
+// cargo up, so it goes to the table first and is taken back when the
+// count is written.
+//
+:first { take 1 set } register
+:again { dup peek get 1 + take swap set } register
+:count { . peek ?key { first } { again } ifthenelse } register
+
+//
+// ( tally cargo -- tally ). Print one line of the tally.
+//
+:show { . dup peek get take print ": " print println } register
+
+dict week string.tokenize { count } loop
+week string.tokenize unique sort { show } loop
+drop

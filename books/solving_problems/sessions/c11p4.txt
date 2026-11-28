@@ -1,0 +1,5 @@
+:share { ?try :try { / } set :except { drop 0 } set ! } register
+4 291 share
+clear
+0 291 share
+.s

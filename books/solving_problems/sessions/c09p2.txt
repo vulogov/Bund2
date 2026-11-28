@@ -1,0 +1,10 @@
+#!setup
+:over { . dup take swap } register
+:pair { over over } register
+#!show
+:larger { pair < { swap drop } { drop } ifthenelse } register
+40 12 larger
+clear
+12 40 larger
+clear
+0 [ 40 12 25 ] { larger } loop

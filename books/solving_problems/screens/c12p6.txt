@@ -1,0 +1,8 @@
+$ bund2 answers/day.bund
+Wendhaven ledger
+------------------------------------
+Marta: 40 of salt, 140 pennies
+Gull: 12 of wax, 56 pennies
+Osprey: 25 of herring, 95 pennies
+------------------------------------
+Total: 291 pennies

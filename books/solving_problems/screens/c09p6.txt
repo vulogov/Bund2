@@ -1,0 +1,4 @@
+[BUND > :sift { dup large? not { drop } if } register
+[BUND > :keep-large { own { sift } loop gather back } register
+[BUND > [ 40 12 25 31 30 ] keep-large
+=> [ 40 ::  31 :: ]

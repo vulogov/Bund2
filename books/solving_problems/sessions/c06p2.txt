@@ -1,0 +1,4 @@
+"Marta" "salt" 40
+. swap take swap
+.s
+"{name}: {units} crates of {cargo}" format

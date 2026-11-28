@@ -1,0 +1,4 @@
+[BUND > 1 2 swap dup
+=> 1
+[BUND > .s
+2 1 1 <- top

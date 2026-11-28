@@ -1,0 +1,19 @@
+//
+// Problem 71. A ship named on the command line.
+//
+//   bund2 answers/heron.bund --name Heron --cargo wool --units 8
+//
+"/harbour.bund" cwd "file://" + + use
+
+//
+// ( key -- value ) from the arguments, which wait on the table.
+//
+:arg { has car } register
+
+args.parse .
+:units arg convert.to_int dues
+:cargo arg
+:units arg
+:name  arg
+"{name}: {units} of {cargo}, {due} pennies" format println
+take drop

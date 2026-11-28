@@ -1,0 +1,8 @@
+[BUND > :square { dup * } register
+[BUND > :cube { dup square * } register
+[BUND > 3 cube
+=> 27
+[BUND > clear
+[BUND > :sixth { square cube } register
+[BUND > 2 sixth
+=> 64

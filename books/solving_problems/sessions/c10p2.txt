@@ -1,0 +1,4 @@
+:fact { dup 1 < { dup 1 swap - fact * } if } register
+5 fact
+clear
+20 fact

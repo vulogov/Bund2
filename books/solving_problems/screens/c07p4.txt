@@ -1,0 +1,3 @@
+[BUND > :kinds { unique len swap drop } register
+[BUND > [ "salt" "wax" "salt" "herring" "wax" "salt" ] kinds
+=> 3

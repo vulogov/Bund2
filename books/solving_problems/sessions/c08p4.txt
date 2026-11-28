@@ -1,0 +1,3 @@
+:big? { dup :units get large? } register
+:hail { big? { drop } { :name get println } ifthenelse } register
+arrivals gather { hail } loop

@@ -1,0 +1,9 @@
+#!setup
+:rem { . dup peek swap / take * swap - } register
+#!show
+:shillings { 12 swap / } register
+:odd-pence { 12 rem } register
+:both { dup odd-pence swap shillings } register
+:coins { both "{s}s {d}d" format println } register
+291 coins
+140 coins

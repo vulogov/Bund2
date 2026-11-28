@@ -1,0 +1,2 @@
+$ bund2 answers/heron.bund --name Heron --cargo wool --units 8
+Heron: 8 of wool, 44 pennies

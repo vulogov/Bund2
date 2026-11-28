@@ -1,0 +1,10 @@
+:less1 { 1 swap - } register
+:less2 { 2 swap - } register
+:both { dup less1 fib swap less2 fib + } register
+:fib { 1 +. dup 1 < { both } if } register
+0 . 5 fib take
+.s
+clear
+0 . 10 fib drop take
+clear
+0 . 20 fib drop take

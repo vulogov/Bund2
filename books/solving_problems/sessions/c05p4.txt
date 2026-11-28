@@ -1,0 +1,9 @@
+#!setup
+:rem { . dup peek swap / take * swap - } register
+#!show
+:salt? { 3 rem 0 == } register
+:wax? { 5 rem 0 == } register
+:both { wax? { "salt" } { "salt wax" } ifthenelse } register
+:plain { dup wax? { drop "wax" } if } register
+:cry { dup salt? { plain } { both } ifthenelse println } register
+15 { 1 + cry } times

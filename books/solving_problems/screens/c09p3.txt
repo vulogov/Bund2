@@ -1,0 +1,8 @@
+[BUND > 0 . 0 [ 140 56 95 ] { + 1 +. } loop
+=> 291
+[BUND > take
+=> 3
+[BUND > .s
+291 3 <- top
+[BUND > swap /
+=> 97

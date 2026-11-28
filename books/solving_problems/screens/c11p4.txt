@@ -1,0 +1,8 @@
+[BUND > :share { ?try :try { / } set :except { drop 0 } set ! } register
+[BUND > 4 291 share
+=> 72
+[BUND > clear
+[BUND > 0 291 share
+=> 0
+[BUND > .s
+0 <- top

@@ -1,0 +1,3 @@
+:comma { ", " + swap + } register
+:listed { dup car swap cdr { comma } loop } register
+[ "Marta" "Gull" "Osprey" ] listed

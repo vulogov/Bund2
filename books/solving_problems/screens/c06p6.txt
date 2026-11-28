@@ -1,0 +1,6 @@
+[BUND > :loud { string.upper "!" swap + } register
+[BUND > :hail { string.title "Ahoy, " + loud println } register
+[BUND > "marta" hail
+AHOY, MARTA!
+[BUND > "the osprey" hail
+AHOY, THE OSPREY!

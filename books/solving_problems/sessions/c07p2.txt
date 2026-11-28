@@ -1,0 +1,6 @@
+2 [ "Marta" "Gull" "Osprey" ] head
+clear
+1 [ "Marta" "Gull" "Osprey" ] tail car
+clear
+:last { 1 swap tail car } register
+[ 40 12 25 ] last

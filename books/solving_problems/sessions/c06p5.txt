@@ -1,0 +1,2 @@
+:pad { convert.to_string len 6 - " " * + } register
+[ 140 56 95 291 ] { pad println } loop

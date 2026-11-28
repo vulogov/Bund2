@@ -1,0 +1,3 @@
+:dear { dup 100 < { drop } { println } ifthenelse } register
+[ 40 12 25 ] { dues } map
+{ dear } loop

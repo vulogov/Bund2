@@ -1,0 +1,8 @@
+[BUND > 3 4 + dup *
+=> 49
+[BUND > 3 dup * 4 dup * +
+=> 25
+[BUND > .s
+49 25 <- top
+[BUND > swap -
+=> 24

@@ -1,0 +1,10 @@
+[BUND > :rest-day? { dup 6 == swap 7 == or } register
+[BUND > :open? { rest-day? not } register
+[BUND > 6 rest-day?
+=> true
+[BUND > clear
+[BUND > 3 rest-day?
+=> false
+[BUND > clear
+[BUND > 7 open?
+=> false

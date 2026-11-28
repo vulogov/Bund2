@@ -1,0 +1,8 @@
+[BUND > [ "Osprey" "Marta" "Gull" ] sort
+=> [ Gull ::  Marta ::  Osprey :: ]
+[BUND > clear
+[BUND > [ 40 12 25 ] sort car
+=> 12
+[BUND > clear
+[BUND > [ 40 12 25 ] sort 1 swap tail car
+=> 40

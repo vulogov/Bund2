@@ -1,0 +1,6 @@
+[BUND > "Heron" "wool" 8 ship :berth 3 set
+=> { berth=3 ::  cargo=wool ::  name=Heron ::  units=8 :: }
+[BUND > dup :berth get
+=> 3
+[BUND > .s
+{ berth=3 ::  cargo=wool ::  name=Heron ::  units=8 :: } 3 <- top

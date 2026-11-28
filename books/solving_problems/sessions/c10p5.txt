@@ -1,0 +1,8 @@
+#!setup
+:over { . dup take swap } register
+#!show
+:next { swap over + } register
+:fib-fast { . 0 1 take { drop next } times drop } register
+10 fib-fast
+clear
+90 fib-fast

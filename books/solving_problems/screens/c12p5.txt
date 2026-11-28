@@ -1,0 +1,5 @@
+$ bund2 answers/tally.bund
+herring: 1
+salt: 3
+wax: 2
+wool: 1

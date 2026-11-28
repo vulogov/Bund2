@@ -1,0 +1,9 @@
+30 40 >
+clear
+40 30 >
+clear
+30 30 <=
+clear
+"wax" "salt" ==
+clear
+12 large? not

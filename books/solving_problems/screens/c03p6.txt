@@ -1,0 +1,8 @@
+[BUND > :shillings { 12 swap / } register
+[BUND > :odd-pence { 12 rem } register
+[BUND > :both { dup odd-pence swap shillings } register
+[BUND > :coins { both "{s}s {d}d" format println } register
+[BUND > 291 coins
+24s 3d
+[BUND > 140 coins
+11s 8d

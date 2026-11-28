@@ -1,0 +1,13 @@
+//
+// Problem 68. The table of dues, in two straight columns.
+//
+"/harbour.bund" cwd "file://" + + use
+
+:pad  { convert.to_string len 8 - " " * + } register
+:row  { dup pad print dues pad println } register
+:rule { "-" 16 * println } register
+
+"units" pad print "dues" pad println
+rule
+10 { 1 + 10 * row } times
+rule

@@ -1,0 +1,8 @@
+[BUND > "Marta" 40
+=> 40
+[BUND > swap dup println swap dup println
+Marta
+40
+=> 40
+[BUND > .s
+Marta 40 <- top

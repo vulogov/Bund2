@@ -1,0 +1,7 @@
+:dues :reckon alias
+40 reckon
+clear
+:fee { 25 + } register
+40 reckon
+clear
+:fee { 20 + } register

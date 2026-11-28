@@ -1,0 +1,6 @@
+:square { dup * } register
+:cube { dup square * } register
+3 cube
+clear
+:sixth { square cube } register
+2 sixth

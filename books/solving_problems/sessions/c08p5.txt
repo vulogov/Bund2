@@ -1,0 +1,5 @@
+:none { drop 0 } register
+:load { :units ?key { none } { :units get } ifthenelse } register
+"Gull" "wax" 12 ship load
+clear
+dict :name "Heron" set load

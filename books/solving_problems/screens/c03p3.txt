@@ -1,0 +1,7 @@
+[BUND > :tithe { 10 swap / } register
+[BUND > :after-tithe { dup tithe swap - } register
+[BUND > 140 tithe
+=> 14
+[BUND > clear
+[BUND > 140 after-tithe
+=> 126

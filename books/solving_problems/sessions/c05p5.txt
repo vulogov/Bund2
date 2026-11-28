@@ -1,0 +1,5 @@
+#!setup
+:rem { . dup peek swap / take * swap - } register
+:even? { 2 rem 0 == } register
+#!show
+0 [ 40 12 25 7 30 ] { even? { 0 } { 1 } ifthenelse + } loop

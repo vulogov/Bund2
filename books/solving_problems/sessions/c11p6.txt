@@ -1,0 +1,4 @@
+:twice { dup . ! take ! } register
+40 `fee twice
+clear
+3 { 2 * } twice

@@ -1,0 +1,1 @@
+arrivals gather 0 swap { :units get + } loop

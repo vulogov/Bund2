@@ -1,0 +1,8 @@
+:over { . dup take swap } register
+:pair { over over } register
+:rot { . swap take swap } register
+1 2 pair
+.s
+clear
+1 2 3 rot
+.s

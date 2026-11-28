@@ -1,0 +1,14 @@
+[BUND > 1 { 2 * dup println dup 291 > } for
+2
+4
+8
+16
+32
+64
+128
+256
+512
+=> 512
+[BUND > clear
+[BUND > 0 1 true { 2 * swap 1 + swap dup 291 > } while drop
+=> 9

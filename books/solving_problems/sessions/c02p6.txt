@@ -1,0 +1,4 @@
+3 4 + dup *
+3 dup * 4 dup * +
+.s
+swap -

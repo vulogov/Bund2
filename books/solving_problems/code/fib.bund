@@ -1,0 +1,16 @@
+//
+// The Fibonacci numbers, the short way and the slow way.
+//
+//   fib(n) = n                      when n < 2
+//   fib(n) = fib(n-1) + fib(n-2)    otherwise
+//
+// The top speaks first: `dup 1 <` asks "is 1 less than n?", and
+// `1 swap -` is n - 1.
+//
+:fib {
+  dup 1 < {
+    dup 1 swap - fib    // n fib(n-1)
+    swap 2 swap - fib   // fib(n-1) fib(n-2)
+    +
+  } if
+} register

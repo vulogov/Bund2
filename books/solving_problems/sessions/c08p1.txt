@@ -1,0 +1,3 @@
+"Heron" "wool" 8 ship :berth 3 set
+dup :berth get
+.s

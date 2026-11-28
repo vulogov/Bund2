@@ -1,0 +1,9 @@
+:rate { dup 30 < { 3 * } { 2 * } ifthenelse } register
+:tariff { dup 10 < { drop 0 } { rate } ifthenelse fee } register
+8 tariff
+clear
+25 tariff
+clear
+40 tariff
+clear
+10 tariff

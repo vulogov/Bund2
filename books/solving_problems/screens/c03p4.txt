@@ -1,0 +1,9 @@
+[BUND > :dues :reckon alias
+[BUND > 40 reckon
+=> 140
+[BUND > clear
+[BUND > :fee { 25 + } register
+[BUND > 40 reckon
+=> 145
+[BUND > clear
+[BUND > :fee { 20 + } register

@@ -1,0 +1,8 @@
+[BUND > "Marta" "salt" 40
+=> 40
+[BUND > . swap take swap
+=> Marta
+[BUND > .s
+salt 40 Marta <- top
+[BUND > "{name}: {units} crates of {cargo}" format
+=> Marta: 40 crates of salt

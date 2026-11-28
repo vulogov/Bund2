@@ -1,0 +1,7 @@
+[BUND > :none { drop 0 } register
+[BUND > :load { :units ?key { none } { :units get } ifthenelse } register
+[BUND > "Gull" "wax" 12 ship load
+=> 12
+[BUND > clear
+[BUND > dict :name "Heron" set load
+=> 0

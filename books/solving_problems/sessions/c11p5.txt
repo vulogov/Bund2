@@ -1,0 +1,8 @@
+:keep { swap register } register
+:shed { drop drop } register
+:new { swap dup ?word { keep } { shed } ifthenelse } register
+:dues { 0 } new
+40 dues
+clear
+:fine { 2 * } new
+7 fine

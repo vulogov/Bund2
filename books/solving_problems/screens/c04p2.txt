@@ -1,0 +1,10 @@
+[BUND > :even? { 2 rem 0 == } register
+[BUND > :odd? { even? not } register
+[BUND > 40 even?
+=> true
+[BUND > clear
+[BUND > 25 even?
+=> false
+[BUND > clear
+[BUND > 25 odd?
+=> true

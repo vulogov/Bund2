@@ -1,0 +1,21 @@
+[BUND > :salt? { 3 rem 0 == } register
+[BUND > :wax? { 5 rem 0 == } register
+[BUND > :both { wax? { "salt" } { "salt wax" } ifthenelse } register
+[BUND > :plain { dup wax? { drop "wax" } if } register
+[BUND > :cry { dup salt? { plain } { both } ifthenelse println } register
+[BUND > 15 { 1 + cry } times
+1
+2
+salt
+4
+wax
+salt
+7
+8
+salt
+wax
+11
+salt
+13
+14
+salt wax

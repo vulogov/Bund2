@@ -1,0 +1,9 @@
+[BUND > :body { " * } register" swap " { " + + } register
+[BUND > :rate-word { body swap ":" + + bund.eval } register
+[BUND > "salt-due" 3 rate-word
+[BUND > 40 salt-due
+=> 120
+[BUND > clear
+[BUND > "wax-due" 5 rate-word
+[BUND > 12 wax-due
+=> 60

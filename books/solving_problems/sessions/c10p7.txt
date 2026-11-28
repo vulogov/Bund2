@@ -1,0 +1,5 @@
+:split { dup car swap cdr } register
+:sum { len 0 == { split sum + } { drop 0 } ifthenelse } register
+[ 140 56 95 ] sum
+clear
+list sum

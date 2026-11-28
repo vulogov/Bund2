@@ -1,0 +1,13 @@
+[BUND > :rate { dup 30 < { 3 * } { 2 * } ifthenelse } register
+[BUND > :tariff { dup 10 < { drop 0 } { rate } ifthenelse fee } register
+[BUND > 8 tariff
+=> 20
+[BUND > clear
+[BUND > 25 tariff
+=> 95
+[BUND > clear
+[BUND > 40 tariff
+=> 100
+[BUND > clear
+[BUND > 10 tariff
+=> 20

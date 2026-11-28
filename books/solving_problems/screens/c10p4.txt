@@ -1,0 +1,14 @@
+[BUND > :less1 { 1 swap - } register
+[BUND > :less2 { 2 swap - } register
+[BUND > :both { dup less1 fib swap less2 fib + } register
+[BUND > :fib { 1 +. dup 1 < { both } if } register
+[BUND > 0 . 5 fib take
+=> 15
+[BUND > .s
+5 15 <- top
+[BUND > clear
+[BUND > 0 . 10 fib drop take
+=> 177
+[BUND > clear
+[BUND > 0 . 20 fib drop take
+=> 21891

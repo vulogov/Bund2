@@ -1,0 +1,4 @@
+$ bund2 answers/change.bund --pennies 291
+pounds 1, shillings 4, pence 3
+$ bund2 answers/change.bund --pennies 1000
+pounds 4, shillings 3, pence 4

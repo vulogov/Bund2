@@ -1,0 +1,5 @@
+[BUND > :spoil { . dup :units get take swap - swap units= } register
+[BUND > "Marta" "salt" 40 ship 2 spoil
+=> { cargo=salt ::  name=Marta ::  units=38 :: }
+[BUND > :units get dues
+=> 134

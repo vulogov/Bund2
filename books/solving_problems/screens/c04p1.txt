@@ -1,0 +1,14 @@
+[BUND > 30 40 >
+=> true
+[BUND > clear
+[BUND > 40 30 >
+=> false
+[BUND > clear
+[BUND > 30 30 <=
+=> true
+[BUND > clear
+[BUND > "wax" "salt" ==
+=> false
+[BUND > clear
+[BUND > 12 large? not
+=> true

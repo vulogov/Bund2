@@ -1,0 +1,4 @@
+:among? { . false swap { peek == or } loop take drop } register
+[ "salt" "wax" "herring" ] "wax" among?
+clear
+[ "salt" "wax" "herring" ] "wool" among?

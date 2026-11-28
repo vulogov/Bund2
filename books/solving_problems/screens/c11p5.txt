@@ -1,0 +1,10 @@
+[BUND > :keep { swap register } register
+[BUND > :shed { drop drop } register
+[BUND > :new { swap dup ?word { keep } { shed } ifthenelse } register
+[BUND > :dues { 0 } new
+[BUND > 40 dues
+=> 140
+[BUND > clear
+[BUND > :fine { 2 * } new
+[BUND > 7 fine
+=> 14

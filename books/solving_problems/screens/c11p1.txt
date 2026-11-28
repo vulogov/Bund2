@@ -1,0 +1,7 @@
+[BUND > :size lambda= convert.to_list { println } loop
+F(large?)
+lambda[ small :: ]
+lambda[ large :: ]
+F(ifthenelse)
+[BUND > :dues lambda= convert.to_list len swap drop
+=> 2

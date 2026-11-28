@@ -1,0 +1,4 @@
+[BUND > :big? { dup :units get large? } register
+[BUND > :hail { big? { drop } { :name get println } ifthenelse } register
+[BUND > arrivals gather { hail } loop
+Marta

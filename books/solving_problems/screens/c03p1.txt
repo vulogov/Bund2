@@ -1,0 +1,7 @@
+[BUND > :half { 2 swap / } register
+[BUND > :quarter { half half } register
+[BUND > 140 half
+=> 70
+[BUND > clear
+[BUND > 140 quarter
+=> 35

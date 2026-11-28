@@ -1,0 +1,5 @@
+:tithe { 10 swap / } register
+:after-tithe { dup tithe swap - } register
+140 tithe
+clear
+140 after-tithe

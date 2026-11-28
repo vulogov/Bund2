@@ -1,0 +1,7 @@
+:body { " * } register" swap " { " + + } register
+:rate-word { body swap ":" + + bund.eval } register
+"salt-due" 3 rate-word
+40 salt-due
+clear
+"wax-due" 5 rate-word
+12 wax-due

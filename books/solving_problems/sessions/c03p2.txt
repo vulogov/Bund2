@@ -1,0 +1,7 @@
+:rem { . dup peek swap / take * swap - } register
+291 4 rem
+clear
+40 15 rem
+clear
+12 3 rem
+.s

@@ -1,0 +1,6 @@
+[BUND > :twice { dup . ! take ! } register
+[BUND > 40 `fee twice
+=> 80
+[BUND > clear
+[BUND > 3 { 2 * } twice
+=> 12

@@ -1,0 +1,12 @@
+[BUND > :over { . dup take swap } register
+[BUND > :pair { over over } register
+[BUND > :rot { . swap take swap } register
+[BUND > 1 2 pair
+=> 2
+[BUND > .s
+1 2 1 2 <- top
+[BUND > clear
+[BUND > 1 2 3 rot
+=> 1
+[BUND > .s
+2 3 1 <- top

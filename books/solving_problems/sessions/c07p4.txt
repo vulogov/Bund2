@@ -1,0 +1,2 @@
+:kinds { unique len swap drop } register
+[ "salt" "wax" "salt" "herring" "wax" "salt" ] kinds

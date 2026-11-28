@@ -1,0 +1,8 @@
+:own { . @work take } register
+:back { . @main take } register
+:wrap { own fold back } register
+:append { wrap swap ++ } register
+"mine" 25 wrap
+.s
+clear
+[ 40 12 ] 25 append

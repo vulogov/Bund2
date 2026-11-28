@@ -1,0 +1,9 @@
+[BUND > :debt { 0 > { "in credit" } { "owing" } ifthenelse } register
+[BUND > :state { dup 0 == { debt } { drop "paid" } ifthenelse } register
+[BUND > :account { state println } register
+[BUND > -140 account
+owing
+[BUND > 0 account
+paid
+[BUND > 25 account
+in credit

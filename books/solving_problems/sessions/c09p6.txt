@@ -1,0 +1,7 @@
+#!setup
+:own { . @work take } register
+:back { . @main take } register
+#!show
+:sift { dup large? not { drop } if } register
+:keep-large { own { sift } loop gather back } register
+[ 40 12 25 31 30 ] keep-large

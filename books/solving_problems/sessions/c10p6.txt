@@ -1,0 +1,11 @@
+#!setup
+:rem { . dup peek swap / take * swap - } register
+:over { . dup take swap } register
+#!show
+:turn { swap over rem } register
+:gcd { dup 0 == { turn gcd } { drop } ifthenelse } register
+140 56 gcd
+clear
+95 140 gcd
+clear
+291 56 gcd

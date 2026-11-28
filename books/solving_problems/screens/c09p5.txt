@@ -1,0 +1,5 @@
+[BUND > :range { own { 1 + } times gather back } register
+[BUND > 5 range
+=> [ 1 ::  2 ::  3 ::  4 ::  5 :: ]
+[BUND > 0 swap { + } loop
+=> 15

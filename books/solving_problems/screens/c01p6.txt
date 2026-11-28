@@ -1,0 +1,4 @@
+[BUND > 1 2 3 swap . swap take swap
+=> 1
+[BUND > .s
+3 2 1 <- top

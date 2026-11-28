@@ -1,0 +1,5 @@
+[ "Osprey" "Marta" "Gull" ] sort
+clear
+[ 40 12 25 ] sort car
+clear
+[ 40 12 25 ] sort 1 swap tail car

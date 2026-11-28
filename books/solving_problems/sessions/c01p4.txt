@@ -1,0 +1,3 @@
+"Marta" 40
+swap dup println swap dup println
+.s

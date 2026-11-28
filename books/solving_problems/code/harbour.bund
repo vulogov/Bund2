@@ -1,0 +1,55 @@
+//
+// The harbour's words, as "Bund, Word by Word" left them.
+//
+// This book's problems begin where that one ended, so the words it built
+// are gathered here. Learn them at the terminal with
+//
+//   "harbour.bund" study
+//
+// and every problem that speaks of `dues`, `ship` or `arrivals` will find
+// them there.
+//
+
+//
+// Reckoning: three pennies a unit, twenty to moor.
+//
+:due  { 3 * } register
+:fee  { 20 + } register
+:dues { due fee } register
+
+//
+// A cargo of more than thirty units is large.
+//
+:large? { 30 < } register
+:size {
+  large?
+  { "small" }
+  { "large" }
+  ifthenelse
+} register
+
+//
+// A ship is a record of three fields.
+//
+:units= { swap :units swap set } register
+:cargo= { swap :cargo swap set } register
+:name=  { swap :name  swap set } register
+:ship { dict units= cargo= name= } register
+
+:arrivals {
+  "Marta"  "salt"    40 ship
+  "Gull"   "wax"     12 ship
+  "Osprey" "herring" 25 ship
+} register
+
+//
+// The whole stack as one list, in the order it was put down.
+//
+:gather { lambda* convert.to_list } register
+
+//
+// The counting table: a copy of what lies on it, and a field of the
+// record that lies on it.
+//
+:peek { take dup . } register
+:has  { peek swap get } register

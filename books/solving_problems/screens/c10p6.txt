@@ -1,0 +1,10 @@
+[BUND > :turn { swap over rem } register
+[BUND > :gcd { dup 0 == { turn gcd } { drop } ifthenelse } register
+[BUND > 140 56 gcd
+=> 28
+[BUND > clear
+[BUND > 95 140 gcd
+=> 5
+[BUND > clear
+[BUND > 291 56 gcd
+=> 1
