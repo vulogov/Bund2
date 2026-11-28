@@ -6,6 +6,8 @@ the ledger is reckoned, in three accents. This one does not say how at all.
 It states what is true of the day, and what a due _is_, and then puts
 questions. Finding the answers is Bund's work.
 
+#plate("04-judge.png", "Nothing is reckoned. The book is consulted.")
+
 It is the strangest of the four manners and, for some jobs, far the
 shortest.
 
@@ -46,6 +48,11 @@ variables already found stand for their values, and gives the result to `D`.
 A list of facts and rules is made into a _knowledge base_ by `kb!`.
 
 #section("Asking")
+
+Learn the program at the terminal with `study`, as in the chapters before.
+`study` is the terminal's word for reading a file, not a word of the rules.
+The program runs, prints its ledger, and leaves the knowledge base under the
+name `harbour`.
 
 ```
 "rules.bund" study

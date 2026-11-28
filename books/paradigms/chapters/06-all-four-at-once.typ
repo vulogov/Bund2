@@ -7,6 +7,8 @@ that, and Bund does not ask you to. The four are not rival languages. They
 are four sets of words in one language, standing on one stack, and a line of
 one can call a word of another.
 
+#plate("07-crossroads.png", "A step, a value, a thing, or a fact?")
+
 You have seen it happen already. The program of rules used `is` to do its
 arithmetic and `format` to print. The program of functions put a record on
 the counting table. The program of objects ran a `loop` over a list. None of

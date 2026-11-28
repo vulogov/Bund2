@@ -5,6 +5,8 @@
 every crate and barrel paid three pennies to cross the quay, whatever was in
 it. From this morning cargo pays by its kind.
 
+#plate("01-new-tariff.png", "From this morning, cargo pays by its kind.")
+
 #words((
   ("salt", "3 pennies", [a unit]),
   ("wax", "5 pennies", [a unit]),

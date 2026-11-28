@@ -7,6 +7,8 @@ answer is a new value: the old ones are as they were. There are no variables
 to write over, because there is nothing to remember between one word and the
 next except what is on the stack.
 
+#plate("05-mill.png", "What goes in is not changed. Something new comes out.")
+
 You have been doing most of this since Chapter 4 of the first book. `dues`
 was a function. What is new here is doing a _whole program_ this way, and
 holding to it.

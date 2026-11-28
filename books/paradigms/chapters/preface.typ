@@ -8,6 +8,8 @@ set of functions, another a society of objects, another a body of facts and
 the questions asked of it. A language usually holds one of these opinions,
 and holds it firmly.
 
+#plate("00-four-roads.png", "Four roads from one quay, and one gate at the end of them.")
+
 Bund holds none of them. It is a stack language first: values go down, words
 pick them up, the top speaks first. On that floor it lets you build in any of
 the four manners, and in the same file if you like. Its author put it plainly

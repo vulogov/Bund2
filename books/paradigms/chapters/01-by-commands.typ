@@ -6,6 +6,8 @@ people first learn to program. A program in this manner is a list of steps,
 carried out in order, and between the steps it remembers things by writing
 them down under a name and rubbing them out when they change.
 
+#plate("02-relay.png", "Each man does one thing, and hands it on.")
+
 That name is a _variable_. The first book kept everything on the stack and
 never used one. Bund has them all the same.
 

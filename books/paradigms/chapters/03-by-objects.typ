@@ -7,6 +7,8 @@ of questions, then in a table. In this manner it sits _in the thing itself_.
 A landing of wax knows it is wax and knows what wax pays. You do not reckon
 it. You ask it what it owes.
 
+#plate("03-guild.png", "He does not weigh the wax. He asks the chandler.")
+
 #section("A class and an object")
 
 A _class_ describes a kind of thing: what every one of that kind has, and

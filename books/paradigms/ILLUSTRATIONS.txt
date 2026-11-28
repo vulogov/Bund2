@@ -32,14 +32,13 @@
 #    01-new-tariff.png    04-judge.png          07-crossroads.png
 #    02-relay.png         05-mill.png
 #
-#  Sizes: 00 is a portrait plate (3:4, e.g. 896x1152). The rest are square
-#  (1024x1024). Engraving line needs resolution: upscale 2x before placing.
+#  Sizes: all eight came square, 2048x2048 (00 was asked for as a portrait
+#  plate, 3:4). Engraving line needs resolution: upscale 2x before placing.
 #
-#  The book does not print plates yet. When the files are in place: copy
-#  books/solving_problems/tools/plates.sh into tools/ and run it if they come
-#  as JPEG; `plate` is already in design.typ; put the frontispiece at the head
-#  of chapters/preface.typ and each chapter's plate after its first
-#  paragraphs, with the caption given below.
+#  The plates are placed. The owner's JPEGs are in assets/, and
+#  tools/plates.sh makes the transparent PNGs from them. Each plate follows
+#  the first paragraph of its chapter, the frontispiece that of the preface,
+#  with the caption given below.
 #
 #  The commands below are written for plakat, run from the REPOSITORY ROOT.
 #  Any other model takes the quoted prompt as it stands.

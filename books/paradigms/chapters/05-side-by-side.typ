@@ -3,6 +3,8 @@
 
 #dropcap("F")our programs, one page. Now put them on the table together.
 
+#plate("06-shipyard.png", "The same hull, four times, by four crews.")
+
 #session("c5-count", caption: "Lines in each program, and lines changed for the fourth cargo")
 
 The first four numbers are the length of each file, comments and all. The
