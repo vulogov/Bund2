@@ -1,0 +1,183 @@
+# ============================================================================
+#  Bund, Problem by Problem — illustration prompts
+# ============================================================================
+#
+#  Thirteen engravings: a frontispiece and one for each chapter of problems.
+#  The first book's plates showed the harbour's PLACES, the quay, the table,
+#  the ledger. These show its WORK: the same people doing the same job with
+#  their hands, which is what a book of problems is. They show the HARBOUR,
+#  never a computer.
+#
+#  They must sit beside the first book's plates and the author's portrait, so
+#  the manner is the same: black line on white, cross-hatched, a
+#  sixteenth-century copperplate. STYLE below is the first book's sentence,
+#  word for word. Do not change it here without changing it there.
+#
+#  STYLE
+#    black and white copperplate engraving, sixteenth-century northern European
+#    manner, fine cross-hatching and stippling, strong contrast, pure black ink
+#    on white paper, no grey wash, no colour, crisp line, book illustration
+#
+#  NEGATIVE (for models that take one)
+#    colour, photograph, 3d render, grey wash, watercolour, blur, lettering,
+#    text, captions, numbers, signature, watermark, frame, border, modern
+#    objects, computer, screen
+#
+#  Two things to hold to in every picture, as in the first book:
+#    - NO LETTERING. Crates, barrels, tags, slates and papers are blank or
+#      carry only scribbled hatching.
+#    - NO FACES IN CLOSE-UP except where the scene needs one. The clerk is seen
+#      from behind, in profile or with his head bent over his work.
+#
+#  One thing that is this book's own:
+#    - HANDS AT WORK. Every plate has somebody doing something: lifting,
+#      weighing, counting, calling, carrying. No empty views.
+#
+#  Filenames the book expects, in books/solving_problems/assets/ :
+#    00-apprentice.png    05-carter.png         10-spiral.png
+#    01-three-crates.png  06-crier.png          11-shipwright.png
+#    02-counting.png      07-drying-rack.png    12-harbour-day.png
+#    03-tool-rack.png     08-pigeonholes.png
+#    04-scales.png        09-plank.png
+#
+#  Sizes: 00 is a portrait plate (3:4, e.g. 896x1152). The rest are square
+#  (1024x1024). Engraving line needs resolution: upscale 2x before placing.
+#
+#  The owner's originals are the .jpg files; tools/plates.sh makes the
+#  transparent .png the book prints from each (all of them, or the ones
+#  named). `plate` in design.typ places one; the frontispiece is in
+#  chapters/00-before-you-begin.typ and each chapter's plate is in its `intro`.
+#  Two captions in the book are plainer than the ones below, to match what
+#  was drawn: 02 "Whole pennies, counted by hand." and 07 "In a row, counted
+#  from one end."
+#
+#  The commands below are written for plakat, run from the REPOSITORY ROOT.
+#  Any other model takes the quoted prompt as it stands.
+# ============================================================================
+
+A=books/solving_problems/assets
+STYLE="black and white copperplate engraving, sixteenth-century northern European manner, fine cross-hatching and stippling, strong contrast, pure black ink on white paper, no grey wash, no colour, crisp line, book illustration"
+
+
+# --- 00 · frontispiece, "How to Use This Book" ------------------------------
+#     Nobody learns by reading. An apprentice alone on the quay at first
+#     light, practising with the crates before the ships come in.
+#     Caption: "Lift crates until your hands know where each one is."
+plakat generate "a young apprentice clerk in a short jerkin and cap alone on a stone quay at first light, bending to lift a wooden crate from a small pile, his master's long gown and flat cap hung on a mooring post beside him, a closed customs house with shuttered windows behind, an empty harbour basin with no ships and long morning shadows, tall sky left open, $STYLE" \
+  --model sdxl --size 896x1152 --seed 3000 --out $A
+mv $A/plakat-3000.png $A/00-apprentice.png
+
+
+# --- 01 · Ch. 1 — Crates ----------------------------------------------------
+#     Problem 6 in one picture: three crates, and the middle one set aside on
+#     a table so that the bottom one can be reached.
+#     Caption: "To reach the third crate, one must be set aside."
+plakat generate "a dockhand in a cap and jerkin on a stone quay kneeling beside two plain wooden crates stacked one on the other, both hands on the upper crate, a third identical crate set apart on a low wooden trestle table beside him, a moored ship's hull and a mooring post behind, nothing else stacked nearby, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 3001 --out $A
+mv $A/plakat-3001.png $A/01-three-crates.png
+
+
+# --- 02 · Ch. 2 — Pennies ---------------------------------------------------
+#     Whole pennies, counted by hand, and a few left over.
+#     Caption: "Four equal piles, and three pennies over."
+plakat generate "a close view of a clerk's two hands at a wooden counting board, sorting small plain coins into four neat equal piles, three single coins left apart at the edge of the board, the sleeve of a long gown, a quill and an inkwell beside the board, an open window with ship masts beyond, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 3002 --out $A
+mv $A/plakat-3002.png $A/02-counting.png
+
+
+# --- 03 · Ch. 3 — Words of Your Own -----------------------------------------
+#     A word is a small tool with a name, hung where you can find it.
+#     Caption: "A small tool, on its own peg, with its own name."
+plakat generate "the wall of a harbour workshop with a long wooden rack of small hand tools each hanging on its own peg, mallets, chisels, awls, a caulking iron, a clerk in a long gown seen from behind reaching up to hang one more small tool on an empty peg, a workbench below with wood shavings, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 3003 --out $A
+mv $A/plakat-3003.png $A/03-tool-rack.png
+
+
+# --- 04 · Ch. 4 — Questions -------------------------------------------------
+#     A question has two answers and no third: the beam tips one way or the
+#     other.
+#     Caption: "It tips one way or the other."
+plakat generate "a large pair of beam balance scales hanging from a timber frame on a stone quay, a small wooden crate in one pan and a stack of iron weights in the other, the beam tilted clearly to one side, a clerk in a long gown and flat cap in profile watching the beam with one hand raised, sacks and barrels behind, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 3004 --out $A
+mv $A/plakat-3004.png $A/04-scales.png
+
+
+# --- 05 · Ch. 5 — Rounds ----------------------------------------------------
+#     The carter: the same road, there and back, until the quay is clear.
+#     Caption: "The same road, until the quay is clear."
+plakat generate "a carter leading a horse and a two-wheeled cart loaded with crates along a cobbled harbour road toward a town gate, a second identical cart returning empty in the other direction, a diminishing pile of crates on the quay in the foreground, deep wheel ruts worn into the cobbles, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 3005 --out $A
+mv $A/plakat-3005.png $A/05-carter.png
+
+
+# --- 06 · Ch. 6 — Text ------------------------------------------------------
+#     The harbour crier, who calls the crates and hails the ships.
+#     Caption: "The crier calls each crate as it comes ashore."
+plakat generate "a harbour crier in a short cloak and feathered cap standing on an upturned barrel on a stone quay, one hand ringing a handbell, the other cupped to his open mouth as he calls out, dockhands carrying crates down a gangplank from a cog behind him, gulls overhead, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 3006 --out $A
+mv $A/plakat-3006.png $A/06-crier.png
+
+
+# --- 07 · Ch. 7 — Lists -----------------------------------------------------
+#     Many things kept in an order: sorted, counted, the first and the last.
+#     Caption: "In a row, in order, from the smallest to the largest."
+plakat generate "a long wooden fish drying rack on a harbour shore with a single row of split herring hung side by side in order of size from the smallest at the left to the largest at the right, a fishwife in a coif and apron hanging the last and largest fish at the end of the row, baskets on the shingle, a boat drawn up behind, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 3007 --out $A
+mv $A/plakat-3007.png $A/07-drying-rack.png
+
+
+# --- 08 · Ch. 8 — Records ---------------------------------------------------
+#     A thing known by its fields, each in its own place, found by its label.
+#     Caption: "Each thing known about a ship has its own place."
+plakat generate "a tall wooden cabinet of many small square pigeonholes in a customs house, each pigeonhole holding one rolled parchment tied with ribbon, a clerk in a long gown seen from behind on a short step-stool drawing a single roll from one pigeonhole, one pigeonhole in the middle left conspicuously empty, a sloped desk beside the cabinet, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 3008 --out $A
+mv $A/plakat-3008.png $A/08-pigeonholes.png
+
+
+# --- 09 · Ch. 9 — The Table and the Quays -----------------------------------
+#     One value carried from one stack to another: set it down, walk, take it.
+#     Caption: "From one quay to the other, one crate at a time."
+plakat generate "two stone quays facing each other across a narrow channel of harbour water joined by a single long wooden plank, a porter walking across the plank carrying one crate on his shoulder, a tall pile of crates on the quay he has left and an empty cleared space on the quay he is walking toward, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 3009 --out $A
+mv $A/plakat-3009.png $A/09-plank.png
+
+
+# --- 10 · Ch. 10 — A Word That Calls Itself ---------------------------------
+#     The thing that contains a smaller copy of itself, and a way out at the
+#     end: the spiral of the Fibonacci numbers, as a stair and as a shell.
+#     Caption: "Each turn is the one before it, made smaller."
+plakat generate "the inside of a stone lighthouse tower looking straight down a spiral staircase that winds inward turn within turn to a small bright doorway at the bottom, a clerk in a long gown on the upper steps seen from above and behind descending with a lantern, a large nautilus shell cut open to show its spiral chambers resting on the window ledge in the foreground, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 3010 --out $A
+mv $A/plakat-3010.png $A/10-spiral.png
+
+
+# --- 11 · Ch. 11 — Programs as Values ---------------------------------------
+#     A program you can hold, measure and take apart: the shipwright's model
+#     on the bench, and the ship built from it outside.
+#     Caption: "The ship on the bench, and the ship on the slip."
+plakat generate "a shipwright's loft with a small wooden model of a merchant cog standing on a workbench, a shipwright in an apron bending over it measuring the hull with a pair of dividers, loose model parts and a mast laid out in a row beside it, through a wide open doorway behind him the timber ribs of a full-sized ship of the same shape on a slipway, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 3011 --out $A
+mv $A/plakat-3011.png $A/11-shipwright.png
+
+
+# --- 12 · Ch. 12 — Harbour Days ---------------------------------------------
+#     Everything at once: the first book's empty morning harbour, now at
+#     midday with every hand busy. The whole program.
+#     Caption: "Wendhaven at midday, with every hand at work."
+plakat generate "a small walled harbour town at busy midday seen from a high window, a stone quay crowded with dockhands carrying crates and rolling barrels, three merchant cogs moored side by side with sails furled, a treadwheel crane lifting a barrel, a carter with a loaded cart, a crier on a barrel with a handbell, a clerk at a table outside the gabled customs house, gulls, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 3012 --out $A
+mv $A/plakat-3012.png $A/12-harbour-day.png
+
+
+# ============================================================================
+#  Done. Thirteen plates in books/solving_problems/assets/ (00–12).
+#
+#  If a plate comes back with lettering on a crate or a page, re-roll the seed
+#  rather than repainting: engraving line does not survive inpainting well.
+#  If the set drifts in manner from the first book's plates, re-render the
+#  plate that drifted; do not adjust the others to meet it.
+#
+#  Plates likely to need a second try: 02 (hands), 07 (an exact ordering by
+#  size) and 10 (two spirals in one picture). For 10, the stair alone is
+#  enough if the shell will not come.
+# ============================================================================

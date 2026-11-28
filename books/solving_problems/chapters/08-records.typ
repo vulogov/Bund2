@@ -8,6 +8,8 @@ builds one with `ship`. The trap in this chapter is always the same: `get`
 uses the record up. If you want the record afterwards, or a second field,
 `dup` it first.
 
+#plate("08-pigeonholes.png", "Each thing known about a ship has its own place.")
+
 #words((
   ("set", "( dict key value -- dict )", [Write a value under a key.]),
   ("get", "( dict key -- value )", [The value under a key. Uses up the

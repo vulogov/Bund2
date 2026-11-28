@@ -255,6 +255,17 @@
   v(3mm)
 }
 
+// ── Plates — the engravings of ILLUSTRATIONS.txt, in assets/ ────────
+#let plate(file, caption, width: 62%) = {
+  v(3mm)
+  block(breakable: false, width: 100%, align(center, {
+    image("assets/" + file, width: width)
+    v(1.6mm)
+    text(font: body_family, style: "italic", size: 9pt, fill: ink_gray, caption)
+  }))
+  v(3mm)
+}
+
 // ── Small helpers ───────────────────────────────────────────────────
 #let dropcap(letter) = box(baseline: 0.62em,
   text(font: body_family, size: 2.7em, weight: "bold", fill: ink_accent, letter))

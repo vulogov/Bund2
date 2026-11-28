@@ -8,6 +8,8 @@ is done by handing it to a word together with a lambda. This chapter adds two
 words the first book did not use, `head` and `tail`, which cut a list short.
 Both take the count first and the list on top of it.
 
+#plate("07-drying-rack.png", "In a row, counted from one end.")
+
 #words((
   ("map", "( list lambda -- list )", [A new list of what the lambda leaves for
   each element.]),

@@ -7,6 +7,8 @@
 In all four, whatever you are building rides underneath, and each round works
 above it and leaves it where it was.
 
+#plate("05-carter.png", "The same road, until the quay is clear.")
+
 #words((
   ("times", "( n lambda -- )", [n rounds. Before each, the round's number is
   pushed, counting from 0.]),

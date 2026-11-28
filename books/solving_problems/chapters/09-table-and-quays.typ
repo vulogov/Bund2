@@ -8,6 +8,8 @@ things down. The counting table holds a value while you work on what was
 beneath it. Another quay, a stack with a name, gives a word a clear floor to
 work on when it needs to sweep up everything in sight.
 
+#plate("09-plank.png", "From one quay to the other, one crate at a time.")
+
 One table serves every quay. That is how a value is carried from one stack to
 another: set it on the table, walk, take it.
 

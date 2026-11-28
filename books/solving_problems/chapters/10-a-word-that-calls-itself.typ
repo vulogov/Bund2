@@ -9,6 +9,8 @@ runs, not when it is written, so nothing special is needed. What is needed is
 a way out. Every such word asks a question first, and one of the answers must
 not lead back in.
 
+#plate("10-spiral.png", "Each turn is the one before it, made smaller.")
+
 The classic is the Fibonacci numbers: 0, 1, 1, 2, 3, 5, 8 … each the sum of
 the two before it. Here it is in Bund, as `code/fib.bund`.
 

@@ -7,6 +7,8 @@
 `register`. A good one is short, does one thing, and has a stack effect you
 can say aloud. Write the effect down before you write the word.
 
+#plate("03-tool-rack.png", "A small tool, on its own peg, with its own name.")
+
 The terminal takes a definition on one line. When a word will not fit on a
 line, that is the language telling you it is two words.
 

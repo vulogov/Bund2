@@ -7,6 +7,8 @@ way the clerk at Wendhaven learned his trade: by lifting crates until your
 hands know where each one is. _Bund, Word by Word_ showed you the words. This
 book makes you use them, seventy-three times.
 
+#plate("00-apprentice.png", "Lift crates until your hands know where each one is.", width: 56%)
+
 It is a book of problems and nothing else. There is no new story and almost
 no new vocabulary. The harbour is the same harbour, the three ships are the
 same three, and the day still comes to 291 pennies.

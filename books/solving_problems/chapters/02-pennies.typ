@@ -7,6 +7,8 @@
 crate in his hands first. Every problem here turns on that: in `a b -` the
 top, `b`, is what is subtracted _from_, and in `a b /` it is what is divided.
 
+#plate("02-counting.png", "Whole pennies, counted by hand.")
+
 #words((
   ("+  *", "( a b -- n )", [Add; multiply. The order does not matter.]),
   ("-", "( a b -- b-a )", [Subtract a from b.]),

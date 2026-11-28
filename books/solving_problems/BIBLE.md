@@ -90,7 +90,10 @@ problem of Chapter 5. `.sh` sessions are shell commands run from `code/`.
 leaves out `total`, `line` and `manifest`, which problems ask the reader to
 write.
 
-## Not yet done
+## Plates
 
-- No plates. The first book's engravings are not reused, and no prompts have
-  been written for this one.
+Thirteen engravings, a frontispiece and one for each chapter, from the prompts
+in `ILLUSTRATIONS.txt`. Where the first book's plates show the harbour's
+places, these show its work: every plate has hands doing something. The
+owner's originals are `assets/*.jpg`; `tools/plates.sh` makes the transparent
+`assets/*.png` the book prints.

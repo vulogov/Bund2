@@ -8,6 +8,8 @@ them up. Two habits save most of the trouble. Read a comparison from the
 word backwards: `30 <` asks "is 30 less than it?". And remember that a
 question uses up what it asks about, so `dup` first if you still need it.
 
+#plate("04-scales.png", "It tips one way or the other.")
+
 #words((
   ("==  !=", "( a b -- flag )", [Equal; different.]),
   (">  <", "( a b -- flag )", [Is b greater than a; is b less than a.]),

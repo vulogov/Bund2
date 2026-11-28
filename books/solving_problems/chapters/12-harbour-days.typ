@@ -9,6 +9,8 @@ from the shell and not from the terminal, and each should be laid out the way
 the smallest to the largest, and the few lines that set them going at the
 foot.
 
+#plate("12-harbour-day.png", "Wendhaven at midday, with every hand at work.")
+
 Write them in `code/`, and run them from there:
 
 ```

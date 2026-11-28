@@ -8,6 +8,8 @@ copy the one on top, to throw one away, to bring the one beneath to hand.
 Nothing in this chapter is arithmetic. It is all in knowing, before you press
 the key, what the stack will look like afterwards.
 
+#plate("01-three-crates.png", "To reach the third crate, one must be set aside.")
+
 Type `.s` after every answer. It shows the whole stack, bottom first, and
 leaves it as it was.
 

@@ -8,6 +8,8 @@ joins top first: `"haven" "Wend" +` is `Wendhaven`. A template is filled the
 same way, its first `{name}` from the top of the stack. And `len` leaves the
 string under its length, so there is usually a `swap` or a `drop` nearby.
 
+#plate("06-crier.png", "The crier calls each crate as it comes ashore.")
+
 #words((
   ("+", "( a b -- text )", [Join, the top string first. A number may be
   joined to a string.]),

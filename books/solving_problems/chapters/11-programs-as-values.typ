@@ -8,6 +8,8 @@ word, taken out of a word and looked at, and run when you choose. A line of
 text can be made into a program and run too. These are the first book's last
 ideas, and the ones that most repay practice.
 
+#plate("11-shipwright.png", "The ship on the bench, and the ship on the slip.")
+
 #words((
   ("!", "( lambda -- ... )", [Run a lambda, a pointer or a `?try`.]),
   ("lambda=", "( name -- lambda )", [The body of a word you defined.]),
