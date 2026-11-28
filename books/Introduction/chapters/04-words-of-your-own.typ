@@ -177,7 +177,7 @@ A backtick in front of a name makes a _pointer_ to that word.
 
 #session("ch04-pointer", caption: "A pointer to a word")
 
-`` `dues `` did not reckon anything. It put a pointer on the stack, and `!` ran
+#raw("`dues") did not reckon anything. It put a pointer on the stack, and `!` ran
 it. A pointer is to a named word what braces are to a few loose ones: a way to
 carry program around as a value. That will matter in the next two chapters,
 where words take other pieces of program as their operands.
