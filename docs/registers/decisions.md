@@ -18588,3 +18588,61 @@ a width absorbs an ulp.
 *Applied 2026-11-27.* `crates/bund2-stdlib/src/biomath/hist.rs`'s
 `r_pretty` and `pretty` fuse the four expressions with `f64::mul_add`,
 each marked D280; criterion 8 compares breaks, mids and `pretty` exactly.
+
+## D281 — RFC-0020 §S8: `mva.lda.predict`'s class is R's `max.col(…, "first")`
+
+**Raised 2026-11-28** by Q68's second half, answered from R 4.6.2's
+source at the tag R-4-6-2.
+
+`predict.lda` takes its class as `max.col(posterior)` (MASS 7.3-66
+`R/lda.R:288`), whose default `ties.method` is `"random"`
+(`src/library/base/R/max.col.R:19`). RFC-0020 §What R does (`:411-413`)
+and §S8 said that default breaks an *exact* tie at random. The source
+says more (`src/appl/maxcol.c`):
+
+- **`"random"` ties within a tolerance.** `tol` is `RELTOL` = 10⁻⁵
+  (`:40`) times the row's largest finite |entry| (`:51-58`). A later
+  column displaces the running maximum only when it exceeds it by more
+  than `tol` (`:69-71`); one within `tol` of it is a tie, kept by
+  reservoir sampling on R's generator (`:72-76`). For posteriors, which
+  are at most 1, two groups within about 10⁻⁵ of each other are drawn at
+  random.
+- **`"first"` has no tolerance:** the running maximum moves only on
+  `a < b` (`:79-85`), so the class is the first group of the largest
+  posterior.
+
+Bund2's port (`crates/bund2-stdlib/src/biomath/mva/lda.rs`, the class
+loop of `predict`) moves its maximum only on a strict `>`, so it answers
+exactly `max.col(posterior, ties.method = "first")`. It differs from R's
+default not only on exact ties, as §S8 states, but wherever two
+posteriors differ by more than 0 and at most 10⁻⁵ of the row's largest:
+R draws either, Bund2 answers the larger. No criterion covered that band.
+Criterion 7's rows (1, 51, 101, 71) are far from it, so no fixture
+comparison changes.
+
+- Blocks: nothing (RFC-0020 M5 is committed; this records its tie rule)
+- Depends on: Q68, RFC-0020 §S8, D278 (§S8's exact-tie **[author]**
+  choice)
+- Options:
+  - **A. Keep the strict maximum** and state it as R's
+    `ties.method = "first"`: no code change; a test pins a near-tie
+    10⁻⁷ apart to the larger posterior; Q68 closed; RFC-0020's two
+    passages amended by a dated note.
+  - **B. Port the 10⁻⁵ tolerance, taking the first group among near-ties.**
+    Matches no `ties.method` of R's, and can answer the smaller posterior.
+  - **C. Port `"random"`,** drawing from the VM's generator. The class
+    would depend on the generator's state, so `mva.lda.predict` would no
+    longer be fixed (§S1's "no lambdas" shape and its effect class), and
+    `PROMOTABLE.txt` would change.
+  - **D. Add a `ties` option,** `"first"` by default or `"random"`: scope
+    no criterion asks for.
+- Recommended: **A**. Bund2's answer is one of R's own modes, exactly,
+  so the claim is grounded and checkable, and the word stays
+  deterministic as every word of the family is.
+- Status: **RESOLVED 2026-11-28**: A. The owner ruled "A".
+
+*Applied 2026-11-28.* `mva/lda.rs`'s module doc states the rule as
+`max.col(…, "first")`; `mva/lda/tests.rs` gains
+`a_near_tie_takes_the_larger_posterior_as_max_col_first_does`; Q68's
+`max.col` half is answered; RFC-0020 §What R does and §S8 carry a dated
+note; RFC-0000's count is 281.

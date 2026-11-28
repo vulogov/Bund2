@@ -617,3 +617,24 @@ fn an_exact_tie_takes_the_first_group() {
         .collect();
     assert_eq!(class, ["a"]);
 }
+
+#[test]
+fn a_near_tie_takes_the_larger_posterior_as_max_col_first_does() {
+    // D281: R's default `max.col` draws among posteriors within 1e-5 of
+    // the largest; Bund2 answers `"first"`'s strict maximum. Just left of
+    // 0 the second group, "b", is larger by far less than 1e-5.
+    let x = "[ [ -2 1 ] [ -1 -1 ] [ -3 0 ] [ 2 1 ] [ 1 -1 ] [ 3 0 ] ] matrix";
+    let m = answer(&format!(
+        "{x} [ \"b\" \"b\" \"b\" \"a\" \"a\" \"a\" ] dict mva.lda [ [ -1.0e-7 0 ] ] matrix dict mva.lda.predict"
+    ));
+    let post = get(&m, "posterior");
+    let gap = post[1] - post[0];
+    assert!(gap > 0.0 && gap < 1e-5, "{post:?}");
+    let class: Vec<String> = m["class"]
+        .as_list()
+        .unwrap_or(&[])
+        .iter()
+        .map(BundValue::display)
+        .collect();
+    assert_eq!(class, ["b"]);
+}

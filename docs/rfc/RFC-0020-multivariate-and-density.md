@@ -411,6 +411,10 @@ Every cited file was compared with R 4.6.2:
   - The class
   is `max.col`'s, which breaks an exact tie at random (its documented
   default) [UNGROUNDED: `max.col`'s source was not read; Q68].
+  *Note 2026-11-28 (D281):* `max.col`'s source, read since, says more.
+  Its `"random"` default ties within 10⁻⁵ of the row's largest |entry|,
+  not only exactly (`src/appl/maxcol.c:40`, `:51-76`); `"first"` has no
+  tolerance (`:79-85`).
 
 **Density estimation.**
 - **`density`** (`src/library/stats/R/density.R:21-184`) is not an exact
@@ -839,6 +843,11 @@ as `linalg.eigen.sym`'s cap is set; `None` is E110. Fixed, plain and `.`.
     log 0 (`lda.R:264`).
   - An exact tie in the posterior takes the first group in §S1's order,
     where R's `max.col` breaks it at random **[author]**.
+    *Note 2026-11-28 (D281):* the class is exactly R's
+    `max.col(posterior, ties.method = "first")`, the first group of the
+    largest posterior. It differs from `predict.lda`'s default also where
+    two posteriors differ by at most 10⁻⁵, which R draws at random and
+    Bund2 answers by the larger.
 - Fixed (three operands), plain and `.`.
 
 ### S9. Kernel density and bandwidths [V8] [V9] [V10]
@@ -1355,6 +1364,8 @@ the first review:
 **[UNGROUNDED]**, Q68: R's `fft` (`src/appl/fft.c`) and `max.col` were
 not read, so neither the claim that §S9's radix-2 FFT agrees with R's to
 rounding nor R's random tie-breaking in `max.col` is grounded in source.
+*Note:* both halves are answered, the FFT by M7 (2026-11-27) and
+`max.col` by D281 (2026-11-28).
 
 **[UNGROUNDED]**, Q69: the build flags of the owner's R were not read, so
 §S13's first assumption, that R rounds as an unfused port, is not

@@ -29,8 +29,12 @@
 //!   `dimen` (INTEGER ≥ 1, clamped to r as `:260`). X and the means are
 //!   centred on the prior-weighted mean under the prior in use (`:255-258`).
 //!   A group whose prior is 0 has posterior 0 directly, where R reaches it
-//!   through log 0 (`:264`), and an exact tie takes the first group in
-//!   `lev`'s order, where R's `max.col` breaks it at random (§S8 [author]).
+//!   through log 0 (`:264`). The class is the first group of the largest
+//!   posterior in `lev`'s order: R's `max.col(…, "first")` exactly, which
+//!   moves only on a strict `<` (`src/appl/maxcol.c:79-85`). R's default,
+//!   `"random"`, draws among posteriors within 10⁻⁵ of the row's largest
+//!   (`:40`, `:51-76`), so the two differ on exact ties and in that band
+//!   (§S8 [author], D281).
 //!   It answers `class` (a LIST of labels), `posterior` (n × g) and `x`
 //!   (n × dimen).
 
