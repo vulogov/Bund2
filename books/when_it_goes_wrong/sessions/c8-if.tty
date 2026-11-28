@@ -1,0 +1,6 @@
+bund2 --debugger tare.bund
+watch @main if { 0 > }
+c
+bt
+delete @main
+c

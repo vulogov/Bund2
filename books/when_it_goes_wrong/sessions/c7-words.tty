@@ -1,0 +1,5 @@
+bund2 --debugger tare.bund
+break dues 3
+c
+words
+c

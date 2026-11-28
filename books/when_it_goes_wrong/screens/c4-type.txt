@@ -1,0 +1,13 @@
+[BUND > 40 type
+=> Integer
+[BUND > clear
+[BUND > "salt" type
+=> String
+[BUND > clear
+[BUND > { 3 * } type
+=> Lambda
+[BUND > clear
+[BUND > 40 "Integer" ?type
+=> true
+[BUND > .s
+40 true <- top

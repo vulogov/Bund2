@@ -1,0 +1,13 @@
+[BUND > ?try :try { + } set :except { drop "nothing to add" println } set
+    !
+nothing to add
+[BUND > ?try :try { 0 1 / } set :except { :context get } set !
+=> Lambda content evaluation returned error: DIV returns error: Integer
+    division to 0.0
+[BUND > clear
+[BUND > ?try :try { 0 1 / } set :except { type } set !
+=> Conditional
+[BUND > clear
+[BUND > ?try :try { 0 1 / } set :except { ! } set !
+Notice: Lambda content evaluation returned error: DIV returns error:
+    Integer division to 0.0

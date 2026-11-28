@@ -1,0 +1,9 @@
+$ bund2 infer --file tare.bund
+Marta: -94 pennies
+Gull: -10 pennies
+Osprey: -49 pennies
+Total: -153 pennies
+  entry                        inferred 2->0   not observable on integer
+    sentinels
+0: 1 pennies
+tare.bund: 6 word(s) — 5 agree, 0 opaque, 1 unobservable, 0 WRONG

@@ -1,0 +1,6 @@
+"dup" ?effect
+clear
+"loop" ?effect
+clear
+:dues { 3 * 20 + } register
+"dues" ?effect

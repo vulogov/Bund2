@@ -1,0 +1,6 @@
+bund2 --debugger tare.bund
+break println
+c
+st
+delete println
+c

@@ -1,0 +1,116 @@
+# ============================================================================
+#  Bund, When It Goes Wrong — illustration prompts
+# ============================================================================
+#
+#  Thirteen engravings: a frontispiece and one for each of Chapters 0 to 11.
+#  The book is about finding out what went wrong, so its plates show the
+#  harbour's mishaps and the people who inquire into them. A ship on the bar,
+#  a net, a diver, a watchman. They show the HARBOUR, never a computer.
+#
+#  They must sit beside the plates of the first three books and the author's
+#  portrait, so the manner is the same. STYLE below is the first book's
+#  sentence, word for word.
+#
+#  Hold to the first book's two rules in every picture:
+#    - NO LETTERING. Books, slates, signs and crates are blank or carry only
+#      scribbled hatching.
+#    - NO FACES IN CLOSE-UP except where the scene needs one.
+#
+#  Filenames the book expects, in books/when_it_goes_wrong/assets/ :
+#    00-mishap-book.png     05-tide-watcher.png   10-slate.png
+#    01-three-wrongs.png    06-one-sling.png      11-shipwright.png
+#    02-on-the-bar.png      07-chalk-mark.png
+#    03-net-and-bell.png    08-night-watch.png
+#    04-manifest.png        09-own-surveyor.png
+#    04b-over-the-quay.png
+#
+#  All square, 1:1. The book does not print plates yet. When the files are in
+#  place as JPEG, strip their metadata (jpegtran -copy none), run
+#  tools/plates.sh, and put `#plate("NAME.png", "caption")` after the first
+#  paragraph of each chapter, the frontispiece after that of the preface.
+#
+#  The commands below are written for plakat, run from the REPOSITORY ROOT.
+#  Any other model takes the quoted prompt as it stands.
+# ============================================================================
+
+A=books/when_it_goes_wrong/assets
+STYLE="black and white copperplate engraving, sixteenth-century northern European manner, fine cross-hatching and stippling, strong contrast, pure black ink on white paper, no grey wash, no colour, crisp line, book illustration"
+
+
+# --- 00 · frontispiece, "Why a Book About Failure" ---------------------------
+#     Caption: "The other book, less often shown to visitors."
+plakat generate "a harbour office interior, a clerk at a tall desk writing in a thin worn book by candlelight, a much larger ledger lying closed beside it, through the window behind him a cog aground on a sandbar at low tide, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 5000 --out $A
+mv $A/plakat-5000.png $A/00-mishap-book.png
+
+# --- 01 · Ch. 0 — Three Kinds of Wrong ---------------------------------------
+#     Caption: "Aground, on the wrong quay, or becalmed."
+plakat generate "a wide harbour view with three ships, one aground and heeling on a sandbar, one moored at a quay where puzzled porters gesture that it is the wrong berth, one far out with slack sails on a flat calm sea, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 5001 --out $A
+mv $A/plakat-5001.png $A/01-three-wrongs.png
+
+# --- 02 · Ch. 1 — Reading the Report -----------------------------------------
+#     Caption: "What happened, where, and what she was carrying."
+plakat generate "a harbour pilot standing in a small boat beside a cog stranded on a sandbar, writing on a slate, sounding line in the water, the ship's hold open and casks visible, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 5002 --out $A
+mv $A/plakat-5002.png $A/02-on-the-bar.png
+
+# --- 03 · Ch. 2 — The Net and the Bell ----------------------------------------
+#     Caption: "A net under the gangway, and a bell on the mole."
+plakat generate "a ship's gangway from quay to deck with a rope net slung beneath it, a porter crossing with a sack, at the end of a stone mole behind them a bell hanging in a small open belfry with a rope, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 5003 --out $A
+mv $A/plakat-5003.png $A/03-net-and-bell.png
+
+# --- 04 · Ch. 3 — Before It Runs ----------------------------------------------
+#     Caption: "He reads the manifest before anything is lifted."
+plakat generate "a harbourmaster in a fur-trimmed coat on the quay reading a long paper manifest covered in scribbled hatching, counting on his fingers, a loaded ship waiting beside him with idle porters and a still crane, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 5004 --out $A
+mv $A/plakat-5004.png $A/04-manifest.png
+
+# --- 04b · Ch. 4 — Looking ----------------------------------------------------
+#     Caption: "Before anyone sends for the diver, somebody looks."
+plakat generate "a man kneeling at the edge of a stone quay leaning far over to look down into clear water with a lantern on a pole, a sunken cask visible on the bottom, two others waiting behind him, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 5005 --out $A
+mv $A/plakat-5005.png $A/04b-over-the-quay.png
+
+# --- 05 · Ch. 5 — The Trace ---------------------------------------------------
+#     Caption: "Every ship that passes, in order, and nothing else."
+plakat generate "a watcher seated in a small stone hut at the end of a mole, writing in a long book, a line of ships of different sizes passing the harbour mouth one after another, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 5006 --out $A
+mv $A/plakat-5006.png $A/05-tide-watcher.png
+
+# --- 06 · Ch. 6 — The Debugger ------------------------------------------------
+#     Caption: "One sling at a time, with a halt after each."
+plakat generate "a wooden harbour crane holding a single cask in a rope sling halted in mid-air above an open ship's hold, a surveyor with a staff raising his hand to stop the work and peering down into the hold, stevedores waiting at the windlass, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 5007 --out $A
+mv $A/plakat-5007.png $A/06-one-sling.png
+
+# --- 07 · Ch. 7 — Breakpoints -------------------------------------------------
+#     Caption: "He chalks the ones he wants and lets the rest go by."
+plakat generate "a customs officer drawing a chalk cross on one crate among a long row of crates on a quay, porters carrying the unmarked crates past him without stopping, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 5008 --out $A
+mv $A/plakat-5008.png $A/07-chalk-mark.png
+
+# --- 08 · Ch. 8 — Watches -----------------------------------------------------
+#     Caption: "He is told what to look out for, and walks the whole quay."
+plakat generate "a night watchman with a lantern and a staff walking along a dark quay past moored ships and stacked cargo, a small figure slipping a sack off a pile in the shadows ahead of him, moon behind clouds, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 5009 --out $A
+mv $A/plakat-5009.png $A/08-night-watch.png
+
+# --- 09 · Ch. 9 — From Inside the Program -------------------------------------
+#     Caption: "The ship carries her own surveyor."
+plakat generate "the deck of a cog at sea, a man with a plumb line and a slate kneeling beside the open hatch inspecting the hold while sailors work the rigging around him, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 5010 --out $A
+mv $A/plakat-5010.png $A/09-own-surveyor.png
+
+# --- 10 · Ch. 10 — The Profile ------------------------------------------------
+#     Caption: "A boy with a slate, writing down how long each thing takes."
+plakat generate "a boy standing on a busy quay with a slate and a sandglass, watching a crane, a line of carts and a gate with a queue, the crane-man and a carter arguing behind him, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 5011 --out $A
+mv $A/plakat-5011.png $A/10-slate.png
+
+# --- 11 · Ch. 11 — Which Tool, When -------------------------------------------
+#     Caption: "He reaches for the least thing that will answer."
+plakat generate "a shipwright standing before a wall of hanging tools, mallets, augers, caulking irons, saws, choosing one small caulking iron, a boat hull on trestles behind him with a thin trickle of water from one seam, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 5012 --out $A
+mv $A/plakat-5012.png $A/11-shipwright.png

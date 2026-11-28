@@ -1,0 +1,7 @@
+#!banner
+bund2 --debugger tare.bund
+s
+s
+s
+st
+c

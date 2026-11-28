@@ -1,0 +1,34 @@
+$ bund2 --debugger ledger.bund
+bund2: stopped. s(tep), n(ext), f(inish), c(ontinue), bt, st, info, …
+#0  the top-level stream at 0  next: "due"  (ledger.bund:14:1)
+(bund2) break due if { 20 > }
+break due if { 20 > }
+(bund2) c
+Wendhaven ledger for today
+------------------------------------
+Marta: 40 of salt, 140 pennies
+breakpoint: due (hit 1)
+#0  dues at 1  next: fee  (ledger.bund:20:13)
+changed: @main 0 → 2, pushed dict/3 {cargo: "wax", name: "Gu… 12;
+    workbench 0 → 2
+(bund2) st
+@main
+  dict/3 {cargo: "wax", name: "Gull", units: 12}
+  12
+(bund2) bt
+#0  dues at 1  (ledger.bund:20:9)
+#1  fields at 3  (ledger.bund:73:14)
+#2  line at 2  (ledger.bund:82:3)
+#3  reckoned at 2  (ledger.bund:91:7)
+#4  a lambda at 1  (ledger.bund:106:5)
+#5  entry at 5  (ledger.bund:107:3)
+#6  a lambda at 1, run by loop  (ledger.bund:121:12)
+(bund2) c
+Gull: 12 of wax, 56 pennies
+breakpoint: due (hit 2)
+#0  dues at 1  next: fee  (ledger.bund:20:13)
+changed: @main 2 → 1, popped 2, pushed 12; workbench 2 → 1
+(bund2) c
+Osprey: 25 of herring, 95 pennies
+------------------------------------
+Total: 291 pennies

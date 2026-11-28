@@ -1,0 +1,7 @@
+bund2 --debugger leak.bund
+watch depth > 4
+c
+st
+bt
+delete depth
+c

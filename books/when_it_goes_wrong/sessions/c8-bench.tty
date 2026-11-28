@@ -1,0 +1,7 @@
+bund2 --debugger tare.bund
+watch workbench
+c
+c
+st
+delete workbench
+c

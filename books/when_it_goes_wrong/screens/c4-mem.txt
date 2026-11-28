@@ -1,0 +1,7 @@
+$ bund2 mem.bund
+╭───────────────────────────────┬───────────╮
+│ Current physical memory usage ┆ 8.55 MB   │
+├╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┼╌╌╌╌╌╌╌╌╌╌╌┤
+│ Current virtual memory usage  ┆ 500.55 GB │
+╰───────────────────────────────┴───────────╯
+no debugger is attached

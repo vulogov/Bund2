@@ -1,0 +1,10 @@
+$ diff tare.bund mended/tare.bund
+11c11
+< :net  { 2 - } register
+---
+> :net  { 2 swap - } register
+$ bund2 mended/tare.bund
+Marta: 134 pennies
+Gull: 50 pennies
+Osprey: 89 pennies
+Total: 273 pennies

@@ -1,0 +1,4 @@
+"the Heron has no units" raise
+?try :try { "the Heron has no units" raise } set :except { :context get } set !
+clear
+?error :context "the quay is closed" set !

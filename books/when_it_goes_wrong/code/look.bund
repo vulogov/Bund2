@@ -1,0 +1,5 @@
+//
+// Three values, and the stack shown as Bund itself holds it.
+//
+40 "salt" 3.5
+debug.display_stack

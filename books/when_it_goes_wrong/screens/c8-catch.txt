@@ -1,0 +1,41 @@
+$ bund2 --debugger slip.bund
+bund2: stopped. s(tep), n(ext), f(inish), c(ontinue), bt, st, info, …
+#0  the top-level stream at 0  next: "due"  (slip.bund:4:1)
+(bund2) catch
+catch
+(bund2) c
+Marta owes
+140
+Gull owes
+caught: Stack is too shallow for inline MUL()
+#0  due at 2  next: the end of the body
+(the failure unwinds when the program moves on)
+changed: @main 0 → 1, pushed 3
+(bund2) bt
+#0  due at 2  (slip.bund:4:11)
+#1  dues at 1  (slip.bund:6:9)
+(bund2) st
+@main
+  3
+(bund2) c
+Error: Stack is too shallow for inline MUL()
+    ╭─[ slip.bund:4:11 ]
+    │
+  4 │ :due  { 3 * } register
+    │           ┬
+    │           ╰── the value that failed, inside
+    │
+ 11 │ dues println
+    │ ──┬─
+    │   ╰─── reached from this step
+    │
+    │ Help: traceback, innermost first:
+    │         #0  due at 2  (slip.bund:4:11)
+    │         #1  dues at 1  (slip.bund:6:9)
+    │
+    │ Note: on stack `main`
+────╯
+[BUND]  Content of the stack
+╭───╮
+│ 3 │
+╰───╯

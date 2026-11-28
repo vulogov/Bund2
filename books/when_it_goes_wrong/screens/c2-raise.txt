@@ -1,0 +1,8 @@
+[BUND > "the Heron has no units" raise
+error: the Heron has no units
+[BUND > ?try :try { "the Heron has no units" raise } set :except {
+    :context get } set !
+=> Lambda content evaluation returned error: the Heron has no units
+[BUND > clear
+[BUND > ?error :context "the quay is closed" set !
+Notice: the quay is closed

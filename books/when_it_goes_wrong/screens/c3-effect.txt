@@ -1,0 +1,9 @@
+[BUND > "dup" ?effect
+=> { consumes=1 ::  opaque=false ::  produces=2 :: }
+[BUND > clear
+[BUND > "loop" ?effect
+=> { consumes=2 ::  opaque=true ::  produces=0 :: }
+[BUND > clear
+[BUND > :dues { 3 * 20 + } register
+[BUND > "dues" ?effect
+=> NODATA

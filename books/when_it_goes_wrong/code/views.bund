@@ -1,0 +1,8 @@
+//
+// The tables behind a program: its words and its classes.
+//
+:due  { 3 * } register
+:fee  { 20 + } register
+:dues { due fee } register
+40 dues drop
+debug.words

@@ -1,0 +1,28 @@
+$ diff leak.bund mended/leak.bund
+15c15
+<   dup dup 30 <
+---
+>   dup 30 <
+$ bund2 mended/leak.bund
+  a large cargo follows
+Marta: 140 pennies
+Gull: 56 pennies
+Osprey: 95 pennies
+Total: 291 pennies
+$ diff clash.bund mended/clash.bund
+16,17c16,17
+< // line ( -- )                   rule a line across the page
+< :line { "-" 24 * println } register
+---
+> // rule ( -- )                   rule a line across the page
+> :rule { "-" 24 * println } register
+23c23
+< line
+---
+> rule
+$ bund2 mended/clash.bund
+Marta: 140 pennies
+Gull: 56 pennies
+Osprey: 95 pennies
+------------------------
+Total: 291 pennies

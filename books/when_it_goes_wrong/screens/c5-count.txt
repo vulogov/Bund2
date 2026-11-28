@@ -1,0 +1,7 @@
+$ bund2 --trace tare.trace tare.bund > /dev/null
+$ wc -l tare.trace
+      53 tare.trace
+$ grep -c "^  dues" tare.trace
+3
+$ grep -c "println" tare.trace
+4

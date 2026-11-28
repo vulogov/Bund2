@@ -1,0 +1,3 @@
+40 debug.dump
+clear
+"salt" debug.dump

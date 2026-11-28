@@ -1,0 +1,6 @@
+?try :try { + } set :except { drop "nothing to add" println } set !
+?try :try { 0 1 / } set :except { :context get } set !
+clear
+?try :try { 0 1 / } set :except { type } set !
+clear
+?try :try { 0 1 / } set :except { ! } set !

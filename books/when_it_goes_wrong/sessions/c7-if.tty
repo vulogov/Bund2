@@ -1,0 +1,7 @@
+bund2 --debugger ledger.bund
+break due if { 20 > }
+c
+st
+bt
+c
+c

@@ -1,0 +1,7 @@
+bund2 --debugger ledger.bund
+watch @manifest
+c
+c
+st
+delete @manifest
+c

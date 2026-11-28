@@ -1,0 +1,5 @@
+$ bund2 where.bund
+#0  due at 1  (where.bund:4:10)
+#1  dues at 1  (where.bund:6:10)
+#2  entry at 1  (where.bund:7:10)
+140

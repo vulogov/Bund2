@@ -1,0 +1,11 @@
+bund2 --debugger tare.bund
+break entry
+c
+s
+n
+st
+s
+s
+bt
+f
+st

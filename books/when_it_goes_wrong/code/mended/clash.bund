@@ -1,0 +1,24 @@
+//
+// The day's dues, with a ruled line above the total.
+//
+//   bund2 clash.bund
+//
+:due  { 3 * } register
+:fee  { 20 + } register
+:dues { due fee } register
+
+// line ( name due -- )          print one line of the ledger
+:line { swap "{name}: {due} pennies" format println } register
+
+// entry ( name units -- )
+:entry { dues dup +. line } register
+
+// rule ( -- )                   rule a line across the page
+:rule { "-" 24 * println } register
+
+0 .
+"Marta"  40 entry
+"Gull"   12 entry
+"Osprey" 25 entry
+rule
+take "Total: {total} pennies" format println

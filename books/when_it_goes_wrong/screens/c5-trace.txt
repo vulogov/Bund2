@@ -1,0 +1,32 @@
+$ bund2 --trace tare.trace tare.bund
+Marta: -94 pennies
+Gull: -10 pennies
+Osprey: -49 pennies
+Total: -153 pennies
+$ head -24 tare.trace
+# bund2 trace of tare.bund: one line per call entered, natives included,
+    indented by the calls open around it; `!` marks where a failure was
+    raised
+register
+register
+register
+register
+register
+register
+return
+entry
+  dues
+    due
+      net
+        -
+      *
+    fee
+      +
+  dup_one
+  +.
+  line
+    swap_one
+    format
+    println
+entry
+  dues

@@ -1,0 +1,35 @@
+$ bund2 --debugger tare.bund
+bund2: stopped. s(tep), n(ext), f(inish), c(ontinue), bt, st, info, …
+#0  the top-level stream at 0  next: "net"  (tare.bund:11:1)
+(bund2) break dues 3
+break dues 3
+(bund2) c
+Marta: -94 pennies
+Gull: -10 pennies
+breakpoint: dues (hit 3)
+#0  entry at 1  next: dup  (tare.bund:27:15)
+changed: @main 0 → 2, pushed "Osprey" 25; workbench 0 → 1
+(bund2) words
+no tier in this build: every body is interpreted
+  *         native  gen 1  calls 2
+  +         native  gen 1  calls 2
+  +.        native  gen 1  calls 2
+  -         native  gen 1  calls 2
+  .         alias → return  gen 1  calls 1
+  due       lambda, registered at tare.bund:14:19  gen 1  calls 2
+  dues      lambda, registered at tare.bund:20:19  gen 1  calls 3
+  dup       alias → dup_one  gen 1  calls 2
+  dup_one   native  gen 1  calls 2
+  entry     lambda, registered at tare.bund:27:29  gen 1  calls 3
+  fee       lambda, registered at tare.bund:17:16  gen 1  calls 2
+  format    native  gen 1  calls 2
+  line      lambda, registered at tare.bund:23:55  gen 1  calls 2
+  net       lambda, registered at tare.bund:11:15  gen 1  calls 2
+  println   native  gen 1  calls 2
+  register  native  gen 1  calls 6
+  return    native  gen 1  calls 1
+  swap      alias → swap_one, native  gen 2  calls 2
+  swap_one  native  gen 1  calls 2
+(bund2) c
+Osprey: -49 pennies
+Total: -153 pennies

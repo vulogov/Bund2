@@ -1,0 +1,11 @@
+//
+// A profile written half way through, and the run goes on.
+//
+:due  { 3 * } register
+:fee  { 20 + } register
+:dues { due fee } register
+
+40 dues println
+"half" debug.profile
+12 dues println
+25 dues println

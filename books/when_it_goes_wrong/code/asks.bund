@@ -1,0 +1,6 @@
+//
+// A program that answers its own question.
+//
+"Heron" debug.feed
+"Which ship? " input
+" is expected" swap + println

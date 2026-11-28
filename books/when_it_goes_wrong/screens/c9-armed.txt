@@ -1,0 +1,21 @@
+$ bund2 armed.bund
+break due 2
+break fee if { 100 > }
+catch
+140
+bund2: stopped. s(tep), n(ext), f(inish), c(ontinue), bt, st, info, …
+breakpoint: due (hit 2)
+#0  dues at 1  next: fee  (armed.bund:6:13)
+(bund2) st
+@main
+  12
+(bund2) c
+breakpoint: fee (hit 1)
+#0  dues at 2  next: the end of the body
+changed: @main 1 → 1, popped 1, pushed 36
+(bund2) st
+@main
+  36
+(bund2) c
+56
+done

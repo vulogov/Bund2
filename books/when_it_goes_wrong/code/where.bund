@@ -1,0 +1,8 @@
+//
+// A word that says how it was reached.
+//
+:due   { debug.backtrace 3 * } register
+:fee   { 20 + } register
+:dues  { due fee } register
+:entry { dues println } register
+40 entry

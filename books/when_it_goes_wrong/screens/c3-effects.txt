@@ -1,0 +1,9 @@
+$ bund2 effects | wc -l
+    1138
+$ bund2 effects | grep -E "^(dup|swap|set|get|println|loop|format)	"
+format	1	0	opaque
+get	2	1
+loop	2	0	opaque
+println	1	0
+set	3	1
+swap	2	2

@@ -1,0 +1,8 @@
+40 type
+clear
+"salt" type
+clear
+{ 3 * } type
+clear
+40 "Integer" ?type
+.s

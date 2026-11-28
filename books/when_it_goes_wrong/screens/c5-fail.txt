@@ -1,0 +1,10 @@
+$ bund2 --trace slip.trace slip.bund > /dev/null 2>&1
+$ tail -8 slip.trace
+  fee
+    +
+println
+println
+dues
+  due
+    *
+      ! Stack is too shallow for inline MUL()

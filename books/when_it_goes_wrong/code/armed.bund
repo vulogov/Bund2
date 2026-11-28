@@ -1,0 +1,15 @@
+//
+// A program that sets its own traps.
+//
+:due  { 3 * } register
+:fee  { 20 + } register
+:dues { due fee } register
+
+"due" 2 debug.break.at            // the second call of `due`
+"fee" "{ 100 > }" debug.break.if  // `fee`, when it is handed less than 100
+debug.catch                       // and wherever a failure is raised
+debug.info
+
+40 dues println
+12 dues println
+"done" println

@@ -1,0 +1,7 @@
+$ bund2 --profile day ledger.bund > /dev/null
+$ grep -E '^. .(dues|due|fee|has). .  . word' day.profile.md | cut -d'|'
+    -f2,4-7
+ `has` | word | (1, 1) | 12 | 36
+ `dues` | word | (1, 1) | 6 | 12
+ `due` | word | (1, 1) | 6 | 12
+ `fee` | word | (1, 1) | 6 | 12

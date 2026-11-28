@@ -1,0 +1,7 @@
+bund2 --debugger tare.bund
+break 11
+info
+c
+st
+delete 11
+c

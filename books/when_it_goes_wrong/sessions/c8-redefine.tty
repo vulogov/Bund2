@@ -1,0 +1,5 @@
+bund2 --debugger clash.bund
+watch redefine
+c
+bt
+c

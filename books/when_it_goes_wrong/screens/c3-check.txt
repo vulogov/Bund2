@@ -1,0 +1,11 @@
+$ bund2 check --file slip.bund
+Warning: slip.bund:11:1: `dues` needs 1 value(s); 0 can be proven here
+checked slip.bund: 1 finding(s), 9 site(s) analysed, 0 abandoned
+$ bund2 check --file tare.bund
+checked tare.bund: 0 finding(s), 13 site(s) analysed, 0 abandoned
+$ bund2 check --file ledger.bund
+checked ledger.bund: 0 finding(s), 28 site(s) analysed, 1 abandoned
+  analysis stopped at:
+       1  `manifest`, whose effect is not a fixed pair
+  A finding is only ever about the 28 site(s) above that were
+  tracked. Nothing is claimed about the rest.

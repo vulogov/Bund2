@@ -1,0 +1,6 @@
+$ bund2 views.bund
+no tier in this build: every body is interpreted
+no debugger is attached, so no calls are counted
+  due   lambda, registered at views.bund:4:15  gen 1  calls 0
+  dues  lambda, registered at views.bund:6:19  gen 1  calls 0
+  fee   lambda, registered at views.bund:5:16  gen 1  calls 0

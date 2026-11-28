@@ -1,0 +1,4 @@
+bund2 --debug-shell slip.bund
+debug.stacks
+debug.backtrace
+drop 12 dues println

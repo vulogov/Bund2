@@ -1,0 +1,33 @@
+//
+// The day's dues, with the new tare allowance.
+//
+//   bund2 tare.bund
+//
+// The first two units of every cargo are the cask or the sack, and pay
+// nothing. So the Marta, with 40 of salt, pays for 38.
+//
+
+// net ( units -- units )        the units, less the tare
+:net  { 2 - } register
+
+// due ( units -- pennies )      three pennies for each unit that pays
+:due  { net 3 * } register
+
+// fee ( pennies -- pennies )    add the mooring fee
+:fee  { 20 + } register
+
+// dues ( units -- pennies )     what a ship owes
+:dues { due fee } register
+
+// line ( name due -- )          print one line of the ledger
+:line { swap "{name}: {due} pennies" format println } register
+
+// entry ( name units -- )       reckon a ship, add her due to the total
+//                               on the table, and print her line
+:entry { dues dup +. line } register
+
+0 .
+"Marta"  40 entry
+"Gull"   12 entry
+"Osprey" 25 entry
+take "Total: {total} pennies" format println

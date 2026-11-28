@@ -1,0 +1,7 @@
+[BUND > "Marta" 40 @quay "Gull" @main 291 .
+=> 40
+[BUND > debug.stacks
+* @main  2  top: 40
+  @quay  1  top: "Gull"
+  workbench  1
+=> 40

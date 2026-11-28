@@ -1,0 +1,9 @@
+$ bund2 build --check --file slip.bund
+bund2: warning: slip.bund:11:1: `dues` needs 1 value(s); 0 can be proven
+    here
+checked slip.bund: 1 finding(s), 9 site(s) analysed, 0 abandoned
+$ bund2 build --check --strict --file slip.bund
+bund2: warning: slip.bund:11:1: `dues` needs 1 value(s); 0 can be proven
+    here
+checked slip.bund: 1 finding(s), 9 site(s) analysed, 0 abandoned
+bund2: 1 underflow finding(s) under --strict

@@ -1,0 +1,5 @@
+//
+// How much memory the program holds, and whether a debugger is attached.
+//
+debug.display_memstat
+debug.info

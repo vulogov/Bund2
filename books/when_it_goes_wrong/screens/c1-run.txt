@@ -1,0 +1,25 @@
+$ bund2 slip.bund
+Marta owes
+140
+Gull owes
+Error: Stack is too shallow for inline MUL()
+    ╭─[ slip.bund:4:11 ]
+    │
+  4 │ :due  { 3 * } register
+    │           ┬
+    │           ╰── the value that failed, inside
+    │
+ 11 │ dues println
+    │ ──┬─
+    │   ╰─── reached from this step
+    │
+    │ Help: traceback, innermost first:
+    │         #0  due at 2  (slip.bund:4:11)
+    │         #1  dues at 1  (slip.bund:6:9)
+    │
+    │ Note: on stack `main`
+────╯
+[BUND]  Content of the stack
+╭───╮
+│ 3 │
+╰───╯

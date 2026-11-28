@@ -1,0 +1,9 @@
+[BUND > 40 debug.dump
+|28000000 00000000|                   (.......         00000000
+                                                       00000008
+=> 40
+[BUND > clear
+[BUND > "salt" debug.dump
+|73616c74|                            salt             00000000
+                                                       00000004
+=> salt

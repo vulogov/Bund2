@@ -1,0 +1,12 @@
+//
+// A program that says what it is doing, at five levels of urgency.
+//
+//   bund2 log.bund
+//   bund2 -v log.bund
+//
+"reckoning begins"        log.info
+"three ships expected"    log.debug
+"entering dues"           log.trace
+"the Heron has no units"  log.warning
+"the ledger is locked"    log.error
+"done" println

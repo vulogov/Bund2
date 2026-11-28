@@ -1,0 +1,17 @@
+$ bund2 snap.bund
+140
+Warning: DEBUG.PROFILE: this run keeps no profile, so nothing was
+    written; run it with `--profile <base>`. Said once: later snapshots
+    in this run are skipped without a warning
+56
+95
+$ bund2 --profile end snap.bund
+140
+56
+95
+$ ls *.profile.md
+end.profile.md
+half.profile.md
+$ sed -n 5p half.profile.md | cut -d'|' -f3
+ not yet: written mid-run by `debug.profile`, 1 activation still open and
+    counted to that moment

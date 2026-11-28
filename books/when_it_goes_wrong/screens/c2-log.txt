@@ -1,0 +1,11 @@
+$ bund2 log.bund
+Warning: log.error: the ledger is locked
+done
+$ bund2 -q log.bund
+done
+$ bund2 -v log.bund
+bund2: info: running log.bund, 316 bytes
+Notice: log.info: reckoning begins
+Warning: log.warning: the Heron has no units
+Warning: log.error: the ledger is locked
+done

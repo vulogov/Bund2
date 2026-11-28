@@ -1,0 +1,7 @@
+$ bund2 shell.bund
+[DEBUG > debug.stacks
+* @main  1  top: 140
+  workbench  0
+[DEBUG > dup 20 swap - println
+120
+[DEBUG > 140

@@ -1,0 +1,17 @@
+$ bund2 -vvv log.bund
+bund2: debug: reporting the reference's table (auto: standard output is a
+    terminal, or is not)
+bund2: info: running log.bund, 316 bytes
+bund2: debug: parsed 12 top-level terms, lowered to 13 values
+Notice: log.info: reckoning begins
+Notice: log.debug: three ships expected
+Notice: log.trace: entering dues
+Warning: log.warning: the Heron has no units
+Warning: log.error: the ledger is locked
+done
+$ BUND_LOG_LEVEL=debug bund2 log.bund
+Notice: log.info: reckoning begins
+Notice: log.debug: three ships expected
+Warning: log.warning: the Heron has no units
+Warning: log.error: the ledger is locked
+done

@@ -1,0 +1,11 @@
+//
+// A program that stops itself.
+//
+:due  { 3 * } register
+:fee  { 20 + } register
+:dues { due fee } register
+
+"Marta owes" println
+debug.step
+40 dues println
+"done" println

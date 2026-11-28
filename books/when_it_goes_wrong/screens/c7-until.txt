@@ -1,0 +1,18 @@
+$ bund2 --debugger tare.bund
+bund2: stopped. s(tep), n(ext), f(inish), c(ontinue), bt, st, info, …
+#0  the top-level stream at 0  next: "net"  (tare.bund:11:1)
+(bund2) until line
+breakpoint: line (hit 1)
+#0  entry at 4  next: the end of the body
+changed: @main 0 → 2, pushed "Marta" -94; workbench 0 → 1
+(bund2) st
+@main
+  "Marta"
+  -94
+(bund2) bt
+#0  entry at 4  (tare.bund:27:22)
+(bund2) c
+Marta: -94 pennies
+Gull: -10 pennies
+Osprey: -49 pennies
+Total: -153 pennies

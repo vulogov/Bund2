@@ -1,0 +1,10 @@
+bund2 --debugger tare.bund
+break net
+c
+st
+n
+st
+drop 38
+st
+delete net
+c

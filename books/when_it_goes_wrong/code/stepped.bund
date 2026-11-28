@@ -1,0 +1,9 @@
+//
+// One line of a program, run a term at a time.
+//
+:due  { 3 * } register
+:fee  { 20 + } register
+:dues { due fee } register
+
+"40 dues println" debug.run
+"done" println

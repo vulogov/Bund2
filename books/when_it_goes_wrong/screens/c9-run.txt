@@ -1,0 +1,15 @@
+$ bund2 stepped.bund
+bund2: stopped. s(tep), n(ext), f(inish), c(ontinue), bt, st, info, …
+debug.run's string at 0  next: 40
+(bund2) n
+debug.run's string at 1  next: dues
+changed: @main 0 → 1, pushed 40
+(bund2) n
+debug.run's string at 2  next: println
+changed: @main 1 → 1, popped 1, pushed 140
+(bund2) st
+@main
+  140
+(bund2) c
+140
+done

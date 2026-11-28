@@ -1,0 +1,25 @@
+$ bund2 --profile day ledger.bund > /dev/null
+$ sed -n '/^- ⟨program⟩/,/^      - `?key`/p' day.profile.md
+- ⟨program⟩ 249.5 µs
+  - `loop` ×1 50.6 µs
+    - `entry` ×3 46.9 µs
+      - `reckoned` ×3 43.4 µs via `ifthenelse`
+        - `line` ×3 38.9 µs
+          - `format` ×3 18.3 µs
+          - `fields` ×3 14.2 µs
+            - `has` ×12 10.8 µs
+            - `dues` ×3 1.5 µs
+          - `println` ×3 3.8 µs
+          - `wording` ×3 208 ns
+          - `take` ×3 166 ns
+          - `drop` ×3 125 ns
+          - `return` ×3 84 ns
+        - `dues` ×3 1.3 µs
+          - `due` ×6 1.0 µs
+            - `*` ×6 332 ns
+          - `fee` ×6 834 ns
+            - `+` ×6 166 ns
+        - `+.` ×3 625 ns
+        - `dup_one` ×3 499 ns
+        - `get` ×3 292 ns
+      - `?key` ×3 1.1 µs
