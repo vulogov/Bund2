@@ -105,14 +105,17 @@
 //!   registered beside `fit.logistic` in [`fit`].
 //!
 //! RFC-0020 adds multivariate analysis, clustering and density. Its M1
-//! adds §S2 to §S4, M2 §S5, M3 §S6 and M4 §S7:
+//! adds §S2 to §S4, M2 §S5, M3 §S6, M4 §S7, M5 §S8 and M6 §S10:
 //!
 //! - [`linalg`]: `linalg.svd`, and the decompositions `mva.` shares;
-//! - [`mva`]: `mva.pca` and `mva.mds`, and §S1's grouped data;
+//! - [`mva`]: `mva.pca`, `mva.mds`, `mva.lda` and `mva.lda.predict`, and
+//!   §S1's grouped data;
 //! - [`cluster`]: `cluster.dist`, `cluster.hclust`, `cluster.cut`,
 //!   `cluster.cut.h` and `cluster.kmeans`;
 //! - [`mvtest`]: `stat.test.hotelling1`, `stat.test.hotelling2` and
-//!   `stat.test.manova`.
+//!   `stat.test.manova`;
+//! - [`ecdf`]: `stat.ecdf` and `stat.ecdf.at`;
+//! - [`hist`]: `stat.hist`, with R's `pretty`.
 
 pub mod align;
 pub mod boot;
@@ -120,9 +123,11 @@ pub mod cluster;
 pub mod describe;
 pub mod dist;
 pub mod dynamics;
+pub mod ecdf;
 pub mod effect;
 pub mod fit;
 pub mod frame;
+pub mod hist;
 pub mod infer;
 pub mod linalg;
 pub mod model;
@@ -172,6 +177,8 @@ pub fn register(r: &mut bund2_api::Registry) {
     mva::register(r);
     cluster::register(r);
     mvtest::register(r);
+    ecdf::register(r);
+    hist::register(r);
 }
 
 #[cfg(test)]

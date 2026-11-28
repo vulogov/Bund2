@@ -18526,3 +18526,65 @@ four RFC-0019 files that hold ports (`biomath/optim.rs`,
 source they port. RFC-0020's ports do the same as each milestone lands
 them (§S12); a port of MASS's `lda.R` names `GPL-2.0-or-later` too,
 since MASS offers GPL-2 or GPL-3. Every other file stays Apache-2.0.
+
+## D280 — RFC-0020 M6: `pretty` and `seq.int` as the owner's R compiles them, fused
+
+**Raised 2026-11-27** by RFC-0020 M6, as §S13's first assumption and Q69's
+answer direct ("a disagreement there on a tie is still taken to a
+decision").
+
+Criterion 8 asks `stat.hist`'s breaks and mids to equal R's exactly, and
+`pretty`'s on §Fixture inputs' cases. The owner's R 4.6.2 (Homebrew,
+arm64) compiles its C with clang at `-O2`, which contracts a·b + c within
+an expression (Q69). Four such expressions decide the breaks:
+`*lo + rounding_eps*unit` and `*up - rounding_eps*unit` in `R_pretty`
+(`src/appl/pretty.c:203`, `:216`), and `rfrom + (double)i*rby` in
+`seq.int`'s `length.out` branch, both the finite and the overflowing path
+(`src/main/seq.c:997`, `:1004`), which `pretty.default` calls
+(`src/library/base/R/pretty.R:46`). The breaks themselves, the fuzz and
+the counting are R-level or C without a product added.
+
+M6's port is unfused, as §S13 assumes. Against `fixtures/hist_r.txt`
+(written by `hist.R` on R 4.6.2), 231 middle breaks were recomputed from
+R's own end points:
+
+- **Fused** (`f64::mul_add` at the four expressions): all 231 equal R's.
+- **Unfused:** 27 differ by one or two units in the last place: 13 in
+  each of `x1000`'s two 36-class histograms (`breaks = "fd"` and
+  `breaks = 25`), e.g. break 12 is −0.7999999999999998 where R answers
+  −0.8, and `pretty(c(-1e308, 1e308))`'s fourth value,
+  5.000000000000002e307 where R answers 5.000000000000003e307.
+
+R at the language level does not fuse: on the same machine
+`-3.2 + 12*0.2` is −0.79999999999999982, while
+`seq.int(-3.2, 4, length.out = 37)[13]` is −0.80000000000000004. An R
+built without FMA (x86-64 Linux, GCC, no `-mfma`) answers as the unfused
+port does. The counts agree either way on every case: the fuzz of 10⁻⁷ of
+a width absorbs an ulp.
+
+- Blocks: RFC-0020 M6 (criterion 8's exact comparison of breaks, mids and
+  `pretty`)
+- Depends on: Q69, RFC-0020 §S13 (1), D276 (a host's answer as the
+  fixture's)
+- Options:
+  - **A. Fuse as the fixture's R does.** The four expressions use
+    `f64::mul_add`. Every fixture case equals R's exactly. Bund2's answer
+    is the same on every host, since `mul_add` is correctly rounded in
+    software where the CPU has no FMA; it is R-on-arm64-macOS's answer,
+    and an ulp from an x86-64 Linux R's on such breaks.
+  - **B. Stay unfused**, as §S13 assumed, and compare breaks, mids and
+    `pretty` within 2 ulps, counts and `equidist` exactly. Bund2 answers
+    as an R without FMA does, and the criterion's "exactly" is amended.
+  - **C. Regenerate the fixture from an R built with
+    `-ffp-contract=off`.** The port stays unfused and the comparison
+    exact, at the cost of building R from source once to write the
+    fixture; the committed answers are then not the owner's R's.
+- Recommended: **A**. It keeps criterion 8 exact against the R the
+  fixtures come from, its answer does not depend on the host, and the
+  four call sites are named in the source with this decision.
+- Status: **RESOLVED 2026-11-27**: A. The owner ruled "D280:
+  reccomendations".
+
+*Applied 2026-11-27.* `crates/bund2-stdlib/src/biomath/hist.rs`'s
+`r_pretty` and `pretty` fuse the four expressions with `f64::mul_add`,
+each marked D280; criterion 8 compares breaks, mids and `pretty` exactly.

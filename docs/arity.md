@@ -226,7 +226,7 @@ too, at the least pair of depths it accepts.
 | `forecast.estimate.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:168 | no sentinel type accepted |
 | `forecast.estimate.uncertainty` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:169 | type-constrained: list rejected |
 | `forecast.estimate.uncertainty.` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/estimation.rs:170 | no sentinel type accepted |
-| `forecast.markov` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:74 |  |
+| `forecast.markov` |  |  | 1 | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:74 |  |
 | `forecast.markov,` |  |  | 1+ | 1 | int |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:76 |  |
 | `forecast.markov.` |  |  |  |  |  | 0 | 0 | 1 | 1 | reference/Bund/src/stdlib/functions/forecast/markov.rs:75 | no sentinel type accepted |
 | `forecast.markov.,` |  |  |  |  |  |  |  |  |  | reference/Bund/src/stdlib/functions/forecast/markov.rs:77 | no sentinel type accepted |

@@ -13,7 +13,7 @@
 # crates/bund2-stdlib/src/lib.rs) and named below. Unlisted is the
 # conservative answer: promotion syncs before them as before an
 # embedder's native, which costs speed and never meaning.
-# 533 promotable of 542 reached, of 879 fixed-effect natives; 9 reached natives
+# 535 promotable of 544 reached, of 907 fixed-effect natives; 9 reached natives
 # observe beyond their operands (D55) and are never crossed.
 !=
 !=.
@@ -408,6 +408,8 @@ stat.cov
 stat.cov.
 stat.effect.cohend
 stat.effect.cohend.
+stat.hist
+stat.hist.
 stat.test.chisq
 stat.test.chisq.
 stat.test.ks2
@@ -576,6 +578,16 @@ vec.sub.
 # not reached: bio.translate.
 # not reached: bio.valid?
 # not reached: bio.valid?.
+# not reached: cluster.cut
+# not reached: cluster.cut.
+# not reached: cluster.cut.h
+# not reached: cluster.cut.h.
+# not reached: cluster.dist
+# not reached: cluster.dist.
+# not reached: cluster.hclust
+# not reached: cluster.hclust.
+# not reached: cluster.kmeans
+# not reached: cluster.kmeans.
 # not reached: concat_with_space
 # not reached: concat_with_space.
 # not reached: csv
@@ -745,6 +757,8 @@ vec.sub.
 # not reached: linalg.power.
 # not reached: linalg.solve
 # not reached: linalg.solve.
+# not reached: linalg.svd
+# not reached: linalg.svd.
 # not reached: linalg.t
 # not reached: linalg.t.
 # not reached: math.betainc
@@ -763,6 +777,14 @@ vec.sub.
 # not reached: model.predict.
 # not reached: model.residuals
 # not reached: model.residuals.
+# not reached: mva.lda
+# not reached: mva.lda.
+# not reached: mva.lda.predict
+# not reached: mva.lda.predict.
+# not reached: mva.mds
+# not reached: mva.mds.
+# not reached: mva.pca
+# not reached: mva.pca.
 # not reached: phylo.dist
 # not reached: phylo.dist.
 # not reached: phylo.graph
@@ -851,6 +873,10 @@ vec.sub.
 # not reached: stat.test.fisher.opts.
 # not reached: stat.test.friedman
 # not reached: stat.test.friedman.
+# not reached: stat.test.hotelling1
+# not reached: stat.test.hotelling1.
+# not reached: stat.test.hotelling2
+# not reached: stat.test.hotelling2.
 # not reached: stat.test.kruskal
 # not reached: stat.test.kruskal.
 # not reached: stat.test.ks1
@@ -863,6 +889,8 @@ vec.sub.
 # not reached: stat.test.levene.opts.
 # not reached: stat.test.mannwhitney.opts
 # not reached: stat.test.mannwhitney.opts.
+# not reached: stat.test.manova
+# not reached: stat.test.manova.
 # not reached: stat.test.mcnemar
 # not reached: stat.test.mcnemar.
 # not reached: stat.test.mcnemar.opts

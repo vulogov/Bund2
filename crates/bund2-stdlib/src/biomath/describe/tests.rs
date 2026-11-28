@@ -31,7 +31,8 @@ fn every_word_and_form_is_registered() {
     // correlation tests and effect sizes, which `infer::cor`'s and
     // `effect`'s own tests hold, and RFC-0019 §S5's further tests, which
     // `infer::further`'s holds, and §S9's permutation test, which `permute`'s
-    // holds, nothing else.
+    // holds, and RFC-0020 §S10's ECDF and histogram, which `ecdf`'s and
+    // `hist`'s own tests hold, nothing else.
     let ours: Vec<String> = i
         .registry
         .word_names()
@@ -46,6 +47,8 @@ fn every_word_and_form_is_registered() {
                 && !crate::biomath::effect::WORDS.contains(&n.as_str())
                 && !crate::biomath::permute::WORDS.contains(&n.as_str())
                 && !crate::biomath::mvtest::WORDS.contains(&n.as_str())
+                && !crate::biomath::ecdf::WORDS.contains(&n.as_str())
+                && !crate::biomath::hist::WORDS.contains(&n.as_str())
         })
         .collect();
     assert_eq!(ours.len(), WORDS.len(), "{ours:?}");
