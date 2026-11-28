@@ -19,12 +19,7 @@ In Bund a class is written like a dictionary, between `class` and
 _method_, something the object can be asked to do. Any other slot is a
 _field_, something it has.
 
-```
-:Wax class
-  :.super [ :Landing ] set
-  :kind "wax" set  :rate 5 set  :.init { landed } set
-register
-```
+#piece("objects.bund", ":Wax class", caption: "objects.bund: a class")
 
 This says: `Wax` is a class. It is a kind of `Landing`, which is what
 `.super` means. Its kind is `"wax"` and its rate is 5. `.init` is its
@@ -75,7 +70,10 @@ so that the object can be asked something else. That is why each line ends
 
 #section("The program")
 
-#listing("objects.bund")
+`objects.bund` is 86 lines, printed whole in the Appendix. It has three
+parts: what every landing has in common, the three kinds, and the day.
+
+#piece("objects.bund", "// Landing:", until: "// landed:", caption: "objects.bund: what the kinds share")
 
 `Landing` holds everything the kinds have in common, and it is where the two
 methods are written, once. Look at the first line of `due`:
@@ -86,8 +84,24 @@ methods are written, once. Look at the first line of `due`:
 
 The method _asks the object for its own rate_. It does not know what the
 answer will be, and it does not know what kind of object it is running on.
+The rest of `due` asks for the units in the same way, sets the object aside
+on the counting table, does the sum, and brings the object back beneath the
+answer. The small comments at the right say what is on the stack after each
+line.
+
+`line` works the same way. It asks the object for its due and its kind, reads
+its units and its name, and fills the template.
+
+#piece("objects.bund", "// landed:", until: "// The day:", caption: "objects.bund: the kinds")
+
 Then the three kinds, three lines each, say only what is different about
 them: a name and a number.
+
+#piece("objects.bund", "// The day:", rest: true, caption: "objects.bund: the day")
+
+The day makes three objects and puts them in a list. The loop asks each one
+for its line and prints it, asks it for its due and adds that to the total on
+the table, and drops the object.
 
 #session("c3-same", caption: "One question, put to three objects")
 

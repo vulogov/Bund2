@@ -117,37 +117,43 @@ you know: they take values from a stack and leave values on it, top first.
 
 #section("The terminal, read aloud")
 
-Now the promise of Chapter 1. This is `terminal.bund`, the program you have
-been typing into. Nothing has been left out.
+Now the promise of Chapter 1. `terminal.bund` is the program you have been
+typing into. It is printed whole in Appendix D, and read here a piece at a
+time, starting at the bottom, where the program is.
 
-#listing("terminal.bund")
-
-Start at the bottom, where the program is.
+#piece("terminal.bund", "\"Bund\" io.banner", caption: "terminal.bund: the program")
 
 `io.banner` turns a string into the large letters you saw on the first day.
-Then comes the line that is the whole terminal:
+The third line is the whole terminal. `input*` takes a prompt and a lambda. It
+prints the prompt, reads a line from the keyboard, puts the line on the stack
+as a string and runs the lambda. Then it does it again, until there are no
+more lines. `bund.prompt` is the coloured `[BUND >`. Everything else is in
+`term.line`.
 
-```
-bund.prompt { term.line } input*
-```
-
-`input*` takes a prompt and a lambda. It prints the prompt, reads a line from
-the keyboard, puts the line on the stack as a string and runs the lambda. Then
-it does it again, until there are no more lines. `bund.prompt` is the coloured
-`[BUND >`. Everything else is in `term.line`.
+#piece("terminal.bund", ":term.line", caption: "terminal.bund: one line")
 
 `term.line` is two decisions, and you can read both. Is the line empty? Then
-drop it. If not: is it a key in the table of commands? That is `term.commands`,
-a dictionary from a line's text to a lambda — the table of things to do from a
-moment ago. If the line is there, `swap get !` fetches its lambda and runs it.
-That is all `help`, `.s`, `clear` and `quit` are: four entries in a dictionary.
-If the line is not there, it goes to `term.eval`.
+drop it. If not: is it a key in the table of commands?
+
+#piece("terminal.bund", ":term.commands", caption: "terminal.bund: the commands")
+
+That is the table of things to do from a moment ago: a dictionary from a
+line's text to a lambda. If the line is there, `swap get !` fetches its lambda
+and runs it. That is all `help`, `.s`, `clear` and `quit` are: four entries in
+a dictionary. If the line is not there, it goes to `term.eval`.
+
+#piece("terminal.bund", ":term.eval", caption: "terminal.bund: running a line")
 
 `term.eval` is `bund.eval` inside a `?try`. Your line is run as Bund. If it
 fails, `except` takes the description of the failure, pulls out the text under
-`:context`, shortens it and prints it after `error:`. Then `term.show` runs,
-which is the `=>` line: try to `dup` the top of the stack and print the copy,
+`:context`, shortens it and prints it after `error:`. Then `term.show` runs.
+
+#piece("terminal.bund", ":term.show", caption: "terminal.bund: the answer")
+
+This is the `=>` line: try to `dup` the top of the stack and print the copy,
 and if there is nothing to `dup`, say nothing.
+
+#piece("terminal.bund", ":term.short", caption: "terminal.bund: a short error")
 
 `term.short` is why the errors in this book fit on a line. Bund reports a
 failure as a chain — this failed because that failed because the other did —
@@ -155,12 +161,18 @@ and the last link is the one that says what went wrong. The word splits the
 text at each "returned error" and keeps the last piece, with a loop that
 replaces the piece it holds with each one that comes.
 
+#piece("terminal.bund", ":term.stack", caption: "terminal.bund: .s")
+
 `term.stack` is `.s`. You have just seen its trick: freeze the stack, count
 what is in it, print a copy, thaw.
+
+#piece("terminal.bund", ":study", caption: "terminal.bund: study")
 
 And `study` is the three-line word Chapter 7 promised. `use` wants a whole
 address, so the file's name is joined to the folder and to `file://`. The top
 speaks first, so the pieces are put down last part first.
+
+One word is left, `term.help`, and it is eight lines of `println`.
 
 That is the terminal: about sixty lines of program. You could have written it
 after Chapter 12. Every screen in this book was made by it.

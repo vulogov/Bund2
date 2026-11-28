@@ -240,6 +240,35 @@
   })
 }
 
+// A piece of a source file from code/, cut from the file itself so that it
+// cannot drift from the program that was run. `from` is how one of its lines
+// begins. With no `until`, the piece is the block of lines around that one,
+// from blank line to blank line: a definition and the comment above it. With
+// `until`, it runs from the `from` line to the line before the first later
+// one that begins with `until`; with `rest: true`, to the end of the file.
+// Blank lines and bare `//` lines at either end are dropped. A piece that
+// cannot be found stops the build.
+#let piece(name, from, until: none, rest: false, caption: "") = {
+  let lines = read("code/" + name).split("\n")
+  let a = lines.position(l => l.starts-with(from))
+  assert(a != none, message: "piece: no line of " + name + " begins with " + from)
+  let b = a + 1
+  if rest {
+    b = lines.len()
+  } else if until == none {
+    while a > 0 and lines.at(a - 1).trim() != "" { a -= 1 }
+    while b < lines.len() and lines.at(b).trim() != "" { b += 1 }
+  } else {
+    while b < lines.len() and not lines.at(b).starts-with(until) { b += 1 }
+    assert(b < lines.len(), message: "piece: no later line of " + name + " begins with " + until)
+  }
+  let idle(l) = l.trim() == "" or l.trim() == "//"
+  while a < b and idle(lines.at(a)) { a += 1 }
+  while b > a and idle(lines.at(b - 1)) { b -= 1 }
+  screen(caption: if caption == "" { name } else { caption },
+    raw(lines.slice(a, b).join("\n"), block: true))
+}
+
 // ── Word table — the words a section introduced, with stack effects ──
 #let words(rows) = {
   v(2mm)

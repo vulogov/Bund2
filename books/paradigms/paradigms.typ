@@ -35,6 +35,9 @@
   include "chapters/05-side-by-side.typ",
   include "chapters/06-all-four-at-once.typ",
 
+  part(number: "IV", title: "Reference"),
+  include "chapters/A-the-five-programs.typ",
+
   include "chapters/99-about.typ",
   include "../Introduction/chapters/99b-about-the-author.typ",
 ))

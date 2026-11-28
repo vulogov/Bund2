@@ -55,7 +55,7 @@
 :reckoned { dup due :due swap set } register
 
 //
-// line ( record -- text )         a reckoned ship, as a line of the ledger
+// line ( record -- text )       a reckoned ship, as a line of the ledger
 //
 // The record waits on the counting table while `has` reads four fields
 // of it, and the table is cleared before the word ends.
@@ -91,7 +91,8 @@
 :rule    { "-" 36 * ended } register
 :heading { rule "Wendhaven ledger" ended + } register
 :body    { { line ended } map joined } register
-:total   { { :due get } map sum "Total: {total} pennies" format ended } register
+:total   { { :due get } map sum
+           "Total: {total} pennies" format ended } register
 
 //
 // ledger ( list -- text )

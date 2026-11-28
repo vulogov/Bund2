@@ -52,6 +52,7 @@
   include "chapters/A-the-words-of-this-book.typ",
   include "chapters/B-who-speaks-first.typ",
   include "chapters/C-answers.typ",
+  include "chapters/D-the-two-programs.typ",
 
   include "chapters/99-about.typ",
   include "chapters/99b-about-the-author.typ",

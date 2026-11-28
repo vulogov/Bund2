@@ -212,6 +212,13 @@ caption bar, never a screenshot. What the reader types follows the prompt
 - `#recap` — "What you learned";
 - `#problems` — three to five exercises. Answers are in Appendix C, and every
   answer is a session that was run.
+- `#listing` prints a file of `code/` whole, and is for files short enough to
+  sit on a page beside their explanation. A long program is never the first
+  thing in a chapter (owner's rule, 2026-11-28: a reader learns little from
+  pages of program nobody has walked them through). It is read a piece at a
+  time with `#piece`, each piece followed by the paragraph that explains it,
+  and printed whole in Appendix D. `#piece` cuts the lines from the file
+  itself, so a piece cannot drift from the program that was run.
 
 ## Voice
 

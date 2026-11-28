@@ -37,14 +37,27 @@ _changes_ it. That is what the word "state" means.
 
 #section("The program")
 
-#listing("commands.bund")
+`commands.bund` is 56 lines in three parts: a word that knows the tariff, a
+word that reckons one ship, and the day. It is printed whole in the Appendix.
+Read it as the clerk would carry it out.
 
-Read it as the clerk would carry it out. `rate` looks at a cargo and asks:
-is it salt? If not, is it wax? If not, it must be herring. `reckon` takes a
-ship's three values off the stack and files each under a name. From then on
-it does not juggle the stack at all: it reads what it wants by name, in any
-order, as often as it likes. It works out the due, adds the due to the
-total, and prints the line.
+#piece("commands.bund", "// rate (", caption: "commands.bund: the tariff")
+
+`rate` looks at a cargo and asks: is it salt? If not, is it wax? If not, it
+must be herring. The lambda on top runs when the answer is yes, so the
+answers read from the bottom up: 3 for salt, 5 for wax, and 2 for whatever
+is left.
+
+#piece("commands.bund", "// reckon (", until: "// The day", caption: "commands.bund: one ship")
+
+`reckon` takes a ship's three values off the stack and files each under a
+name. That is its first three lines. From then on it does not juggle the
+stack at all: it reads what it wants by name, in any order, as often as it
+likes. The fourth line works out the due and writes it down. The fifth reads
+the total, adds the due, and writes the total back. The last two put the four
+values down for the template and print the line.
+
+#piece("commands.bund", "// The day, a step", rest: true, caption: "commands.bund: the day")
 
 Then the day itself: set the total to nought, print the heading, reckon
 three ships, print the total.

@@ -101,17 +101,28 @@ list. That is not an error: there is nothing that fits, and Bund says so.
 
 #section("The program")
 
-#listing("rules.bund")
+`rules.bund` is 54 lines, printed whole in the Appendix. The first half is a
+knowledge base and the second half prints.
 
-The knowledge base is the top half, and it is the whole of the reckoning.
-The tariff is three facts. The day is three facts. The mooring fee is a
-fact. What a due is, is one rule. What an entry in the ledger is, is another:
-a ship together with her due.
+#piece("rules.bund", ":harbour [", until: ":rule {", caption: "rules.bund: what is so")
 
-The bottom half only prints. `line` takes one answer, which is a record of
-what `S`, `U`, `C` and `D` stood for, and formats it. The names in a
-knowledge base are plain lower-case atoms, so `string.title` gives the
-_Marta_ her capital back.
+The knowledge base is the whole of the reckoning. The day is three facts.
+The tariff is three facts. The mooring fee is a fact. What a due is, is one
+rule. What an entry in the ledger is, is another: a ship together with her
+due. `kb!` makes the list a knowledge base, and `var` keeps it under the name
+`harbour`.
+
+#piece("rules.bund", "// line (", until: "\"Wendhaven", caption: "rules.bund: one answer, as a line")
+
+`line` takes one answer, which is a record of what `S`, `U`, `C` and `D`
+stood for, and formats it. The names in a knowledge base are plain lower-case
+atoms, so `string.title` gives the _Marta_ her capital back.
+
+#piece("rules.bund", "\"Wendhaven", rest: true, caption: "rules.bund: the page")
+
+The page is two questions. "What are the entries?" has three answers, and the
+loop prints a line for each. "What are the dues?" has three answers too, and
+the loop adds the `D` of each to a nought put down beforehand.
 
 #session("c4-run", caption: "The same page")
 

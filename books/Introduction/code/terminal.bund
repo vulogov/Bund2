@@ -9,7 +9,8 @@
 //
 //   bund2 books/Introduction/code/terminal.bund
 //
-// Chapter 13 of the book reads this file from top to bottom.
+// Chapter 13 of the book reads this file a piece at a time, from the
+// bottom up. Appendix D prints it whole.
 //
 
 //

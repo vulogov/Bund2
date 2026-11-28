@@ -4,8 +4,8 @@
 //   bund2 objects.bund
 //
 // Things that know how to answer. A landing is a ship's cargo come
-// ashore. It knows its ship, its units and its kind, and when it is asked
-// what it owes, it answers for itself.
+// ashore. It knows its ship, its units and its kind, and when it is
+// asked what it owes, it answers for itself.
 //
 
 //

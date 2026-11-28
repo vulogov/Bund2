@@ -114,3 +114,14 @@ is shell commands run from `code/`.
 
 None yet. `ILLUSTRATIONS.txt` holds eight prompts: a frontispiece and one for
 each chapter.
+
+## Long programs are read in pieces
+
+Owner's rule, 2026-11-28: a long program is never printed whole as the main
+matter of a chapter, because a reader learns little from pages of program
+nobody has walked them through. Each chapter reads its program with `#piece`,
+a piece followed by the paragraph that explains it, and Appendix A prints all
+five whole. `#piece` cuts the lines from the file in `code/`, so a piece
+cannot drift from the program that was run. No source line is wider than 73
+characters, which is what a printed screen holds; `functions.bund` is 108
+lines since its `total` was split over two.

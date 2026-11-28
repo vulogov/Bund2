@@ -13,21 +13,83 @@ has never heard of Bund.
 
 #plate(11, "11-ledger.png", "The day's reckoning, written and ruled off.")
 
-#section("The whole program")
+#section("The program, a piece at a time")
 
-Here it is. You have met all but a handful of the words in it.
+`ledger.bund` is a hundred and twenty lines, and most of them are comment. It
+is printed whole in Appendix D. Here it is read as it was built: five small
+vocabularies, each resting on the one before, and then the dozen lines at the
+bottom that are the program. You have met nearly every word in it.
 
-#listing("ledger.bund")
+_Reckoning_ knows about pennies. These are the three words of Chapter 4,
+exactly as you wrote them.
 
-It is long for a listing and short for a program, and most of it is comment.
-Read it as five small vocabularies, each resting on the one before:
-_reckoning_ knows about pennies; _records_ knows what a ship is; _the table_
-knows how to ask a record a question; _writing_ knows how a line should read;
-and _the entry_ puts them together for one ship.
+#piece("ledger.bund", "// due (", until: "// ---", caption: "ledger.bund: reckoning")
 
-Then come the last dozen lines, which are the program. Everything above them
-only teaches Bund words. Nothing is printed and nothing is reckoned until the
-bottom of the file, where the words are used.
+_Records_ knows what a ship is. The three setters, `ship` and `arrivals` are
+from Chapter 9: `ship` starts with an empty `dict` and each setter puts one
+field into it.
+
+#piece("ledger.bund", "// units=", until: "// gather", caption: "ledger.bund: records")
+
+`gather` is from Chapter 9 too, and `manifest` from Chapter 11. `manifest`
+goes to a stack of its own, so that `gather` sweeps up the three ships and
+nothing else, and comes back to `main` with the list.
+
+#piece("ledger.bund", "// gather", until: "// ---", caption: "ledger.bund: the manifest")
+
+_The table_ knows how to ask a record a question. Both words are from
+Chapter 10. With a record on the counting table, `:cargo has` is her cargo,
+and the record is still there for the next question.
+
+#piece("ledger.bund", "// peek", until: "// ---", caption: "ledger.bund: the table")
+
+_Writing_ knows how a line should read. `rule` is from Chapter 7, and so was
+`heading`, but `heading` has changed. It now takes the day as a string and
+joins it to the title. The top speaks first, so `"Wendhaven ledger for " +`
+puts the title in front of whatever was underneath.
+
+#piece("ledger.bund", "// rule", until: "// wording", caption: "ledger.bund: the heading")
+
+`wording`, `fields` and `line` are as Chapter 10 left them. `line` puts the
+record on the table, asks it four questions, fills the template, and takes
+the record off again.
+
+#piece("ledger.bund", "// wording", until: "// ---", caption: "ledger.bund: one line")
+
+That is seventeen words, and sixteen of them you have typed before.
+
+#section("The new word")
+
+The fifth vocabulary, _the entry_, puts the others together for one ship. Its
+first word is new.
+
+#piece("ledger.bund", ":reckoned", caption: "ledger.bund: reckoned")
+
+`reckoned` writes a ship's line and adds her due to a total. It needs the
+record twice, once for `line` and once to reckon the due, so it starts with
+`dup`.
+
+The total lives on the table, and `+.` adds to it. You might think `line`,
+which also uses the table, would disturb it. It does not. `line` puts the
+record _on top of_ the total and takes it off again. The table is a pile, and
+what is underneath is safe.
+
+Two more words, `unreckoned` and `entry`, are for a ship whose record is
+missing its units. They are shown where they are needed, two sections on.
+
+#section("The program")
+
+Everything above only teaches Bund words. Nothing is printed and nothing is
+reckoned until the bottom of the file, where the words are used.
+
+#piece("ledger.bund", "heading", caption: "ledger.bund: the program")
+
+Read it as a sentence. Write the heading. Put a total of nought on the table.
+Take the manifest and make an entry for each ship. Rule a line. Take the
+total off the table and print it.
+
+`heading` wants the day, and four lines just above these put it on the stack.
+They are the subject of the next section.
 
 #term("Script")[
   A file of Bund that is run from top to bottom by `bund2`. Definitions and
@@ -40,24 +102,6 @@ bottom of the file, where the words are used.
 
 A hundred and forty, fifty-six, ninety-five, and two hundred and ninety-one.
 The four numbers you reckoned by hand in Chapter 3.
-
-#section("What is new in it")
-
-Three words are new, and one has changed.
-
-`heading` now takes the day as a string and joins it to the title. The top
-speaks first, so `"Wendhaven ledger for " +` puts the title in front of
-whatever was underneath.
-
-`reckoned` writes a ship's line and adds her due to a total. It needs the
-record twice, so it starts with `dup`. The total lives on the table, put there
-by `0 .` in the program proper, and `+.` adds to it. You might think `line`,
-which also uses the table, would disturb it. It does not. `line` puts the
-record _on top of_ the total and takes it off again. The table is a pile, and
-what is underneath is safe.
-
-`unreckoned` and `entry` are for a ship whose record is missing its units.
-That is the next section but one.
 
 #section("Telling the program something")
 
@@ -72,14 +116,9 @@ given. With no arguments at all there is only an empty list under `args`.
 
 #session("ch12-args", caption: "What args.parse leaves when nothing was given")
 
-Now the four lines in the program can be read:
+Now the four lines that find the day can be read:
 
-```
-args.parse :day ?key
-{ drop "today" }
-{ :day get car }
-ifthenelse
-```
+#piece("ledger.bund", "// The day comes", caption: "ledger.bund: the day")
 
 Ask whether there is a `day`. `?key` leaves the dictionary and the answer. If
 there is, the lambda on top runs: get the list under `:day` and take its first
@@ -101,6 +140,13 @@ Without a guard, `line` would ask for `:units`, `get` would fail, and the day's
 ledger would stop at that ship with the rest unreckoned. `entry` looks before
 it leaps. It asks `:units ?key`, and only a record that has the field goes to
 `reckoned`.
+
+#piece("ledger.bund", "// unreckoned", until: "// ---", caption: "ledger.bund: the entry")
+
+`?key` leaves the record and the answer. The lambda on top runs when the
+answer is yes, so `{ reckoned }` is written second. `unreckoned` takes the
+ship's name and puts a sentence after it: the top speaks first, so the name
+is swapped back to the top before `+`.
 
 You can try it without editing the file. `study` does everything in a file, so
 studying `ledger.bund` runs the day's ledger _and_ leaves all its words behind.
@@ -223,7 +269,7 @@ never know what it was written in.
 
 #section("What you have built")
 
-Go back to the listing and count. Twenty words were taught to Bund, none
+Turn to Appendix D, where the file is printed whole, and count. Twenty words were taught to Bund, none
 longer than five lines, and the program that uses them is a dozen lines more.
 There is not one variable in it. There are two decisions, one loop and one
 running total. Every value went from the word that made it to the word that

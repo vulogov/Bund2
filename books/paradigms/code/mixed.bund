@@ -31,8 +31,8 @@
 ] kb! var
 
 //
-// entries ( -- list )                every entry, as a list of records
-// line    ( record -- text )         one of them, as a line of the ledger
+// entries ( -- list )              every entry, as a list of records
+// line    ( record -- text )       one of them, as a line of the ledger
 //
 :entries { :harbour var? [ entry S U C D ] kb.query } register
 :has     { take dup . swap get } register

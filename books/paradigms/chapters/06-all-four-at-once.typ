@@ -16,27 +16,34 @@ them was pure, and none was the worse for it.
 
 #section("Each part in the manner that suits it")
 
-Here is the ledger once more, written without loyalty to any one way.
+Here is the ledger once more, written without loyalty to any one way. It is
+`mixed.bund`, printed whole in the Appendix. Read it for who does what.
 
-#listing("mixed.bund")
+#piece("mixed.bund", "// charge (", until: "// What is so", caption: "mixed.bund: a function")
 
-Read it for who does what.
+*The arithmetic* is a word, `charge`, a function of two numbers.
+
+#piece("mixed.bund", "// What is so", until: "// entries (", caption: "mixed.bund: facts and rules")
 
 *What is so* is stated as facts, because the ships and the tariff are
 knowledge, and knowledge is easiest to add to in that form. A fourth cargo
 would be two more facts.
 
-*The arithmetic* is a word, `charge`, a function of two numbers. The rule
-for a due does not do the sum itself. It hands its unknowns to `charge`
-through `is`. The rule says what a due depends on, and the function says how
-it is worked out. Change the mooring fee and you change one word.
+Look at the rule for a due. It does not do the sum itself. It hands its
+unknowns to `charge` through `is`. The rule says what a due depends on, and
+the function says how it is worked out. Change the mooring fee and you
+change one word.
+
+#piece("mixed.bund", "// entries (", until: ":rule {", caption: "mixed.bund: answers as values")
 
 *The answers* come back from `kb.query` as a list of records: plain values,
-which `line` turns into text exactly as the function of Chapter 2 did, and a
-`loop` adds up.
+which `line` turns into text exactly as the function of Chapter 2 did.
+
+#piece("mixed.bund", "// The page", rest: true, caption: "mixed.bund: commands")
 
 *The page* is printed by commands, a step at a time, because printing a
-page really is a thing that happens in order.
+page really is a thing that happens in order. A `loop` prints the lines and
+another adds up the dues.
 
 #session("c6-run", caption: "The same page, a fifth time")
 

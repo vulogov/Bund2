@@ -64,30 +64,63 @@ the lambda `{ + }`, and runs it. `moored` is an ordinary word from now on.
 
 #section("The program")
 
-#listing("functions.bund")
+`functions.bund` is the longest of the four, and it is printed whole in the
+Appendix. It is worth reading from the bottom, because the last line is the
+whole program.
 
-It is the longest of the four, and worth reading from the bottom. The last
-line is the whole program:
-
-```
-arrivals { reckoned } map ledger print
-```
+#piece("functions.bund", "// The only line", rest: true, caption: "functions.bund: the program")
 
 Take the arrivals; make from them a list of reckoned ships; make from that
 list a page of text; print it. Three values, each made from the one before,
 and one act at the very end. Everything above that line is a definition, and
 no definition prints.
 
-Three things are _values_ here that were _steps_ in the last chapter.
+Three things are _values_ here that were _steps_ in the last chapter: the
+ships, the tariff and the page.
 
-*The tariff* is a dictionary. `rate` does not ask a chain of questions. It
-looks the cargo up.
+#section("The ships and the tariff")
 
-*The ships* are a list of records, made once.
+#piece("functions.bund", "// A ship is a value", until: "// The tariff", caption: "functions.bund: the ships")
 
-*The page* is a text. `ledger` builds it from four parts, each a text that
-ends its own line, and hands it back. Whether it is then printed, kept or
-compared with yesterday's is not `ledger`'s business.
+*The ships* are a list of records, made once. `ship` makes a record, as in the first
+book, and `arrivals` gathers three of them into a list.
+
+#piece("functions.bund", "// The tariff is", until: "// moored", caption: "functions.bund: the tariff")
+
+*The tariff* is a dictionary, and that is all it is. Nothing in it is a
+question.
+
+#piece("functions.bund", "// rate (", until: "// line (", caption: "functions.bund: the reckoning")
+
+`rate` does not ask a chain of questions. It takes the ship's cargo and looks
+it up in the tariff. `due` multiplies the units by the rate and hands the
+product to `moored`, the word made with `curry` a page ago. `reckoned` is the
+word you tried at the terminal: it copies the record, works out the due, and
+sets it into the copy.
+
+#section("The page")
+
+#piece("functions.bund", "// line (", until: "// sum (", caption: "functions.bund: one line")
+
+`line` turns a reckoned ship into a text. It does not print it.
+
+#piece("functions.bund", "// sum (", until: "// ledger (", caption: "functions.bund: the parts of the page")
+
+`sum` and `joined` are the same word twice: start with nothing, and add each
+element of a list to it. One starts from 0 and the other from an empty text.
+
+A page is lines, and a line has an end. `newline` is that end, as a text: a
+string that opens on one line and closes on the next. `ended` puts it after
+whatever text it is given. Then each part of the page is a word that leaves a
+text: `rule`, `heading`, `body`, which makes a line of every ship and joins
+them, and `total`, which takes the due out of every ship and adds them up.
+
+#piece("functions.bund", "// ledger (", until: "// The only line", caption: "functions.bund: the page")
+
+*The page* is one text. `ledger` builds it from the four parts and hands it
+back. The top speaks first, so the parts are put down last first. Whether the
+page is then printed, kept or compared with yesterday's is not `ledger`'s
+business.
 
 #callout(label: "Not quite pure")[
   `line` puts the record on the counting table while `has` reads four fields
