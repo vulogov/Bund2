@@ -7,6 +7,8 @@ knows, until one morning a boy with a slate stands on the quay and writes
 down how long each thing takes. Guessing where a program spends its time is
 the same argument, and a profile is the boy with the slate.
 
+#plate("10-slate.png", "A boy with a slate, writing down how long each thing takes.")
+
 #section("Asking for one")
 
 `--profile` takes a name and, when the program ends, writes two files that

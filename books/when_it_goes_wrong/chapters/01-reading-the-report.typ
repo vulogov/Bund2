@@ -6,6 +6,8 @@ things: what happened, where, and what she was carrying. Bund's report says
 the same three, and most of the work of mending a program that stops is done
 by reading it slowly.
 
+#plate("02-on-the-bar.png", "What happened, where, and what she was carrying.")
+
 Here is the faulty script of the first book. The last line says `dues` and
 whoever wrote it forgot the 12.
 

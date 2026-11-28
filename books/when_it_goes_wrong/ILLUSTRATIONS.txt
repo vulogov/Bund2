@@ -24,10 +24,12 @@
 #    04-manifest.png        09-own-surveyor.png
 #    04b-over-the-quay.png
 #
-#  All square, 1:1. The book does not print plates yet. When the files are in
-#  place as JPEG, strip their metadata (jpegtran -copy none), run
-#  tools/plates.sh, and put `#plate("NAME.png", "caption")` after the first
+#  All square, 1:1. The plates are in place: each JPEG has had its metadata
+#  stripped (jpegtran -copy none), tools/plates.sh has made the transparent
+#  PNG beside it, and `#plate("NAME.png", "caption")` stands after the first
 #  paragraph of each chapter, the frontispiece after that of the preface.
+#  To replace a plate, put the new JPEG in, strip it, and run
+#  tools/plates.sh NAME.
 #
 #  The commands below are written for plakat, run from the REPOSITORY ROOT.
 #  Any other model takes the quoted prompt as it stands.

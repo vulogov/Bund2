@@ -6,6 +6,8 @@ about ships striking. There is a net under the gangway and a bell on the
 mole. This chapter is about the two things a program can do about failure
 before any tool is brought to it: catch one, and say what it is doing.
 
+#plate("03-net-and-bell.png", "A net under the gangway, and a bell on the mole.")
+
 #section("The net")
 
 The first book introduced `?try`. A piece of program goes in under `:try`,

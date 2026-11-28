@@ -6,6 +6,8 @@ in order, and nothing else. He does not stop them and he does not ask their
 business. At the end of the day his book is the only complete account of
 what moved. A trace is that book.
 
+#plate("05-tide-watcher.png", "Every ship that passes, in order, and nothing else.")
+
 #section("One line for every call")
 
 `--trace` takes the name of a file and writes one line into it for every

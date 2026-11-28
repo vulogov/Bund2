@@ -6,6 +6,8 @@ the surveyor insists on: one sling at a time, with a halt after each for him
 to look in the hold. It is slow. It is also the only way to be certain which
 sling shifted the cargo. `--debugger` runs a program that way.
 
+#plate("06-one-sling.png", "One sling at a time, with a halt after each.")
+
 #section("The first stop")
 
 #session("c6-first", caption: "A program run one value at a time")

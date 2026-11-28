@@ -6,6 +6,8 @@ on the ones he wants and lets the rest go by. A breakpoint is the chalk
 mark: a place where the program is to stop, so that it can run freely
 everywhere else.
 
+#plate("07-chalk-mark.png", "He chalks the ones he wants and lets the rest go by.")
+
 #section("On a word")
 
 `break` and a word's name: stop whenever that word is about to run.

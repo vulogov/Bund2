@@ -5,6 +5,8 @@
 outside, with a flag. Every one of its commands is also a Bund word, and a
 program may call them on itself. The ship carries her own surveyor.
 
+#plate("09-own-surveyor.png", "The ship carries her own surveyor.")
+
 #section("A program that stops itself")
 
 #piece("stopped.bund", "\"Marta owes\"", rest: true, caption: "stopped.bund")

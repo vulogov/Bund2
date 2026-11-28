@@ -5,6 +5,8 @@
 If it says forty casks and names thirty-nine, he has found the trouble
 without lifting anything. `bund2` can read a program in the same way.
 
+#plate("04-manifest.png", "He reads the manifest before anything is lifted.")
+
 #section("check")
 
 `check` reads a program and follows, word by word, how many values each one

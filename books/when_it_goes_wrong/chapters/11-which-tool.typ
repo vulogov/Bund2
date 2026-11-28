@@ -6,6 +6,8 @@ apart. He asks what was seen, and where the water is, and reaches for the
 least thing that will answer. This chapter is that habit, written down. It
 has no new words in it.
 
+#plate("11-shipwright.png", "He reaches for the least thing that will answer.")
+
 #section("By what you see")
 
 #words((

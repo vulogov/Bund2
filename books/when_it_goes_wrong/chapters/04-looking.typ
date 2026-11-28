@@ -7,6 +7,8 @@ a word into the program that shows what is there, running it, and taking the
 word out again. Bund has a dozen such words. None of them stops the
 program, and none changes the stack.
 
+#plate("04b-over-the-quay.png", "Before anyone sends for the diver, somebody looks.")
+
 #section("Where things are")
 
 `.s` in the book's terminal shows one stack. `debug.stacks` shows them all.

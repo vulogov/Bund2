@@ -7,6 +7,8 @@ stopped being what it was, a number went negative. The night watchman does
 not stand at one door. He is told what to look out for, and walks the whole
 quay. A watch is an instruction of that kind.
 
+#plate("08-night-watch.png", "He is told what to look out for, and walks the whole quay.")
+
 #section("A stack that grows")
 
 `leak.bund` reckons the day correctly and prints numbers where the ships'

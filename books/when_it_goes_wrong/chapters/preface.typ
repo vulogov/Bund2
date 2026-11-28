@@ -8,6 +8,8 @@ visitors. It records the day the crane dropped a cask, the night a ship went
 onto the bar, the morning the totals would not agree. A harbour that keeps
 the second book well has fewer entries to make in it.
 
+#plate("00-mishap-book.png", "The other book, less often shown to visitors.")
+
 The first three books of this series were about the ledger. This one is
 about the other book. It assumes you can write a Bund program, and it starts
 at the moment the program does something you did not mean.

@@ -5,6 +5,8 @@
 different tools. Telling them apart is the first skill, and it takes one
 look.
 
+#plate("01-three-wrongs.png", "Aground, on the wrong quay, or becalmed.")
+
 #section("It stops")
 
 The program runs for a while and then Bund halts it and prints a report. A
