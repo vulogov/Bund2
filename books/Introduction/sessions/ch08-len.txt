@@ -1,0 +1,4 @@
+[ 40 12 25 ] len
+.s
+swap drop
+.s

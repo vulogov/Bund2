@@ -1,0 +1,4 @@
+7 .
+"some time later" println
+99 . take
+take

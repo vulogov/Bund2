@@ -1,0 +1,10 @@
+[BUND > " * } register" 4 ":due { " + +
+=> :due { 4 * } register
+[BUND > bund.eval
+[BUND > 40 dues
+=> 180
+[BUND > clear
+[BUND > :rate { " * } register" swap ":due { " + + bund.eval } register
+[BUND > 3 rate
+[BUND > 40 dues
+=> 140

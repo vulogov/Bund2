@@ -1,0 +1,6 @@
+#!setup
+dict :name "Marta" set :units 40 set :cargo "salt" set
+#!show
+:units 38 set
+:quay "north" set
+len

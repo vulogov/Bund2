@@ -1,0 +1,10 @@
+[BUND > arrivals
+=> { cargo=herring ::  name=Osprey ::  units=25 :: }
+[BUND > brief
+Osprey: 95
+=> { cargo=wax ::  name=Gull ::  units=12 :: }
+[BUND > brief
+Gull: 56
+=> { cargo=salt ::  name=Marta ::  units=40 :: }
+[BUND > brief
+Marta: 140

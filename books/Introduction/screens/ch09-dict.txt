@@ -1,0 +1,8 @@
+[BUND > dict
+=> {}
+[BUND > :name "Marta" set
+=> { name=Marta :: }
+[BUND > :units 40 set
+=> { name=Marta ::  units=40 :: }
+[BUND > :cargo "salt" set
+=> { cargo=salt ::  name=Marta ::  units=40 :: }

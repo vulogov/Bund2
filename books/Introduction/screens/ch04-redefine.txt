@@ -1,0 +1,7 @@
+[BUND > :due { 4 * } register
+[BUND > 40 dues
+=> 180
+[BUND > clear
+[BUND > :due { 3 * } register
+[BUND > 40 dues
+=> 140

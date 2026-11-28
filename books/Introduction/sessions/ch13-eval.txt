@@ -1,0 +1,4 @@
+"40 3 * 20 +"
+bund.eval
+clear
+"12 3 *" " 20 +" swap + bund.eval

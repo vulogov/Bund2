@@ -1,0 +1,9 @@
+@salt @fish @wax
+current
+clear ->
+current
+clear ->
+current
+clear ->
+current
+clear @main

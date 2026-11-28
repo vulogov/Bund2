@@ -1,0 +1,123 @@
+//
+// The harbour ledger of Wendhaven.
+//
+//   bund2 ledger.bund
+//   bund2 ledger.bund --day Monday
+//
+// Every word of the book, in the order it was learned, and then the
+// dozen lines that are the program.
+//
+
+// ----------------------------------------------------------- reckoning
+
+// due ( units -- pennies )      three pennies for each unit of cargo
+:due { 3 * } register
+
+// fee ( pennies -- pennies )    add the mooring fee
+:fee { 20 + } register
+
+// dues ( units -- pennies )     what a ship owes
+:dues { due fee } register
+
+// ------------------------------------------------------------- records
+
+// units= cargo= name= ( value record -- record )
+:units= { swap :units swap set } register
+:cargo= { swap :cargo swap set } register
+:name=  { swap :name  swap set } register
+
+// ship ( name cargo units -- record )
+:ship { dict units= cargo= name= } register
+
+// arrivals ( -- record record record )
+:arrivals {
+  "Marta"  "salt"    40 ship
+  "Gull"   "wax"     12 ship
+  "Osprey" "herring" 25 ship
+} register
+
+// gather ( ... -- list )        the whole stack as a list, in order
+:gather { lambda* convert.to_list } register
+
+// manifest ( -- list )          the arrivals, on a stack of their own
+:manifest {
+  @manifest
+  arrivals gather .
+  @main take
+} register
+
+// ----------------------------------------------------------- the table
+
+// peek ( -- x )                 a copy of what is on the table
+:peek { take dup . } register
+
+// has ( key -- value )          a field of the record on the table
+:has { peek swap get } register
+
+// ------------------------------------------------------------- writing
+
+// rule ( -- )
+:rule { "-" 36 * println } register
+
+// heading ( day -- )
+:heading {
+  "Wendhaven ledger for " + println
+  rule
+} register
+
+// wording ( -- template )
+:wording { "{name}: {units} of {cargo}, {due} pennies" } register
+
+// fields ( -- due cargo units name )
+:fields {
+  :units has dues
+  :cargo has
+  :units has
+  :name  has
+} register
+
+// line ( record -- )            print one line of the ledger
+:line {
+  .
+  fields wording format println
+  take drop
+} register
+
+// ----------------------------------------------------------- the entry
+
+// reckoned ( record -- )        write the line, and add the due to the
+//                               total on the table
+:reckoned {
+  dup line
+  :units get dues +.
+} register
+
+// unreckoned ( record -- )      say that a ship could not be reckoned
+:unreckoned {
+  :name get
+  " has no units and was not reckoned" swap +
+  println
+} register
+
+// entry ( record -- )           reckon a ship if her record allows it
+:entry {
+  :units ?key
+  { unreckoned }
+  { reckoned }
+  ifthenelse
+} register
+
+// --------------------------------------------------------- the program
+
+// The day comes from the command line, and is "today" when it is not
+// given.
+args.parse :day ?key
+{ drop "today" }
+{ :day get car }
+ifthenelse
+
+heading
+0 .                              // the day's total starts on the table
+manifest { entry } loop
+rule
+take "Total: {total} pennies" format println

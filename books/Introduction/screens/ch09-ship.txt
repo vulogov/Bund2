@@ -1,0 +1,6 @@
+[BUND > "records.bund" study
+[BUND > "Marta" "salt" 40 ship
+=> { cargo=salt ::  name=Marta ::  units=40 :: }
+[BUND > clear
+[BUND > "Gull" "wax" 12 ship :cargo get
+=> wax

@@ -1,0 +1,5 @@
+40 3.5 "salt" true :cargo
+.s
+clear
+"salt" type
+.s

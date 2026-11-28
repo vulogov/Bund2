@@ -1,0 +1,6 @@
+#!setup
+"words.bund" study
+"records.bund" study
+#!show
+"Marta" "salt" 40 ship brief
+"Osprey" "herring" 25 ship brief

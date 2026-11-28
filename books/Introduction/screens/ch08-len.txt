@@ -1,0 +1,8 @@
+[BUND > [ 40 12 25 ] len
+=> 3
+[BUND > .s
+[ 40 ::  12 ::  25 :: ] 3 <- top
+[BUND > swap drop
+=> 3
+[BUND > .s
+3 <- top

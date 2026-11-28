@@ -1,0 +1,5 @@
+"haven" "Wend" +
+clear
+"=" 20 *
+clear
+"due: " 140 +

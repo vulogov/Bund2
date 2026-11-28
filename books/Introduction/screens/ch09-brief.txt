@@ -1,0 +1,4 @@
+[BUND > "Marta" "salt" 40 ship brief
+Marta: 140
+[BUND > "Osprey" "herring" 25 ship brief
+Osprey: 95

@@ -1,0 +1,25 @@
+[BUND > 2 9 -
+=> 7
+[BUND > clear
+[BUND > 9 2 -
+=> -7
+[BUND > clear
+[BUND > 3 12 /
+=> 4
+[BUND > clear
+[BUND > 12 3 /
+=> 0
+[BUND > clear
+[BUND > 5 12 - 3 * 20 +
+=> 41
+[BUND > clear
+[BUND > 12 5 swap - 3 * 20 +
+=> 41
+[BUND > clear
+[BUND > 10 140 /
+=> 14
+[BUND > 140 -
+=> 126
+[BUND > clear
+[BUND > 140 ": " "Marta" + +
+=> Marta: 140

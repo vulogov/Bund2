@@ -1,0 +1,2 @@
+"salt herring wax" string.tokenize
+{ string.upper println } loop

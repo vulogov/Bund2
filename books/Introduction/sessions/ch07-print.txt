@@ -1,0 +1,2 @@
+"Marta" print ": " print 140 println
+"Marta" print space 140 print nl

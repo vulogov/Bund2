@@ -1,0 +1,8 @@
+1 2 3 swap drop swap
+.s
+clear
+7 dup dup drop swap
+.s
+clear
+"Marta" 40 swap println println
+5 dup println println println

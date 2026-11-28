@@ -1,0 +1,4 @@
+"salt" true +
+"40" 3 *
+clear
+"40" convert.to_int 3 *

@@ -1,0 +1,7 @@
+[BUND > "quays.bund" study
+[BUND > "something of mine" 291
+=> 291
+[BUND > manifest len swap drop
+=> 3
+[BUND > .s
+something of mine 291 3 <- top

@@ -1,0 +1,5 @@
+[BUND > 140 "Marta owes " +
+=> Marta owes 140
+[BUND > clear
+[BUND > " pennies" 140 convert.to_string +
+=> 140 pennies

@@ -1,0 +1,8 @@
+[BUND > [ 40 12 25 ] sort
+=> [ 12 ::  25 ::  40 :: ]
+[BUND > clear
+[BUND > [ "Marta" "Gull" "Osprey" ] sort
+=> [ Gull ::  Marta ::  Osprey :: ]
+[BUND > clear
+[BUND > [ "salt" "wax" "salt" "herring" ] unique
+=> [ salt ::  wax ::  herring :: ]

@@ -1,0 +1,6 @@
+#!setup
+"words.bund" study
+#!show
+:dues lambda=
+clear
+:size lambda=

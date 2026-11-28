@@ -1,0 +1,16 @@
+#!setup
+"words.bund" study
+#!show
+:dues lambda= convert.to_list { println } loop
+40 :size lambda= !
+clear
+1 2 3 lambda* len . ! take println
+.s
+clear
+:twice { dup . ! take ! } register
+5 { 3 * } twice
+clear
+:moor { " + } register" swap ":fee { " + + bund.eval } register
+25 moor 40 dues
+clear
+20 moor 40 dues

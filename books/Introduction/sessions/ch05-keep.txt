@@ -1,0 +1,6 @@
+#!setup
+:large? { 30 < } register
+#!show
+40 dup large? { "large: " print println } if
+12 dup large? { "large: " print println } if
+.s

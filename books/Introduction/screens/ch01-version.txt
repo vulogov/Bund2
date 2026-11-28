@@ -1,0 +1,5 @@
+$ bund2 --version
+bund2 0.57.0 (default features)
+conformed to Bund:21b40b0213a7 bund_language_parser:80377728f45b bundcore
+    :3b0b8ba219a6 rust_dynamic:ceb27c96fa10 rust_multistack:9a97675ee5d8 
+    rust_multistackvm:4605832678d4

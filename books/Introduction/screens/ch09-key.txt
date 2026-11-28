@@ -1,0 +1,12 @@
+[BUND > :units ?key
+=> true
+[BUND > .s
+{ cargo=salt ::  name=Marta ::  units=40 :: } true <- top
+[BUND > drop
+=> { cargo=salt ::  name=Marta ::  units=40 :: }
+[BUND > :quay ?key
+=> false
+[BUND > drop
+=> { cargo=salt ::  name=Marta ::  units=40 :: }
+[BUND > :quay get
+error: Key not found: quay

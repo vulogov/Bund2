@@ -1,0 +1,13 @@
+[BUND > @salt @fish @wax
+[BUND > current
+=> wax
+[BUND > clear ->
+[BUND > current
+=> fish
+[BUND > clear ->
+[BUND > current
+=> salt
+[BUND > clear ->
+[BUND > current
+=> main
+[BUND > clear @main

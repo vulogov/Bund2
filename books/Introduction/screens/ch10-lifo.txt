@@ -1,0 +1,7 @@
+[BUND > 1 . 2 . 3 .
+[BUND > .s
+(the stack is empty)
+[BUND > take take take
+=> 1
+[BUND > .s
+3 2 1 <- top

@@ -1,0 +1,5 @@
+[ 40 12 25 ] sort
+clear
+[ "Marta" "Gull" "Osprey" ] sort
+clear
+[ "salt" "wax" "salt" "herring" ] unique

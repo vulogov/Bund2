@@ -1,0 +1,3 @@
+[BUND > :dues :reckon alias
+[BUND > 40 reckon
+=> 140

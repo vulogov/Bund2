@@ -1,0 +1,5 @@
+[BUND > arrivals gather { :name get } map
+=> [ Marta ::  Gull ::  Osprey :: ]
+[BUND > clear
+[BUND > arrivals gather { :units get } map sort
+=> [ 12 ::  25 ::  40 :: ]

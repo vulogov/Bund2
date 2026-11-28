@@ -1,0 +1,12 @@
+[BUND > :fee { 25 + } register
+[BUND > 0 . manifest { entry } loop take
+Marta: 40 of salt, 145 pennies
+Gull: 12 of wax, 61 pennies
+Osprey: 25 of herring, 100 pennies
+=> 306
+[BUND > clear
+[BUND > :fee { 20 + } register
+[BUND > 8 dues
+=> 44
+[BUND > 291 +
+=> 335

@@ -1,0 +1,8 @@
+#!hide
+:due { 3 * } register
+#!hide
+:fee { 20 + } register
+#!hide
+:dues { due fee } register
+:dues :reckon alias
+40 reckon

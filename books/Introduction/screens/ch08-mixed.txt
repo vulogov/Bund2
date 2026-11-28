@@ -1,0 +1,4 @@
+[BUND > [ "Marta" 40 [ "salt" "amber" ] ]
+=> [ Marta ::  40 ::  [ salt ::  amber :: ] :: ]
+[BUND > cdr cdr car
+=> [ salt ::  amber :: ]

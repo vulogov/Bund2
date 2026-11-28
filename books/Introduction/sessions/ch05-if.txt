@@ -1,0 +1,5 @@
+#!setup
+:large? { 30 < } register
+#!show
+40 large? { "a large cargo" println } if
+12 large? { "a large cargo" println } if

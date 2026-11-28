@@ -1,0 +1,5 @@
+[BUND > 10 3 -
+=> -7
+[BUND > clear
+[BUND > 3 10 -
+=> 7

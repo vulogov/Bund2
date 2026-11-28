@@ -1,0 +1,4 @@
+[BUND > dup :name get
+=> Marta
+[BUND > .s
+{ cargo=salt ::  name=Marta ::  units=40 :: } Marta <- top

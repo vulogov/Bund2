@@ -1,0 +1,13 @@
+[BUND > "Marta" string.upper
+=> MARTA
+[BUND > clear
+[BUND > "MARTA" string.lower
+=> marta
+[BUND > clear
+[BUND > "wendhaven ledger" string.title
+=> Wendhaven Ledger
+[BUND > clear
+[BUND > "Osprey" len
+=> 6
+[BUND > .s
+Osprey 6 <- top

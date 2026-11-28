@@ -1,0 +1,4 @@
+dict
+:name "Marta" set
+:units 40 set
+:cargo "salt" set

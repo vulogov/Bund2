@@ -1,0 +1,11 @@
+[BUND > 0 291 /
+error: Integer division to 0.0
+[BUND > clear
+[BUND > :per { ?try :try { / } set :except { drop 0 } set ! } register
+[BUND > 3 291 per
+=> 97
+[BUND > clear
+[BUND > 0 291 per
+=> 0
+[BUND > .s
+0 <- top

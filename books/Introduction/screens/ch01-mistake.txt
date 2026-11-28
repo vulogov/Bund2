@@ -1,0 +1,17 @@
+[BUND > "The Osprey is late." prinln
+error: Inline prinln not registered
+=> The Osprey is late.
+[BUND > "The Osprey is late." println
+The Osprey is late.
+=> The Osprey is late.
+[BUND > println
+The Osprey is late.
+[BUND > help
+Type Bund. The stack carries over from line to line.
+
+  help     this text
+  .s       show the whole stack, bottom to top
+  clear    empty the stack
+  quit     leave (so does Ctrl-D)
+
+To learn the words kept in a file:  'words.bund' study

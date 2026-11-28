@@ -1,0 +1,4 @@
+[BUND > [ 40 12 25 ] { dues println } loop
+140
+56
+95

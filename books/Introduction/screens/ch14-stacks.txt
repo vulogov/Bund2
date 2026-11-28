@@ -1,0 +1,8 @@
+[BUND > @north 40
+=> 40
+[BUND > @south 12
+=> 12
+[BUND > @north
+=> 40
+[BUND > @south
+=> 12

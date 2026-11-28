@@ -1,0 +1,7 @@
+[BUND > :units= { swap :units swap set } register
+[BUND > 40 dict
+=> {}
+[BUND > .s
+40 {} <- top
+[BUND > units=
+=> { units=40 :: }

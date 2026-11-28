@@ -1,0 +1,7 @@
+[BUND > "salt" true +
+error: Incompartible X argument for the math operations: 1
+[BUND > "40" 3 *
+=> 404040
+[BUND > clear
+[BUND > "40" convert.to_int 3 *
+=> 120

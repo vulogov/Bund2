@@ -1,0 +1,10 @@
+40 12
+.s
+dup
+.s
+drop
+.s
+swap
+.s
+clear
+.s

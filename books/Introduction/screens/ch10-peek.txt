@@ -1,0 +1,8 @@
+[BUND > :peek { take dup . } register
+[BUND > 42 .
+[BUND > peek
+=> 42
+[BUND > peek
+=> 42
+[BUND > .s
+42 42 <- top

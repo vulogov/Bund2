@@ -1,0 +1,4 @@
+"Marta" println "Gull" println "Osprey" println
+"Marta" "Gull" println
+println
+println println

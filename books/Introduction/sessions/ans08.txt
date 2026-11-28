@@ -1,0 +1,17 @@
+#!setup
+"words.bund" study
+:total { 0 swap { + } loop } register
+#!show
+[ "Marta" "Gull" "Osprey" ] len println drop
+[ 40 12 25 ] { large? } map
+clear
+:count { len swap drop } register
+[ 40 12 25 ] count
+clear
+:largest { sort unfold fold car } register
+[ 40 12 25 ] largest
+clear
+[ 25 12 40 ] unfold fold
+clear
+:average { len swap total / } register
+[ 140 56 95 ] average

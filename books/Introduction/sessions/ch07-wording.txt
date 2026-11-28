@@ -1,0 +1,7 @@
+#!setup
+"words.bund" study
+#!show
+:wording { "{name}: {units} of {cargo}, {due} pennies" } register
+40 dues "salt" 40 "Marta" wording format
+clear
+12 dues "wax" 12 "Gull" wording format println

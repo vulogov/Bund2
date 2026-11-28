@@ -1,0 +1,13 @@
+[BUND > 1 2 3 @spare 10 20 *+ . @main take *+
+=> 36
+[BUND > clear
+[BUND > :to-quay { swap . to_current take @main } register
+[BUND > @pier @main
+[BUND > 40 :pier to-quay
+[BUND > .s
+(the stack is empty)
+[BUND > @pier
+=> 40
+[BUND > .s
+40 <- top
+[BUND > @main

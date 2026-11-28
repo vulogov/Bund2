@@ -1,0 +1,4 @@
+[BUND > 40 12 25 println println println
+25
+12
+40

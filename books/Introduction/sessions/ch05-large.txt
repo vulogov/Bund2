@@ -1,0 +1,6 @@
+:large? { 30 < } register
+40 large?
+clear
+12 large?
+clear
+30 large?

@@ -1,0 +1,4 @@
+[BUND > [ 40 12 25 ] { note } loop
+large
+small
+small

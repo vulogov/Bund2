@@ -1,0 +1,5 @@
+[BUND > 10 3 swap -
+=> 7
+[BUND > clear
+[BUND > 20 4 swap /
+=> 5

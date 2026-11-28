@@ -1,0 +1,15 @@
+#!setup
+"words.bund" study
+"records.bund" study
+"table.bund" study
+"quays.bund" study
+#!show
+1 2 3 @spare 10 20 *+ . @main take *+
+clear
+:to-quay { swap . to_current take @main } register
+@pier @main
+40 :pier to-quay
+.s
+@pier
+.s
+@main

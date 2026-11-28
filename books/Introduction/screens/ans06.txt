@@ -1,0 +1,23 @@
+[BUND > 5 { 1 + println } times
+1
+2
+3
+4
+5
+[BUND > 0 [ 40 12 25 ] { large? { 0 } { 1 } ifthenelse + } loop
+=> 1
+[BUND > clear
+[BUND > [ 40 12 25 ] { dup large? { drop } { println } ifthenelse } loop
+40
+[BUND > 25 true { 4 swap - dup println dup 0 < } while
+21
+17
+13
+9
+5
+1
+-3
+=> -3
+[BUND > clear
+[BUND > 1 { 3 * dup 500 > } for
+=> 729

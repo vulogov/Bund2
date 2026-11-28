@@ -1,0 +1,8 @@
+[BUND > :due ?word
+=> true
+[BUND > clear
+[BUND > :tithe ?word
+=> false
+[BUND > clear
+[BUND > :due lambda=
+=> lambda[ 3 ::  F(*) :: ]

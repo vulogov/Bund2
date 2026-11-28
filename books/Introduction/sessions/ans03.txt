@@ -1,0 +1,16 @@
+2 9 -
+clear
+9 2 -
+clear
+3 12 /
+clear
+12 3 /
+clear
+5 12 - 3 * 20 +
+clear
+12 5 swap - 3 * 20 +
+clear
+10 140 /
+140 -
+clear
+140 ": " "Marta" + +

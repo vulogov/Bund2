@@ -1,0 +1,9 @@
+#!setup
+"words.bund" study
+"records.bund" study
+"table.bund" study
+:wording { "{name}: {units} of {cargo}, {due} pennies, {size}" } register
+:fields { :units has size :units has dues :cargo has :units has :name has } register
+#!show
+"Marta" "salt" 40 ship line
+"Gull" "wax" 12 ship line

@@ -1,0 +1,8 @@
+[BUND > arrivals gather { brief } loop
+Marta: 140
+Gull: 56
+Osprey: 95
+[BUND > arrivals gather { :units get dues } map
+=> [ 140 ::  56 ::  95 :: ]
+[BUND > total
+=> 291

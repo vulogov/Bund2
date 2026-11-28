@@ -1,0 +1,4 @@
+:units= { swap :units swap set } register
+40 dict
+.s
+units=

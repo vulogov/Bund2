@@ -1,0 +1,4 @@
+@quay 1 @main
+:quay stack_exists
+clear
+:mole stack_exists

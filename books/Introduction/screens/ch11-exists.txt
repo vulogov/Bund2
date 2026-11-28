@@ -1,0 +1,6 @@
+[BUND > @quay 1 @main
+[BUND > :quay stack_exists
+=> true
+[BUND > clear
+[BUND > :mole stack_exists
+=> false

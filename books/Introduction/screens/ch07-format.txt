@@ -1,0 +1,2 @@
+[BUND > "salt" 40 "Marta" "{name}: {units} of {cargo}" format
+=> Marta: 40 of salt

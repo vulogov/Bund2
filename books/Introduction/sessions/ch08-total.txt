@@ -1,0 +1,7 @@
+#!setup
+"words.bund" study
+#!show
+:total { 0 swap { + } loop } register
+[ 140 56 95 ] total
+clear
+[ 40 12 25 ] { dues } map total

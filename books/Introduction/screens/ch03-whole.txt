@@ -1,0 +1,8 @@
+[BUND > 2 7 /
+=> 3
+[BUND > clear
+[BUND > 2 7.0 /
+=> 3.5
+[BUND > clear
+[BUND > 2 7 convert.to_float /
+=> 3.5

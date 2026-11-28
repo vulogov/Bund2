@@ -1,0 +1,6 @@
+[BUND > "words.bund" study
+[BUND > 40 dues
+=> 140
+[BUND > 25 note
+small
+=> 140

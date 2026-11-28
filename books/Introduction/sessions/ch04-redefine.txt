@@ -1,0 +1,11 @@
+#!hide
+:due { 3 * } register
+#!hide
+:fee { 20 + } register
+#!hide
+:dues { due fee } register
+:due { 4 * } register
+40 dues
+clear
+:due { 3 * } register
+40 dues

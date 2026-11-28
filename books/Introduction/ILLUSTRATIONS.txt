@@ -1,0 +1,159 @@
+# ============================================================================
+#  Bund, Word by Word — illustration prompts
+# ============================================================================
+#
+#  Thirteen engravings that carry the book's one metaphor: a harbour, a quay, a
+#  clerk and a ledger. They show the HARBOUR, never a computer. The screens in
+#  the book carry the facts; these carry the picture a reader keeps.
+#
+#  They are meant to sit beside the author's portrait, so they share its manner:
+#  black line on white, cross-hatched, a sixteenth-century copperplate.
+#
+#  Every prompt is the scene followed by the same style sentence, STYLE below.
+#  Keep the style sentence word for word across all twelve, or the set will not
+#  look like one hand.
+#
+#  STYLE
+#    black and white copperplate engraving, sixteenth-century northern European
+#    manner, fine cross-hatching and stippling, strong contrast, pure black ink
+#    on white paper, no grey wash, no colour, crisp line, book illustration
+#
+#  NEGATIVE (for models that take one)
+#    colour, photograph, 3d render, grey wash, watercolour, blur, lettering,
+#    text, captions, numbers, signature, watermark, frame, border, modern
+#    objects, computer, screen
+#
+#  Two things to hold to in every picture:
+#    - NO LETTERING. Crates, barrels, ledgers and signs are blank or carry only
+#      scribbled hatching. Image models write gibberish, and gibberish on a
+#      ledger page is the first thing a reader looks at.
+#    - NO FACES IN CLOSE-UP except where the scene needs one. The clerk is seen
+#      from behind, in profile or with his head bent over his work, so that he
+#      can be the same man in every picture without having to be.
+#
+#  Filenames the book expects, in books/Introduction/assets/ :
+#    01-harbour.png       05-two-doors.png      09-counting-table.png
+#    02-quay-stack.png    06-crane.png          10-three-quays.png
+#    03-top-crate.png     07-barrel-row.png     11-ledger.png
+#    04-teaching.png      08-manifest.png       12-clockwork.png
+#
+#  Sizes: 01 is a portrait plate (3:4, e.g. 896x1152). The rest are square
+#  (1024x1024). Engraving line needs resolution: upscale 2x before placing.
+#
+#  When the files are in place, set `have_art` to `true` at the top of
+#  design.typ and rebuild. Until then the book prints a framed placeholder
+#  where each picture goes, with its number and caption.
+#
+#  The commands below are written for plakat, run from the REPOSITORY ROOT.
+#  Any other model takes the quoted prompt as it stands.
+# ============================================================================
+
+A=books/Introduction/assets
+STYLE="black and white copperplate engraving, sixteenth-century northern European manner, fine cross-hatching and stippling, strong contrast, pure black ink on white paper, no grey wash, no colour, crisp line, book illustration"
+
+
+# --- 01 · frontispiece, "One Harbour, One Ledger" ---------------------------
+#     The whole place in one plate: where every later picture happens.
+plakat generate "a small walled harbour town seen from the water at early morning, a stone quay in the foreground with stacked wooden crates and barrels, two single-masted merchant cogs moored with furled sails, a gabled customs house with a tall arched doorway, a wooden treadwheel crane, gulls, calm water with fine horizontal line shading, tall sky left open, $STYLE" \
+  --model sdxl --size 896x1152 --seed 2001 --out $A
+mv $A/plakat-2001.png $A/01-harbour.png
+
+
+# --- 02 · Ch. 2 — the stack ------------------------------------------------
+#     THE picture of the book. One pile, and only the top crate can be lifted.
+plakat generate "a single tall stack of five plain wooden crates standing on a stone quay, a dockhand in a cap and jerkin lifting the topmost crate with both hands, the crates below it untouched and squarely piled, a moored ship's hull and mooring post behind, nothing else stacked nearby, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 2002 --out $A
+mv $A/plakat-2002.png $A/02-quay-stack.png
+
+
+# --- 03 · Ch. 3 — the top speaks first -------------------------------------
+#     The clerk holds the crate he lifted last and looks at it before the one
+#     still on the pile. First in his hands, first in the sum.
+plakat generate "a harbour clerk in a long gown and flat cap seen in profile, holding one small wooden crate in his hands and looking down at it closely, a second identical crate resting on the stone quay beside his feet, a quill tucked behind his ear, a moored cog in the background, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 2003 --out $A
+mv $A/plakat-2003.png $A/03-top-crate.png
+
+
+# --- 04 · Ch. 4 — teaching a word ------------------------------------------
+#     The harbourmaster dictates; the clerk writes the new word into his book.
+plakat generate "inside a timber-beamed customs house, a harbourmaster in a fur-trimmed robe standing and pointing with one raised finger as he dictates, a clerk seated at a sloped writing desk with his back to the viewer writing in a thick bound book with a quill, an inkwell, a window with small leaded panes showing ship masts outside, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 2004 --out $A
+mv $A/plakat-2004.png $A/04-teaching.png
+
+
+# --- 05 · Ch. 5 — decisions -------------------------------------------------
+#     One road, two doors. Large cargo goes one way and small the other.
+plakat generate "a stone harbour gatehouse seen straight on with two arched doorways side by side, one doorway wide and tall, the other narrow and low, a porter with a loaded handcart halted on the cobbles before them deciding which to take, a clerk standing between the doors with one arm pointing to the wide door, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 2005 --out $A
+mv $A/plakat-2005.png $A/05-two-doors.png
+
+
+# --- 06 · Ch. 6 — loops ------------------------------------------------------
+#     The treadwheel crane: the same step, again and again, until the hold is
+#     empty.
+plakat generate "a great wooden harbour treadwheel crane on a stone quay, a man walking inside the large wheel, a rope running over the jib lifting a single barrel out of a ship's hold, three identical barrels already set down in a row on the quay, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 2006 --out $A
+mv $A/plakat-2006.png $A/06-crane.png
+
+
+# --- 07 · Ch. 8 — lists ------------------------------------------------------
+#     Things in a row, in an order, counted from one end.
+plakat generate "a long straight row of seven identical wooden barrels standing upright on a stone quay, receding in perspective from the near left to the far right, a clerk walking along the row touching each barrel in turn with a tally stick, harbour water and a low horizon behind, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 2007 --out $A
+mv $A/plakat-2007.png $A/07-barrel-row.png
+
+
+# --- 08 · Ch. 9 — dictionaries ----------------------------------------------
+#     A ship's manifest: one sheet, several things known about one ship, each
+#     under its own heading.
+plakat generate "a still life on a wooden table seen from above at an angle, an unrolled parchment ship's manifest ruled into three labelled rows with wax seals hanging from ribbons at its foot, the writing shown only as fine illegible hatching, a brass key, a quill and inkwell, a small model of a merchant cog standing beside it, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 2008 --out $A
+mv $A/plakat-2008.png $A/08-manifest.png
+
+
+# --- 09 · Ch. 10 — the workbench ---------------------------------------------
+#     The counting table: a place to set one thing down while both hands are
+#     busy with another.
+plakat generate "a heavy oak counting table in a customs house, a clerk seen from behind standing at it with a crate held in both arms, one single small wooden box set aside alone on the cleared table top, a pair of balance scales and stacked coins at the table's far edge, shelves of ledgers on the wall, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 2009 --out $A
+mv $A/plakat-2009.png $A/09-counting-table.png
+
+
+# --- 10 · Ch. 11 — named stacks ----------------------------------------------
+#     Three quays, three piles, one clerk who stands at one of them at a time.
+plakat generate "a bird's-eye view of a harbour basin with three separate stone quays jutting into the water like fingers, on each quay one distinct pile of cargo, the first of crates, the second of barrels, the third of sacks, a single small figure of a clerk standing on the middle quay, a ship moored at each, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 2010 --out $A
+mv $A/plakat-2010.png $A/10-three-quays.png
+
+
+# --- 11 · Ch. 12 — the finished program ---------------------------------------
+#     The ledger itself, open, the day's reckoning written and ruled off.
+plakat generate "a large leather-bound ledger lying open on a sloped writing desk, both pages ruled in columns and filled with neat rows of illegible hatched writing, a heavy ruled line drawn under the last row, a quill resting across the page, a candle burned low, a window behind showing harbour masts at dusk, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 2011 --out $A
+mv $A/plakat-2011.png $A/11-ledger.png
+
+
+# --- 12 · Ch. 13 — under the hood ---------------------------------------------
+#     The works behind the customs-house clock: what was turning all along.
+plakat generate "the interior of a tower clock mechanism seen from behind the dial, large toothed iron wheels, an escapement, weights hanging on ropes, a clerk in a long gown holding up a lantern and looking into the works with his back to the viewer, a small round window showing the harbour below, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 2012 --out $A
+mv $A/plakat-2012.png $A/12-clockwork.png
+
+
+# --- 13 · Ch. 14 — the stepping stones ----------------------------------------
+#     Where the ideas came from: a new stone quay built over older works.
+#     After rendering: tools/plates.sh 13-stepping-stones (if it comes as jpg),
+#     then restore the #plate line in chapters/14-the-stepping-stones.typ.
+plakat generate "a harbour shore at low tide seen from the water's edge, a line of large flat stepping stones leading across the shallows to a new stone quay, the rotted posts of an older timber jetty standing beside it, an upturned boat on the beach beyond, a clerk in a long gown crossing the stones with his back to the viewer, masts in the distance, $STYLE" \
+  --model sdxl --size 1024x1024 --seed 2013 --out $A
+mv $A/plakat-2013.png $A/13-stepping-stones.png
+
+
+# ============================================================================
+#  Done. Thirteen plates in books/Introduction/assets/ (01–13).
+#
+#  If a plate comes back with lettering on a crate or a page, re-roll the seed
+#  rather than repainting: engraving line does not survive inpainting well.
+#  If the set drifts in manner — one plate greyer or softer than the rest —
+#  re-render that plate; do not adjust the others to meet it.
+# ============================================================================

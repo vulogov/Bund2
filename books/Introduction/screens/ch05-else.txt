@@ -1,0 +1,5 @@
+[BUND > 40 large? { "small" } { "large" } ifthenelse
+=> large
+[BUND > clear
+[BUND > 12 large? { "small" } { "large" } ifthenelse
+=> small

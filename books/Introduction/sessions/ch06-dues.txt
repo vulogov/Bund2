@@ -1,0 +1,6 @@
+#!setup
+:due { 3 * } register
+:fee { 20 + } register
+:dues { due fee } register
+#!show
+[ 40 12 25 ] { dues println } loop

@@ -1,0 +1,4 @@
+[BUND > "Marta" print ": " print 140 println
+Marta: 140
+[BUND > "Marta" print space 140 print nl
+Marta 140

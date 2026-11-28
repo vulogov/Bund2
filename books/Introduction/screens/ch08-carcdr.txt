@@ -1,0 +1,11 @@
+[BUND > [ 40 12 25 ] car
+=> 40
+[BUND > clear
+[BUND > [ 40 12 25 ] cdr
+=> [ 12 ::  25 :: ]
+[BUND > clear
+[BUND > [ 40 12 25 ] cdr car
+=> 12
+[BUND > clear
+[BUND > [ 40 ] cdr
+=> []

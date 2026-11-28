@@ -1,0 +1,35 @@
+//
+// The counting table: the words of Chapter 10.
+// Study words.bund and records.bund first.
+//
+
+// peek ( -- x )                 a copy of what is on the table
+:peek { take dup . } register
+
+// has ( key -- value )          a field of the record on the table
+:has { peek swap get } register
+
+// wording ( -- template )       how one line of the ledger reads
+:wording { "{name}: {units} of {cargo}, {due} pennies" } register
+
+// fields ( -- due cargo units name )
+//                               what the wording asks for
+:fields {
+  :units has dues
+  :cargo has
+  :units has
+  :name  has
+} register
+
+// line ( record -- )            print one line of the ledger
+:line {
+  .                              // the record goes on the table
+  fields wording format println
+  take drop                      // and the table is cleared
+} register
+
+// rule ( -- )                   a rule of 36 dashes
+:rule { "-" 36 * println } register
+
+// heading ( -- )                the heading, and a rule under it
+:heading { "harbour ledger" string.title println rule } register

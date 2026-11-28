@@ -1,0 +1,16 @@
+#!setup
+"words.bund" study
+#!show
+1 2 3 . . take
+.s
+take
+clear
+:tuck { dup . swap take } register
+1 2 tuck
+.s
+clear
+:over { . dup take swap } register
+1 2 over
+.s
+clear
+0 . [ 40 12 25 ] { +. } loop take

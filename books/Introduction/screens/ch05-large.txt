@@ -1,0 +1,9 @@
+[BUND > :large? { 30 < } register
+[BUND > 40 large?
+=> true
+[BUND > clear
+[BUND > 12 large?
+=> false
+[BUND > clear
+[BUND > 30 large?
+=> false

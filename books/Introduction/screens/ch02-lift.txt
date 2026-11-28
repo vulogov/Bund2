@@ -1,0 +1,12 @@
+[BUND > println
+25
+=> 12
+[BUND > .s
+40 12 <- top
+[BUND > println
+12
+=> 40
+[BUND > println
+40
+[BUND > .s
+(the stack is empty)

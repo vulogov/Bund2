@@ -1,0 +1,11 @@
+[BUND > println
+error: Stack is too shallow for inline PRINTLN
+[BUND > 40
+=> 40
+[BUND > swap
+error: Stack is too shallow for inline swap_one()
+=> 40
+[BUND > dup dup dup
+=> 40
+[BUND > .s
+40 40 40 40 <- top

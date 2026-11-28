@@ -1,0 +1,10 @@
+#!setup
+:large? { 30 < } register
+#!show
+true not
+clear
+true false and
+clear
+true false or
+clear
+40 large? not

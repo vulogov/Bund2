@@ -1,0 +1,19 @@
+[BUND > [ "Marta" "Gull" "Osprey" ] len println drop
+3
+[BUND > [ 40 12 25 ] { large? } map
+=> [ true ::  false ::  false :: ]
+[BUND > clear
+[BUND > :count { len swap drop } register
+[BUND > [ 40 12 25 ] count
+=> 3
+[BUND > clear
+[BUND > :largest { sort unfold fold car } register
+[BUND > [ 40 12 25 ] largest
+=> 40
+[BUND > clear
+[BUND > [ 25 12 40 ] unfold fold
+=> [ 40 ::  12 ::  25 :: ]
+[BUND > clear
+[BUND > :average { len swap total / } register
+[BUND > [ 140 56 95 ] average
+=> 97

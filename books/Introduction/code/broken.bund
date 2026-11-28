@@ -1,0 +1,11 @@
+//
+// A ledger with a slip of the pen in it.
+//
+:due  { 3 * } register
+:fee  { 20 + } register
+:dues { due fee } register
+
+"Marta owes" println
+40 dues println
+"Gull owes" println
+dues println

@@ -1,0 +1,2 @@
+[ "Marta" 40 [ "salt" "amber" ] ]
+cdr cdr car

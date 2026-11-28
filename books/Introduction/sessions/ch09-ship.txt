@@ -1,0 +1,7 @@
+#!setup
+"words.bund" study
+#!show
+"records.bund" study
+"Marta" "salt" 40 ship
+clear
+"Gull" "wax" 12 ship :cargo get

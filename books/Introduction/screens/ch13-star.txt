@@ -1,0 +1,8 @@
+[BUND > 40 "salt" true
+=> true
+[BUND > lambda*
+=> lambda[ 40 ::  salt ::  true :: ]
+[BUND > !
+=> true
+[BUND > .s
+40 salt true <- top

@@ -1,0 +1,5 @@
+[BUND > 0 . [ 40 12 25 ] { dues +. } loop
+[BUND > .s
+(the stack is empty)
+[BUND > take
+=> 291

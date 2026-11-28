@@ -1,0 +1,7 @@
+"salt"
+clear
+'He said "cast off".'
+clear
+:salt
+clear
+"salt" :salt ==

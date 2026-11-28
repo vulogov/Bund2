@@ -1,0 +1,11 @@
+[BUND > "Marta" println "Gull" println "Osprey" println
+Marta
+Gull
+Osprey
+[BUND > "Marta" "Gull" println
+Gull
+=> Marta
+[BUND > println
+Marta
+[BUND > println println
+error: Stack is too shallow for inline PRINTLN

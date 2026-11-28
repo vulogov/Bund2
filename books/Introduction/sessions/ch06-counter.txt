@@ -1,0 +1,5 @@
+3 { "crate" println } times
+.s
+clear
+3 { drop "crate" println } times
+.s

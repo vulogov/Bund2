@@ -1,0 +1,4 @@
+[BUND > "Marta" "salt" 40 ship line
+Marta: 40 of salt, 140 pennies, large
+[BUND > "Gull" "wax" 12 ship line
+Gull: 12 of wax, 56 pennies, small

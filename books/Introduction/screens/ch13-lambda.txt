@@ -1,0 +1,6 @@
+[BUND > { 3 * }
+=> lambda[ 3 ::  F(*) :: ]
+[BUND > convert.to_list
+=> [ 3 ::  F(*) :: ]
+[BUND > len
+=> 2

@@ -1,0 +1,6 @@
+[BUND > 40 `println
+=> `(println)
+[BUND > !
+40
+[BUND > `dup type
+=> Ptr

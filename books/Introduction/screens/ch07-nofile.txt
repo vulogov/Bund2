@@ -1,0 +1,3 @@
+[BUND > "wrods.bund" study
+error: USE can not get from file:///home/you/Bund2/books/Introduction/cod
+    e/wrods.bund

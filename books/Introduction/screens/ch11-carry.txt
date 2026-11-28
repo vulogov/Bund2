@@ -1,0 +1,9 @@
+[BUND > 40 .
+[BUND > @quay
+[BUND > take
+=> 40
+[BUND > .s
+40 <- top
+[BUND > @main
+[BUND > .s
+(the stack is empty)

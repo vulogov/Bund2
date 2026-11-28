@@ -1,0 +1,6 @@
+[BUND > "salt herring wax" string.tokenize
+=> [ salt ::  herring ::  wax :: ]
+[BUND > { string.upper println } loop
+SALT
+HERRING
+WAX

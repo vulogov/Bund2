@@ -1,0 +1,23 @@
+[BUND > :double { 2 * } register
+[BUND > :quadruple { double double } register
+[BUND > 5 quadruple
+=> 20
+[BUND > clear
+[BUND > :spoiled { swap - } register
+[BUND > 12 5 spoiled
+=> 7
+[BUND > clear
+[BUND > 12 5 spoiled dues
+=> 41
+[BUND > clear
+[BUND > :square { dup * } register
+[BUND > 9 square
+=> 81
+[BUND > clear
+[BUND > :fee { 25 + } register
+[BUND > 40 dues
+=> 145
+[BUND > clear
+[BUND > :fee { 20 + } register
+[BUND > 40 dues
+=> 140

@@ -1,0 +1,8 @@
+#!setup
+"words.bund" study
+"records.bund" study
+#!show
+arrivals
+brief
+brief
+brief

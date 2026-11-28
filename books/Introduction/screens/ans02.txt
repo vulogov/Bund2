@@ -1,0 +1,17 @@
+[BUND > 1 2 3 swap drop swap
+=> 1
+[BUND > .s
+3 1 <- top
+[BUND > clear
+[BUND > 7 dup dup drop swap
+=> 7
+[BUND > .s
+7 7 <- top
+[BUND > clear
+[BUND > "Marta" 40 swap println println
+Marta
+40
+[BUND > 5 dup println println println
+5
+5
+error: Stack is too shallow for inline PRINTLN

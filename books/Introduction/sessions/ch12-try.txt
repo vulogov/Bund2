@@ -1,0 +1,7 @@
+0 291 /
+clear
+:per { ?try :try { / } set :except { drop 0 } set ! } register
+3 291 per
+clear
+0 291 per
+.s

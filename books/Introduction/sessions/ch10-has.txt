@@ -1,0 +1,12 @@
+#!setup
+"words.bund" study
+"records.bund" study
+:peek { take dup . } register
+#!show
+:has { peek swap get } register
+"Marta" "salt" 40 ship .
+.s
+:name has
+:units has
+:cargo has
+.s

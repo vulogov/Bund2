@@ -1,0 +1,28 @@
+//
+// The harbourmaster's words, as far as Chapter 6.
+//
+//   "words.bund" study
+//
+
+// due ( units -- pennies )      three pennies for each unit of cargo
+:due { 3 * } register
+
+// fee ( pennies -- pennies )    add the mooring fee
+:fee { 20 + } register
+
+// dues ( units -- pennies )     what a ship owes
+:dues { due fee } register
+
+// large? ( units -- flag )      more than 30 units
+:large? { 30 < } register
+
+// size ( units -- text )        "large" or "small"
+:size {
+  large?
+  { "small" }
+  { "large" }
+  ifthenelse
+} register
+
+// note ( units -- )             print the size
+:note { size println } register

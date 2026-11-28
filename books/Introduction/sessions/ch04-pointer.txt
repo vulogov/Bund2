@@ -1,0 +1,9 @@
+#!hide
+:due { 3 * } register
+#!hide
+:fee { 20 + } register
+#!hide
+:dues { due fee } register
+40 `dues
+.s
+!

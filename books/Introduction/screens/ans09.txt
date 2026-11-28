@@ -1,0 +1,18 @@
+[BUND > "Heron" "wool" 8 ship brief
+Heron: 44
+[BUND > :cargo-of { :cargo get } register
+[BUND > "Gull" "wax" 12 ship cargo-of
+=> wax
+[BUND > clear
+[BUND > :heavy? { :units get large? } register
+[BUND > "Marta" "salt" 40 ship heavy?
+=> true
+[BUND > clear
+[BUND > arrivals gather { :units get size } map
+=> [ large ::  small ::  small :: ]
+[BUND > clear
+[BUND > :owes { dup :units get dues } register
+[BUND > "Marta" "salt" 40 ship owes
+=> 140
+[BUND > :due swap set
+=> { cargo=salt ::  due=140 ::  name=Marta ::  units=40 :: }

@@ -1,0 +1,2 @@
+$ bund2 hello.bund
+Wendhaven keeps a ledger.

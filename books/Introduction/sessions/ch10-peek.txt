@@ -1,0 +1,5 @@
+:peek { take dup . } register
+42 .
+peek
+peek
+.s

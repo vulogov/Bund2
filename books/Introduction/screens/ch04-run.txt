@@ -1,0 +1,6 @@
+[BUND > 40 { 3 * }
+=> lambda[ 3 ::  F(*) :: ]
+[BUND > .s
+40 lambda[ 3 ::  F(*) :: ] <- top
+[BUND > !
+=> 120

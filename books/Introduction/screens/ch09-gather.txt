@@ -1,0 +1,8 @@
+[BUND > arrivals gather
+=> [ { cargo=salt ::  name=Marta ::  units=40 :: } ::  { cargo=wax ::  na
+    me=Gull ::  units=12 :: } ::  { cargo=herring ::  name=Osprey ::  uni
+    ts=25 :: } :: ]
+[BUND > len
+=> 3
+[BUND > swap drop
+=> 3

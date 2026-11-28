@@ -1,0 +1,10 @@
+[BUND > :fee { 20 + } register
+[BUND > :dues { due fee } register
+[BUND > 40 dues
+=> 140
+[BUND > 12 dues
+=> 56
+[BUND > 25 dues
+=> 95
+[BUND > + +
+=> 291

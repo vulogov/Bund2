@@ -1,0 +1,7 @@
+[BUND > :due { 3 * } register
+[BUND > 40 due
+=> 120
+[BUND > 12 due
+=> 36
+[BUND > .s
+120 36 <- top

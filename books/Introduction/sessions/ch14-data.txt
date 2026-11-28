@@ -1,0 +1,8 @@
+#!setup
+"words.bund" study
+#!show
+[ 40 12 25 ] { dues } map
+clear
+:dues lambda= convert.to_list
+clear
+"40 dues" bund.eval

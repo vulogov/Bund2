@@ -1,0 +1,2 @@
+[BUND > 1 { "yes" println } if
+error: This Dynamic type is not bool

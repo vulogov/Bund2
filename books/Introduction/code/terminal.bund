@@ -1,0 +1,123 @@
+//
+// The terminal of "Bund, Word by Word".
+//
+// A read-eval-print loop, written in Bund. Every line typed is handed
+// to `bund.eval`, which runs it in this same VM: a word you `register`
+// stays registered, and the stack carries over from one line to the
+// next. A line that fails is reported in one short line and the loop
+// goes on.
+//
+//   bund2 books/Introduction/code/terminal.bund
+//
+// Chapter 13 of the book reads this file from top to bottom.
+//
+
+//
+// What the loop prints for `help`.
+//
+:term.help {
+  "Type Bund. The stack carries over from line to line." println
+  "" println
+  "  help     this text" println
+  "  .s       show the whole stack, bottom to top" println
+  "  clear    empty the stack" println
+  "  quit     leave (so does Ctrl-D)" println
+  "" println
+  "To learn the words kept in a file:  'words.bund' study" println
+} register
+
+//
+// `.s`: the whole stack on one line, bottom first, and the stack left
+// as it was. `lambda*` gathers the stack into one lambda, in order; a
+// copy of it is turned into a list and printed; `!` runs the original,
+// and a lambda made of values puts those values back.
+//
+:term.stack {
+  lambda* len 0 ==
+  { dup convert.to_list { print space } loop "<- top" println ! }
+  { drop "(the stack is empty)" println }
+  ifthenelse
+} register
+
+//
+// `study`: learn the words kept in a file beside this one. `use` wants
+// the file's whole address, so the name is joined onto the directory
+// the terminal was started in. The top speaks first: "file://", then
+// the directory, then the name.
+//
+//   "words.bund" study
+//
+:study {
+  "/" + cwd "file://" + + use
+} register
+
+//
+// The evaluator reports a failure as a chain: who called whom, each
+// link ending "returned error: ". The last link is the one that says
+// what went wrong, so the text is split at those words and the last
+// piece is kept.
+//
+:term.short {
+  "(returned|returns)( error)?: " swap string.regex.split
+  "" swap { swap drop } loop
+} register
+
+//
+// The loop's own commands: a dictionary from a line's text to the
+// lambda that handles it. `bund.exit` takes its code from the top of
+// the stack, so `0` is pushed first.
+//
+:term.commands {
+  dict
+  "help"  { term.help } set
+  ".s"    { term.stack } set
+  "clear" { clear } set
+  "quit"  { "bye" println 0 bund.exit } set
+} register
+
+//
+// Show what is on top after a line, if anything is. `dup` fails on an
+// empty stack; `?try` turns that failure into a value, which `except`
+// drops.
+//
+:term.show {
+  ?try
+    :try      { dup "=> " print println } set
+    :except   { drop } set
+  !
+} register
+
+//
+// Evaluate one line. On failure `?try` pushes the error as a value
+// whose `context` slot holds the text.
+//
+:term.eval {
+  ?try
+    :try      { bund.eval } set
+    :except   { :context get term.short "error: " print println } set
+  !
+  term.show
+} register
+
+//
+// One line, as `input*` hands it over: trimmed, on top of the stack. An
+// empty line does nothing. A command runs its lambda; anything else is
+// evaluated.
+//
+:term.line {
+  dup "" ==
+  {
+    dup term.commands swap ?key
+    { drop term.eval }
+    { swap get ! }
+    ifthenelse
+  }
+  { drop }
+  ifthenelse
+} register
+
+"Bund" io.banner println
+"Bund, Word by Word: type help for commands, Ctrl-D to leave." println
+bund.prompt { term.line } input*
+"" println
+"bye" println

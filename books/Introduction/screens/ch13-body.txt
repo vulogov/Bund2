@@ -1,0 +1,6 @@
+[BUND > :dues lambda=
+=> lambda[ F(due) ::  F(fee) :: ]
+[BUND > clear
+[BUND > :size lambda=
+=> lambda[ F(large?) ::  lambda[ small :: ] ::  lambda[ large :: ] ::  F(
+    ifthenelse) :: ]

@@ -1,0 +1,7 @@
+[BUND > [ 40 12 25 ]
+=> [ 40 ::  12 ::  25 :: ]
+[BUND > .s
+[ 40 ::  12 ::  25 :: ] <- top
+[BUND > clear
+[BUND > [ "Marta" "Gull" "Osprey" ]
+=> [ Marta ::  Gull ::  Osprey :: ]

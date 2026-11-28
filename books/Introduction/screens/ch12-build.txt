@@ -1,0 +1,10 @@
+$ bund2 build --file ledger.bund --output ledger
+bund2: wrote ledger — 3047 bytes, 1073 compressed of 1048576 bytes used
+$ ./ledger --day Friday
+Wendhaven ledger for Friday
+------------------------------------
+Marta: 40 of salt, 140 pennies
+Gull: 12 of wax, 56 pennies
+Osprey: 25 of herring, 95 pennies
+------------------------------------
+Total: 291 pennies

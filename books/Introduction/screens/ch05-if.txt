@@ -1,0 +1,3 @@
+[BUND > 40 large? { "a large cargo" println } if
+a large cargo
+[BUND > 12 large? { "a large cargo" println } if

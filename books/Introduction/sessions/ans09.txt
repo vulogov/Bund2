@@ -1,0 +1,16 @@
+#!setup
+"words.bund" study
+"records.bund" study
+#!show
+"Heron" "wool" 8 ship brief
+:cargo-of { :cargo get } register
+"Gull" "wax" 12 ship cargo-of
+clear
+:heavy? { :units get large? } register
+"Marta" "salt" 40 ship heavy?
+clear
+arrivals gather { :units get size } map
+clear
+:owes { dup :units get dues } register
+"Marta" "salt" 40 ship owes
+:due swap set

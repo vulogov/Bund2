@@ -1,0 +1,4 @@
+//
+// The first program: one string, one word.
+//
+"Wendhaven keeps a ledger." println

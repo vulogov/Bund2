@@ -1,0 +1,4 @@
+[BUND > { 3 * }
+=> lambda[ 3 ::  F(*) :: ]
+[BUND > .s
+lambda[ 3 ::  F(*) :: ] <- top

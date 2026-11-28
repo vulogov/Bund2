@@ -1,0 +1,8 @@
+#!setup
+"words.bund" study
+"records.bund" study
+:total { 0 swap { + } loop } register
+#!show
+arrivals gather { brief } loop
+arrivals gather { :units get dues } map
+total

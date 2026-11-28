@@ -1,0 +1,4 @@
+"ledger.bund" study
+dict :name "Heron" set :cargo "wool" set
+entry
+.s

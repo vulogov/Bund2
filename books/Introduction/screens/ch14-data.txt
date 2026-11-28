@@ -1,0 +1,8 @@
+[BUND > [ 40 12 25 ] { dues } map
+=> [ 140 ::  56 ::  95 :: ]
+[BUND > clear
+[BUND > :dues lambda= convert.to_list
+=> [ F(due) ::  F(fee) :: ]
+[BUND > clear
+[BUND > "40 dues" bund.eval
+=> 140

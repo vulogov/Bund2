@@ -1,0 +1,9 @@
+[BUND > 40 3.5 "salt" true :cargo
+=> cargo
+[BUND > .s
+40 3.5 salt true cargo <- top
+[BUND > clear
+[BUND > "salt" type
+=> String
+[BUND > .s
+salt String <- top

@@ -1,0 +1,7 @@
+40 40 ==
+clear
+40 41 !=
+clear
+"Marta" "Gull" ==
+clear
+:salt :salt ==

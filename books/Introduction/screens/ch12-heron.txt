@@ -1,0 +1,14 @@
+[BUND > "ledger.bund" study
+Wendhaven ledger for today
+------------------------------------
+Marta: 40 of salt, 140 pennies
+Gull: 12 of wax, 56 pennies
+Osprey: 25 of herring, 95 pennies
+------------------------------------
+Total: 291 pennies
+[BUND > dict :name "Heron" set :cargo "wool" set
+=> { cargo=wool ::  name=Heron :: }
+[BUND > entry
+Heron has no units and was not reckoned
+[BUND > .s
+(the stack is empty)

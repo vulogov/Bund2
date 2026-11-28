@@ -1,0 +1,6 @@
+#!setup
+:large? { 30 < } register
+:size { large? { "small" } { "large" } ifthenelse } register
+:note { size println } register
+#!show
+[ 40 12 25 ] { note } loop

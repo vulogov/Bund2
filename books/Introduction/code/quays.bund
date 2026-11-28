@@ -1,0 +1,27 @@
+//
+// The other quays: the words of Chapter 11.
+// Study words.bund, records.bund and table.bund first.
+//
+
+// manifest ( -- list )          the day's arrivals, gathered on a stack
+//                               of their own and carried back
+:manifest {
+  @manifest
+  arrivals gather .
+  @main take
+} register
+
+// to-wide ( record -- )         carry a record to the wide quay
+:to-wide { . @wide take @main } register
+
+// to-narrow ( record -- )       carry a record to the narrow quay
+:to-narrow { . @narrow take @main } register
+
+// berth ( record -- )           a large cargo to the wide quay,
+//                               a small one to the narrow
+:berth {
+  dup :units get large?
+  { to-narrow }
+  { to-wide }
+  ifthenelse
+} register

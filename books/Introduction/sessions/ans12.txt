@@ -1,0 +1,9 @@
+#!setup
+"ledger.bund" study
+#!show
+:fee { 25 + } register
+0 . manifest { entry } loop take
+clear
+:fee { 20 + } register
+8 dues
+291 +

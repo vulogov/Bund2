@@ -1,0 +1,12 @@
+[BUND > :has { peek swap get } register
+[BUND > "Marta" "salt" 40 ship .
+[BUND > .s
+(the stack is empty)
+[BUND > :name has
+=> Marta
+[BUND > :units has
+=> 40
+[BUND > :cargo has
+=> salt
+[BUND > .s
+Marta 40 salt <- top

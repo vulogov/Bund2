@@ -1,0 +1,11 @@
+[BUND > "salt"
+=> salt
+[BUND > clear
+[BUND > 'He said "cast off".'
+=> He said "cast off".
+[BUND > clear
+[BUND > :salt
+=> salt
+[BUND > clear
+[BUND > "salt" :salt ==
+=> true

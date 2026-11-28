@@ -1,0 +1,5 @@
+2 7 /
+clear
+2 7.0 /
+clear
+2 7 convert.to_float /

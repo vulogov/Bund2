@@ -1,0 +1,7 @@
+#!hide
+:due { 3 * } register
+:due ?word
+clear
+:tithe ?word
+clear
+:due lambda=

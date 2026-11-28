@@ -1,0 +1,4 @@
+:due { 3 * } register
+40 due
+12 due
+.s

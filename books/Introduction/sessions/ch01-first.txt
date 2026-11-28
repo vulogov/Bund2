@@ -1,0 +1,4 @@
+"Good morning, Wendhaven." println
+"The Marta is in." println "So is the Gull." println
+// the clerk does not read this
+"Tide at noon." println   // nor this

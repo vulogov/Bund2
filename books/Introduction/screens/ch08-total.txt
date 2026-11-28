@@ -1,0 +1,6 @@
+[BUND > :total { 0 swap { + } loop } register
+[BUND > [ 140 56 95 ] total
+=> 291
+[BUND > clear
+[BUND > [ 40 12 25 ] { dues } map total
+=> 291

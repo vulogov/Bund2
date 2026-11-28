@@ -1,0 +1,6 @@
+#!setup
+"words.bund" study
+"records.bund" study
+"table.bund" study
+#!show
+heading arrivals gather { line } loop rule

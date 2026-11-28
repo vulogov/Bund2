@@ -1,0 +1,5 @@
+[BUND > dues
+error: Stack is too shallow for inline MUL()
+=> 3
+[BUND > .s
+3 <- top

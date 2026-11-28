@@ -1,0 +1,5 @@
+[BUND > "table.bund" study
+[BUND > "Marta" "salt" 40 ship line
+Marta: 40 of salt, 140 pennies
+[BUND > .s
+(the stack is empty)

@@ -1,0 +1,36 @@
+[BUND > 5 9 <
+=> false
+[BUND > clear
+[BUND > 9 5 <
+=> true
+[BUND > clear
+[BUND > 5 5 >=
+=> true
+[BUND > clear
+[BUND > "a" "a" !=
+=> false
+[BUND > clear
+[BUND > :empty? { 0 == } register
+[BUND > 0 empty?
+=> true
+[BUND > clear
+[BUND > :small? { large? not } register
+[BUND > 12 small?
+=> true
+[BUND > clear
+[BUND > :fair? { dup 10 < swap 30 >= and } register
+[BUND > 25 fair?
+=> true
+[BUND > clear
+[BUND > 10 fair?
+=> false
+[BUND > clear
+[BUND > 30 fair?
+=> true
+[BUND > clear
+[BUND > :charge { dup large? { dues } { dues 10 + } ifthenelse } register
+[BUND > 40 charge
+=> 150
+[BUND > clear
+[BUND > 12 charge
+=> 56

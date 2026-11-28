@@ -1,0 +1,13 @@
+[BUND > 40 12
+=> 12
+[BUND > @quay
+[BUND > .s
+(the stack is empty)
+[BUND > 25
+=> 25
+[BUND > .s
+25 <- top
+[BUND > @main
+=> 12
+[BUND > .s
+40 12 <- top

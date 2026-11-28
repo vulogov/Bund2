@@ -1,0 +1,6 @@
+[BUND > :units 38 set
+=> { cargo=salt ::  name=Marta ::  units=38 :: }
+[BUND > :quay "north" set
+=> { cargo=salt ::  name=Marta ::  quay=north ::  units=38 :: }
+[BUND > len
+=> 4

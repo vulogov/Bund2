@@ -1,0 +1,4 @@
+[BUND > :units get
+=> 40
+[BUND > .s
+40 <- top

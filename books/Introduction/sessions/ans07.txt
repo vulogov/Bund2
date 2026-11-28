@@ -1,0 +1,11 @@
+")" "wax" " (" "Gull" + + +
+clear
+:shout { string.upper "!" swap + println } register
+"cast off" shout
+:dashes { "-" swap * println } register
+:underline { dup println len swap drop dashes } register
+"Wendhaven" underline
+25 "Osprey" "The {ship} brought {n} barrels." format
+clear
+:measure { len swap print space println } register
+"salt herring wax" string.tokenize { measure } loop

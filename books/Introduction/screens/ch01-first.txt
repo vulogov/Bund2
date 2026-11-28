@@ -1,0 +1,8 @@
+[BUND > "Good morning, Wendhaven." println
+Good morning, Wendhaven.
+[BUND > "The Marta is in." println "So is the Gull." println
+The Marta is in.
+So is the Gull.
+[BUND > // the clerk does not read this
+[BUND > "Tide at noon." println   // nor this
+Tide at noon.

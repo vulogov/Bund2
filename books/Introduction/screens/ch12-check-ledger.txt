@@ -1,0 +1,6 @@
+$ bund2 check --file ledger.bund
+checked ledger.bund: 0 finding(s), 28 site(s) analysed, 1 abandoned
+  analysis stopped at:
+       1  `manifest`, whose effect is not a fixed pair
+  A finding is only ever about the 28 site(s) above that were
+  tracked. Nothing is claimed about the rest.

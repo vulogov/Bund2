@@ -1,0 +1,6 @@
+[BUND > 40 dup large? { "large: " print println } if
+large: 40
+[BUND > 12 dup large? { "large: " print println } if
+=> 12
+[BUND > .s
+12 <- top

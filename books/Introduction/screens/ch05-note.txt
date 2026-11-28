@@ -1,0 +1,11 @@
+[BUND > :size { large? { "small" } { "large" } ifthenelse } register
+[BUND > 40 size
+=> large
+[BUND > clear
+[BUND > :note { size println } register
+[BUND > 40 note
+large
+[BUND > 12 note
+small
+[BUND > 25 note
+small

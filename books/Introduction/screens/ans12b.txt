@@ -1,0 +1,9 @@
+$ bund2 check --file answers/top.bund
+checked answers/top.bund: 1 finding(s), 1 site(s) analysed, 0 abandoned
+Warning: answers/top.bund:1:1: `+` needs 2 value(s); 0 can be proven here
+$ bund2 check --file answers/end.bund
+checked answers/end.bund: 0 finding(s), 2 site(s) analysed, 1 abandoned
+  analysis stopped at:
+       1  `three`, whose effect is not a fixed pair
+  A finding is only ever about the 2 site(s) above that were
+  tracked. Nothing is claimed about the rest.

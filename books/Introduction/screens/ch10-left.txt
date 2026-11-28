@@ -1,0 +1,7 @@
+[BUND > 7 .
+[BUND > "some time later" println
+some time later
+[BUND > 99 . take
+=> 99
+[BUND > take
+=> 7

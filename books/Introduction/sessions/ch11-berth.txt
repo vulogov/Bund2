@@ -1,0 +1,13 @@
+#!setup
+"words.bund" study
+"records.bund" study
+"table.bund" study
+"quays.bund" study
+#!show
+manifest { berth } loop
+.s
+@wide
+{ brief } *loop
+@narrow
+{ brief } *loop
+@main

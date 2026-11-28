@@ -1,0 +1,1 @@
+1 { dup println 2 * dup 100 > } for

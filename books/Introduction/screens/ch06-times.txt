@@ -1,0 +1,4 @@
+[BUND > 3 { println } times
+0
+1
+2

@@ -1,0 +1,16 @@
+#!setup
+"words.bund" study
+"records.bund" study
+"table.bund" study
+"quays.bund" study
+#!show
+:top { sort unfold fold car } register
+:largest { . @work take top . @main take } register
+"mine" [ 40 12 25 ] largest
+.s
+clear
+manifest { berth } loop
+@narrow lambda* len . ! @main take
+clear
+:reversed { . @work take unfold fold . @main take } register
+[ 25 12 40 ] reversed

@@ -1,0 +1,9 @@
+#!setup
+dict :name "Marta" set :units 40 set :cargo "salt" set
+#!show
+:units ?key
+.s
+drop
+:quay ?key
+drop
+:quay get

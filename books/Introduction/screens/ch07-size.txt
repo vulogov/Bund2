@@ -1,0 +1,2 @@
+[BUND > 40 size "Marta" "{name} carries a {size} cargo" format
+=> Marta carries a large cargo

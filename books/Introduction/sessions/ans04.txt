@@ -1,0 +1,20 @@
+#!setup
+"words.bund" study
+#!show
+:double { 2 * } register
+:quadruple { double double } register
+5 quadruple
+clear
+:spoiled { swap - } register
+12 5 spoiled
+clear
+12 5 spoiled dues
+clear
+:square { dup * } register
+9 square
+clear
+:fee { 25 + } register
+40 dues
+clear
+:fee { 20 + } register
+40 dues

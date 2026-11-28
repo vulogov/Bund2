@@ -1,0 +1,14 @@
+[BUND > :top { sort unfold fold car } register
+[BUND > :largest { . @work take top . @main take } register
+[BUND > "mine" [ 40 12 25 ] largest
+=> 40
+[BUND > .s
+mine 40 <- top
+[BUND > clear
+[BUND > manifest { berth } loop
+[BUND > @narrow lambda* len . ! @main take
+=> 2
+[BUND > clear
+[BUND > :reversed { . @work take unfold fold . @main take } register
+[BUND > [ 25 12 40 ] reversed
+=> [ 40 ::  12 ::  25 :: ]

@@ -1,0 +1,6 @@
+#!setup
+"words.bund" study
+#!show
+[ 40 12 25 ] { dues } map
+clear
+[ 40 12 25 ] { size } map

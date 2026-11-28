@@ -1,0 +1,7 @@
+[BUND > list
+=> []
+[BUND > len
+=> 0
+[BUND > clear
+[BUND > list car
+error: NO DATA

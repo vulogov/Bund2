@@ -1,0 +1,6 @@
+[BUND > 40 `dues
+=> `(dues)
+[BUND > .s
+40 `(dues) <- top
+[BUND > !
+=> 140

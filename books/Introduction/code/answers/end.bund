@@ -1,0 +1,4 @@
+:gather { lambda* convert.to_list } register
+:three  { 1 2 3 gather } register
+three
++

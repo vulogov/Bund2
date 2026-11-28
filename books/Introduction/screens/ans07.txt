@@ -1,0 +1,19 @@
+[BUND > ")" "wax" " (" "Gull" + + +
+=> Gull (wax)
+[BUND > clear
+[BUND > :shout { string.upper "!" swap + println } register
+[BUND > "cast off" shout
+CAST OFF!
+[BUND > :dashes { "-" swap * println } register
+[BUND > :underline { dup println len swap drop dashes } register
+[BUND > "Wendhaven" underline
+Wendhaven
+---------
+[BUND > 25 "Osprey" "The {ship} brought {n} barrels." format
+=> The Osprey brought 25 barrels.
+[BUND > clear
+[BUND > :measure { len swap print space println } register
+[BUND > "salt herring wax" string.tokenize { measure } loop
+salt 4
+herring 7
+wax 3

@@ -1,0 +1,7 @@
+[ 40 12 25 ] car
+clear
+[ 40 12 25 ] cdr
+clear
+[ 40 12 25 ] cdr car
+clear
+[ 40 ] cdr

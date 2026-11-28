@@ -1,0 +1,6 @@
+[BUND > :wording { "{name}: {units} of {cargo}, {due} pennies" } register
+[BUND > 40 dues "salt" 40 "Marta" wording format
+=> Marta: 40 of salt, 140 pennies
+[BUND > clear
+[BUND > 12 dues "wax" 12 "Gull" wording format println
+Gull: 12 of wax, 56 pennies

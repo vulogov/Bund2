@@ -1,0 +1,4 @@
+#!setup
+"words.bund" study
+#!show
+40 size "Marta" "{name} carries a {size} cargo" format

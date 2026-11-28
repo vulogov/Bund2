@@ -1,0 +1,7 @@
+[BUND > "-" 36 * println
+------------------------------------
+[BUND > :rule { "-" 36 * println } register
+[BUND > :heading { "harbour ledger" string.title println rule } register
+[BUND > heading
+Harbour Ledger
+------------------------------------

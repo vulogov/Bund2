@@ -1,0 +1,7 @@
+#!hide
+40 12 25
+println
+.s
+println
+println
+.s

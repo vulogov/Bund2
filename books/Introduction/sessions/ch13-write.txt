@@ -1,0 +1,10 @@
+#!setup
+"words.bund" study
+#!show
+" * } register" 4 ":due { " + +
+bund.eval
+40 dues
+clear
+:rate { " * } register" swap ":due { " + + bund.eval } register
+3 rate
+40 dues

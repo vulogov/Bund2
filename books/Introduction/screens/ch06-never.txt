@@ -1,0 +1,4 @@
+[BUND > 40 false { "carting" println false } while
+=> 40
+[BUND > .s
+40 <- top

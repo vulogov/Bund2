@@ -1,0 +1,21 @@
+[BUND > 1 2 3 . . take
+=> 2
+[BUND > .s
+1 2 <- top
+[BUND > take
+=> 3
+[BUND > clear
+[BUND > :tuck { dup . swap take } register
+[BUND > 1 2 tuck
+=> 2
+[BUND > .s
+2 1 2 <- top
+[BUND > clear
+[BUND > :over { . dup take swap } register
+[BUND > 1 2 over
+=> 1
+[BUND > .s
+1 2 1 <- top
+[BUND > clear
+[BUND > 0 . [ 40 12 25 ] { +. } loop take
+=> 77

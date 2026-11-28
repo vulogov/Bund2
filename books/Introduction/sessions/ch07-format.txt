@@ -1,0 +1,1 @@
+"salt" 40 "Marta" "{name}: {units} of {cargo}" format

@@ -1,0 +1,6 @@
+#!setup
+:large? { 30 < } register
+#!show
+40 large? { "small" } { "large" } ifthenelse
+clear
+12 large? { "small" } { "large" } ifthenelse

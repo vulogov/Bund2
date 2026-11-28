@@ -1,0 +1,8 @@
+[BUND > "haven" "Wend" +
+=> Wendhaven
+[BUND > clear
+[BUND > "=" 20 *
+=> ====================
+[BUND > clear
+[BUND > "due: " 140 +
+=> due: 140

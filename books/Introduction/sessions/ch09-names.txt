@@ -1,0 +1,7 @@
+#!setup
+"words.bund" study
+"records.bund" study
+#!show
+arrivals gather { :name get } map
+clear
+arrivals gather { :units get } map sort

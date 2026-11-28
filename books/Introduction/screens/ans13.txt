@@ -1,0 +1,22 @@
+[BUND > :dues lambda= convert.to_list { println } loop
+F(due)
+F(fee)
+[BUND > 40 :size lambda= !
+=> large
+[BUND > clear
+[BUND > 1 2 3 lambda* len . ! take println
+3
+=> 3
+[BUND > .s
+1 2 3 <- top
+[BUND > clear
+[BUND > :twice { dup . ! take ! } register
+[BUND > 5 { 3 * } twice
+=> 45
+[BUND > clear
+[BUND > :moor { " + } register" swap ":fee { " + + bund.eval } register
+[BUND > 25 moor 40 dues
+=> 145
+[BUND > clear
+[BUND > 20 moor 40 dues
+=> 140

@@ -1,0 +1,6 @@
+[BUND > dict "hail" { "Good morning, Wendhaven." println } set
+=> { hail=lambda[ Good morning, Wendhaven. ::  F(println) :: ] :: }
+[BUND > "hail" get
+=> lambda[ Good morning, Wendhaven. ::  F(println) :: ]
+[BUND > !
+Good morning, Wendhaven.

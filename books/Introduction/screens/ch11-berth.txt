@@ -1,0 +1,13 @@
+[BUND > manifest { berth } loop
+[BUND > .s
+(the stack is empty)
+[BUND > @wide
+=> { cargo=salt ::  name=Marta ::  units=40 :: }
+[BUND > { brief } *loop
+Marta: 140
+[BUND > @narrow
+=> { cargo=herring ::  name=Osprey ::  units=25 :: }
+[BUND > { brief } *loop
+Osprey: 95
+Gull: 56
+[BUND > @main

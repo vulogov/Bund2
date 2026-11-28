@@ -1,0 +1,19 @@
+[BUND > 40 12
+=> 12
+[BUND > .s
+40 12 <- top
+[BUND > dup
+=> 12
+[BUND > .s
+40 12 12 <- top
+[BUND > drop
+=> 12
+[BUND > .s
+40 12 <- top
+[BUND > swap
+=> 40
+[BUND > .s
+12 40 <- top
+[BUND > clear
+[BUND > .s
+(the stack is empty)

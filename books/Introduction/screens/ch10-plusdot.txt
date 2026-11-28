@@ -1,0 +1,6 @@
+[BUND > 100 .
+[BUND > 40 +.
+[BUND > .s
+(the stack is empty)
+[BUND > take
+=> 140

@@ -1,0 +1,6 @@
+$ bund2 words | wc -l
+    1212
+$ bund2 words | grep '^string\.' | wc -l
+      70
+$ bund2 words | grep -c '\.$'
+444

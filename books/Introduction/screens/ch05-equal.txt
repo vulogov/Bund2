@@ -1,0 +1,11 @@
+[BUND > 40 40 ==
+=> true
+[BUND > clear
+[BUND > 40 41 !=
+=> true
+[BUND > clear
+[BUND > "Marta" "Gull" ==
+=> false
+[BUND > clear
+[BUND > :salt :salt ==
+=> true

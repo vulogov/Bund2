@@ -1,0 +1,5 @@
+[BUND > [ 1 2 + ]
+=> [ 1 ::  2 ::  F(+) :: ]
+[BUND > clear
+[BUND > [ true false ]
+=> [ F(true) ::  F(false) :: ]

@@ -1,0 +1,5 @@
+[BUND > 4 20 /
+=> 5
+[BUND > clear
+[BUND > 20 4 /
+=> 0

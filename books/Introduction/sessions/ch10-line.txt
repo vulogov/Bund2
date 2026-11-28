@@ -1,0 +1,7 @@
+#!setup
+"words.bund" study
+"records.bund" study
+#!show
+"table.bund" study
+"Marta" "salt" 40 ship line
+.s

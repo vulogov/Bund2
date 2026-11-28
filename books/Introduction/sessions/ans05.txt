@@ -1,0 +1,28 @@
+#!setup
+"words.bund" study
+#!show
+5 9 <
+clear
+9 5 <
+clear
+5 5 >=
+clear
+"a" "a" !=
+clear
+:empty? { 0 == } register
+0 empty?
+clear
+:small? { large? not } register
+12 small?
+clear
+:fair? { dup 10 < swap 30 >= and } register
+25 fair?
+clear
+10 fair?
+clear
+30 fair?
+clear
+:charge { dup large? { dues } { dues 10 + } ifthenelse } register
+40 charge
+clear
+12 charge

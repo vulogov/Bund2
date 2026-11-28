@@ -1,0 +1,4 @@
+"-" 36 * println
+:rule { "-" 36 * println } register
+:heading { "harbour ledger" string.title println rule } register
+heading

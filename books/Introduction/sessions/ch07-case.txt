@@ -1,0 +1,8 @@
+"Marta" string.upper
+clear
+"MARTA" string.lower
+clear
+"wendhaven ledger" string.title
+clear
+"Osprey" len
+.s

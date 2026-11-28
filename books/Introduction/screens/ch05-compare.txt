@@ -1,0 +1,8 @@
+[BUND > 30 40 >
+=> true
+[BUND > clear
+[BUND > 40 30 >
+=> false
+[BUND > clear
+[BUND > 40 30 <
+=> true

@@ -1,0 +1,11 @@
+[BUND > true not
+=> false
+[BUND > clear
+[BUND > true false and
+=> false
+[BUND > clear
+[BUND > true false or
+=> true
+[BUND > clear
+[BUND > 40 large? not
+=> false

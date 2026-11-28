@@ -1,0 +1,10 @@
+[BUND > 40 12
+=> 12
+[BUND > .
+=> 40
+[BUND > .s
+40 <- top
+[BUND > take
+=> 12
+[BUND > .s
+40 12 <- top

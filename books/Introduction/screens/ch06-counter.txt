@@ -1,0 +1,14 @@
+[BUND > 3 { "crate" println } times
+crate
+crate
+crate
+=> 2
+[BUND > .s
+0 1 2 <- top
+[BUND > clear
+[BUND > 3 { drop "crate" println } times
+crate
+crate
+crate
+[BUND > .s
+(the stack is empty)

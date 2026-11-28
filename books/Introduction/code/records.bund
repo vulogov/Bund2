@@ -1,0 +1,36 @@
+//
+// Ships as records: the words of Chapter 9.
+// Study words.bund first; `brief` uses `dues`.
+//
+//   "words.bund" study
+//   "records.bund" study
+//
+
+// units= ( units record -- record )    write the units into a record
+:units= { swap :units swap set } register
+
+// cargo= ( cargo record -- record )    write the cargo into a record
+:cargo= { swap :cargo swap set } register
+
+// name= ( name record -- record )      write the name into a record
+:name= { swap :name swap set } register
+
+// ship ( name cargo units -- record )  one ship's record
+:ship { dict units= cargo= name= } register
+
+// arrivals ( -- record record record ) the three ships of the day
+:arrivals {
+  "Marta"  "salt"    40 ship
+  "Gull"   "wax"     12 ship
+  "Osprey" "herring" 25 ship
+} register
+
+// gather ( ... -- list )       the whole stack as a list, in order
+:gather { lambda* convert.to_list } register
+
+// brief ( record -- )          print a ship's name and what it owes
+:brief {
+  dup :name get print
+  ": " print
+  :units get dues println
+} register
