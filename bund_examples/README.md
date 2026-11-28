@@ -25,6 +25,7 @@ explains it. They are not part of the conformance corpus; that lives under
 | [`frames/`](frames/) | RFC-0017's frames, factors and missing values over a small dose trial: CSV text read into a frame with its gaps as NONE and a factor column, complete rows, a filter and a stable sort, `frame.aggregate` under `"omit"` and the refusal under `"refuse"`, inner and left joins, `frame.matrix` into `stat.lm`, CSV written back out, and where NONE can and cannot come from. Nothing is random, so `expected.txt` is what it prints, and a test compares the two. The example for the `frame.` and `na` words. |
 | [`models/`](models/) | RFC-0018's models over frames: the dose trial of `frames/` coded as a design by `model.matrix`, fitted by `fit.lm`, checked by its residuals, leverages and Cook's distances, and predicted at new rows with confidence and prediction intervals, a site it never saw refused; then Dobson's trial, R's `glm` example, as a Poisson `fit.glm`, its outcome-only model compared by `model.compare`, and `model.anova`'s sequential table. Nothing is random, so `expected.txt` is what it prints, and a test compares the two. The example for the `model.`, `fit.lm` and `fit.glm` words. |
 | [`inference/`](inference/) | RFC-0019's study, from planning to a likelihood: a three-diet trial's sample size from `power.t` and `power.anova`, its groups checked by Shapiro–Wilk, compared by the one-way F with η² and ω², Tukey's HSD and Cohen's d with its interval; diet 2's mean bootstrapped with percentile and BCa intervals and jackknifed, diets 1 and 2 permuted exactly and by Monte Carlo; and two models fitted by `fit.mle`, a normal against its closed form and an exponential rate with its profile interval. Every draw is seeded, so `expected.txt` is what it prints, and a test compares the two. The example for the `power.` and `boot.` words and `fit.mle`. |
+| [`multivariate/`](multivariate/) | RFC-0020's multivariate words and density estimate over Anderson's irises: CSV text read into a frame and taken as a MATRIX by `frame.matrix`; principal components by `mva.pca`; an average-linkage tree from `cluster.dist` and `cluster.hclust`, cut by `cluster.cut` and counted against the species by `frame.aggregate`, and seeded `cluster.kmeans`; `stat.test.manova` under Pillai and Wilks; `mva.lda` and `mva.lda.predict`, the flowers classified and one new flower placed; and petal length's bandwidths by `stat.bw` and its density by `stat.density`. Every number but k-means's is R 4.6.2's, `expected.txt` is what it prints, and a test compares the two. The example for the `mva.` and `cluster.` words. |
 
 ## Running an example
 
@@ -48,6 +49,7 @@ Any of them runs straight from its source, with `bund2` built:
     cd bund_examples/frames && bund2 demo.bund
     cd bund_examples/models && bund2 demo.bund
     cd bund_examples/inference && bund2 demo.bund
+    cd bund_examples/multivariate && bund2 demo.bund
 
 `threads_demo` is the one example with a Rust host, an embedding of Bund2.
 It runs as a workspace binary:
