@@ -357,7 +357,24 @@ fn r_pretty(lo_: f64, up_: f64, ndiv: i32, min_n: i32) -> Result<(f64, f64, i32)
 /// 10⁻¹⁴ of a step (`pretty.R:46-51`).
 pub(crate) fn pretty(lo: f64, up: f64, n: i32, min_n: i32) -> Result<Vec<f64>, Error> {
     let (l, u, n) = r_pretty(lo, up, n, min_n)?;
-    let lout = usize::try_from(n).unwrap_or(0) + 1;
+    let mut s = seq_out(l, u, usize::try_from(n).unwrap_or(0) + 1);
+    if n > 0 {
+        let (a, b) = (l.min(u), l.max(u));
+        let delta = b / f64::from(n) - a / f64::from(n);
+        for si in s.iter_mut() {
+            if si.abs() < 1e-14 * delta {
+                *si = 0.0;
+            }
+        }
+    }
+    Ok(s)
+}
+
+/// `seq.int(l, u, length.out = lout)`, its real branch (`seq.c:989-1007`):
+/// the ends as given, the middle l + i·by, fused as R's build fuses it
+/// (D280), and through a quarter of each when u − l overflows. `stat.density`
+/// lays its grids with it too.
+pub(crate) fn seq_out(l: f64, u: f64, lout: usize) -> Vec<f64> {
     let mut s = vec![l; lout];
     if lout > 1 {
         s[lout - 1] = u;
@@ -378,16 +395,7 @@ pub(crate) fn pretty(lo: f64, up: f64, n: i32, min_n: i32) -> Result<Vec<f64>, E
             }
         }
     }
-    if n > 0 {
-        let (a, b) = (l.min(u), l.max(u));
-        let delta = b / f64::from(n) - a / f64::from(n);
-        for si in s.iter_mut() {
-            if si.abs() < 1e-14 * delta {
-                *si = 0.0;
-            }
-        }
-    }
-    Ok(s)
+    s
 }
 
 // C_bincount (`stem.c:175-206`).

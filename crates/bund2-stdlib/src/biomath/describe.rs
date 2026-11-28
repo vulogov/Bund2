@@ -136,12 +136,17 @@ fn quantile(word: &str, xs: &[f64], p: f64) -> Result<BundValue, Error> {
         return Err(domain(word, "p", format!("{p}")));
     }
     at_least(word, xs, 1)?;
-    let s = sorted(xs);
+    let y = type7(&sorted(xs), p);
+    Ok(BundValue::float(finite(word, y, || "the quantile".into())?))
+}
+
+/// `stat.quantile`'s type-7 arithmetic over a sorted, non-empty series and
+/// a p in [0, 1], unchecked; `stat.bw`'s IQR is this (RFC-0020 §S9, §S12).
+pub(crate) fn type7(s: &[f64], p: f64) -> f64 {
     let h = (s.len() - 1) as f64 * p;
     let lo = h.floor() as usize;
     let hi = (lo + 1).min(s.len() - 1);
-    let y = s[lo] + (h - lo as f64) * (s[hi] - s[lo]);
-    Ok(BundValue::float(finite(word, y, || "the quantile".into())?))
+    s[lo] + (h - lo as f64) * (s[hi] - s[lo])
 }
 
 /// The sample covariance, n − 1, of two series of one length, n ≥ 2.
